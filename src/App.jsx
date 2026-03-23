@@ -1,27 +1,50 @@
-import { useEffect, useState } from 'react'
-import { supabase } from './lib/supabase'
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import './App.css'
+import Jobs from './views/Jobs'
+import Schedule from './views/Schedule'
+import Billing from './views/Billing'
+import Materials from './views/Materials'
+import Calendar from './views/Calendar'
+import Daily from './views/Daily'
+import Schedules from './views/Schedules'
 
-function App() {
-  const [status, setStatus] = useState('Testing connection...')
+const NAV_ITEMS = [
+  { path: '/jobs', label: 'Jobs' },
+  { path: '/schedule', label: 'Schedule' },
+  { path: '/billing', label: 'Billing' },
+  { path: '/materials', label: 'Materials' },
+  { path: '/calendar', label: 'Calendar' },
+  { path: '/daily', label: 'Daily' },
+  { path: '/schedules', label: 'Schedules' },
+]
 
-  useEffect(() => {
-    async function test() {
-      const { data, error } = await supabase.from('jobs').select('*')
-      if (error) {
-        setStatus('Connection failed: ' + error.message)
-      } else {
-        setStatus('Supabase connected! Jobs table has ' + data.length + ' rows.')
-      }
-    }
-    test()
-  }, [])
-
+export default function App() {
   return (
-    <div style={{ padding: '40px', fontFamily: 'sans-serif' }}>
-      <h1>Schedule Commander</h1>
-      <p>{status}</p>
-    </div>
+    <>
+      <header className="app-header">
+        <div className="app-title">
+          Schedule <span className="green">Commander</span>
+        </div>
+        <nav className="app-nav">
+          {NAV_ITEMS.map(item => (
+            <NavLink key={item.path} to={item.path}>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+      <main className="app-main">
+        <Routes>
+          <Route path="/" element={<Navigate to="/jobs" replace />} />
+          <Route path="/jobs" element={<Jobs />} />
+          <Route path="/schedule" element={<Schedule />} />
+          <Route path="/billing" element={<Billing />} />
+          <Route path="/materials" element={<Materials />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/daily" element={<Daily />} />
+          <Route path="/schedules" element={<Schedules />} />
+        </Routes>
+      </main>
+    </>
   )
 }
-
-export default App
