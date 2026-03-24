@@ -1,0 +1,1923 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#b5a896;--bg2:#bfb3a1;--bg3:#c8bcaa;--bg4:#a89b88;--surface:#d0c5b4;--surface-h:#d8cebe;--s2:#c8bcaa;--s3:#bfb3a1;--brd:rgba(28,24,20,0.22);--brdl:rgba(28,24,20,0.32);--brd3:rgba(28,24,20,0.14);--txt:#141110;--txt2:#231e19;--muted:#554d42;--dim:#746a5c;--dark:#1c1814;--dark2:#28231d;--pop:#5BBD3F;--pop-dim:rgba(91,189,63,0.15);--pop-dk:#3D8A2A;--pop-dp:#2D6B1E;--red:#c62828;--red-dim:rgba(198,40,40,0.1);--grn:#2e7d32;--ylw:#c8a415;--blu:#1565c0;--orn:#e65100;--neon:#5BBD3F;--pw:#6d28d9;--cyan:#0891b2;--amber:#e65100;--purple:#6d28d9}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--txt);position:relative}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:0.5;background:repeating-linear-gradient(0deg,rgba(60,50,35,0.04) 0px,rgba(60,50,35,0.04) 1px,transparent 1px,transparent 4px),repeating-linear-gradient(90deg,rgba(60,50,35,0.04) 0px,rgba(60,50,35,0.04) 1px,transparent 1px,transparent 4px),radial-gradient(ellipse at 20% 50%,rgba(255,250,240,0.08),transparent 60%),radial-gradient(ellipse at 80% 50%,rgba(255,250,240,0.05),transparent 60%)}
+body>*{position:relative;z-index:1}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:2px solid var(--pop);background:var(--dark);position:fixed;top:0;left:0;right:0;z-index:100;flex-wrap:wrap;gap:8px}
+.hdr h1{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#E8E2D8}
+.hdr h1 span{color:var(--pop)}
+.acts{display:flex;gap:5px;flex-wrap:wrap}
+.btn{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;padding:6px 12px;border-radius:4px;border:2px solid var(--brdl);background:var(--surface);color:var(--txt);cursor:pointer;text-transform:uppercase;letter-spacing:0.3px}
+.btn:hover{background:var(--surface-h)}
+.btn.p{background:var(--pop-dk);border-color:var(--pop);color:#fff}
+.btn.p:hover{background:var(--pop)}
+.btn.sm{font-size:10px;padding:3px 8px}
+.tabs{display:flex;background:var(--dark);border-bottom:2px solid var(--brdl);padding:0 16px;position:fixed;left:0;right:0;z-index:99}
+.tab{font-family:'Barlow Condensed',sans-serif;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;border:none;border-bottom:2px solid transparent;color:var(--dim);background:none;text-transform:uppercase;letter-spacing:1px;margin-bottom:-2px}
+.tab.on{color:var(--pop);border-bottom-color:var(--pop)}
+.loading{position:fixed;inset:0;background:var(--bg);z-index:998;display:flex;align-items:center;justify-content:center}
+.spin{width:32px;height:32px;border:3px solid var(--s3);border-top-color:var(--pop);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.spacer{height:88px}
+.wrap{display:flex;min-height:calc(100vh - 88px)}
+.pool{width:280px;background:var(--surface);overflow-y:auto;padding:10px;position:fixed;bottom:0;left:0;z-index:50;border-right:2px solid var(--brdl)}
+.main{flex:1;padding:16px;margin-left:280px;transition:margin-left .2s}
+.wknav{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:8px 12px;background:var(--surface);border-radius:4px;border:2px solid var(--brd);position:sticky;top:0;z-index:40}
+.wknav .wklbl{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;flex:1;text-align:center;text-transform:uppercase;letter-spacing:1px}
+.ptitle{font-family:'Barlow Condensed',sans-serif;font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:4px;border-bottom:2px solid var(--brd);margin-bottom:4px;display:flex;justify-content:space-between;letter-spacing:1.5px}
+.ptitle .av{color:var(--pop)}
+.tlbl{font-size:9px;font-weight:700;color:var(--dim);padding:8px 4px 2px;text-transform:uppercase}
+.chip{display:flex;align-items:center;gap:6px;padding:5px 8px;margin-bottom:2px;border-radius:4px;font-size:12px;cursor:grab;background:rgba(255,255,255,0.15);position:relative;border:2px solid var(--brd3)}
+.chip:hover{background:rgba(255,255,255,0.3);border-color:var(--pop)}
+.chip.out{opacity:.35;text-decoration:line-through;cursor:default}
+.chip .d{width:6px;height:6px;border-radius:50%}
+.d.av{background:var(--pop);box-shadow:0 0 4px rgba(91,189,63,0.3)}.d.as{background:var(--amber)}.d.si{background:var(--red)}.d.of{background:var(--dim)}.d.no{background:var(--amber)}
+.chip .sbtns{display:none;position:absolute;right:2px;top:2px;gap:2px}
+.chip:hover .sbtns{display:flex}
+.sbtn{width:18px;height:18px;border-radius:3px;border:1px solid var(--brd);font-size:8px;cursor:pointer;background:var(--surface);display:flex;align-items:center;justify-content:center}
+.sbtn:hover{background:var(--red);color:#fff}
+.jgrid{display:flex;flex-direction:column;gap:4px}
+.jcard{background:var(--surface);border:2px solid var(--brd);border-radius:4px;overflow:hidden}
+.jcard.fs{border-left:4px solid var(--pop)}.jcard.ps{border-left:4px solid var(--ylw)}.jcard.us{border-left:4px solid var(--red)}
+.jcard.pw{background:linear-gradient(90deg,#f3e8ff 0%,var(--surface) 40%);border-color:var(--pw)}
+.jcard.pw .badge{background:#f3e8ff;color:var(--pw)}
+.pw-tag{font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--pw);color:#fff;text-transform:uppercase;letter-spacing:.5px}
+.jhead{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer}
+.jhead:hover{background:var(--s2)}
+.badge{width:26px;height:26px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.fs .badge{background:#eaf7ef;color:var(--grn)}.ps .badge{background:#fdf6e3;color:var(--ylw)}.us .badge{background:#fdf0ed;color:var(--red)}
+.jinfo{flex:1;min-width:0}
+.jname{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jmeta{font-size:10px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;margin-top:1px}
+.jcrew{font-size:10px;color:var(--blu);margin-top:1px}
+.tg{font-size:9px;font-weight:600;padding:1px 6px;border-radius:3px;text-transform:uppercase}
+.tg.ep{background:#f0e6ff;color:#7c3aed}.tg.ca{background:#fef3c7;color:#b45309}.tg.de{background:#fee2e2;color:#dc2626}.tg.jo{background:#e0f7fa;color:#0e7490}.tg.fl{background:#d1fae5;color:#059669}.tg.pl{background:#dbeafe;color:#2563eb}.tg.vh{background:#dbeafe;color:var(--blu)}
+.cbadge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;background:var(--s2);border:1px solid var(--brd);flex-shrink:0}
+.jdet{display:none;border-top:1px solid var(--brd);padding:10px 12px;background:var(--s2)}
+.jcard.exp .jdet{display:block}
+.brd-detail .jdet{display:block}
+.dgrid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.dgrid label{font-size:8px;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:2px;font-weight:600}
+.dinp{width:100%;padding:5px 7px;background:var(--surface);border:2px solid var(--brdl);border-radius:4px;color:var(--txt);font-size:11px;font-family:'Barlow',sans-serif}
+.dinp:focus{outline:none;border-color:var(--pop);box-shadow:0 0 0 2px var(--pop-dim)}
+.dzone{min-height:36px;border:2px dashed var(--brdl);border-radius:4px;padding:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:rgba(255,255,255,0.08)}
+.dzone.over{border-color:var(--pop);background:var(--pop-dim)}
+.dzone .mt{font-size:11px;color:var(--dim);font-style:italic;text-align:center;width:100%;padding:3px}
+.achip{display:flex;align-items:center;gap:3px;padding:3px 7px;border-radius:4px;font-size:11px;background:var(--s2);border:1px solid var(--brd);cursor:grab}
+.achip:hover{border-color:var(--red)}
+.achip-multi{border-left:3px solid var(--orn)}
+.achip .x{background:none;border:none;color:var(--dim);cursor:pointer;font-size:12px;padding:0 0 0 2px}
+.achip .x:hover{color:var(--red)}
+.delbtn{background:none;border:none;color:var(--dim);cursor:pointer;font-size:11px;padding:3px;margin-left:3px}
+.delbtn:hover{color:var(--red)}
+.expbtn{background:none;border:none;color:var(--dim);cursor:pointer;font-size:10px;padding:2px 4px}
+.cal{padding:16px;overflow-y:auto}
+.cnav{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:12px}
+.cmo{font-size:16px;font-weight:700;min-width:200px;text-align:center}
+.cgrid{display:flex;flex-direction:column;background:var(--surface);border-radius:6px;border:1px solid var(--brd);overflow:hidden}
+.chr{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--brd)}
+.chc{padding:6px;text-align:center;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);background:var(--s2)}
+.cbody{display:grid;grid-template-columns:repeat(7,1fr)}
+.cday{border-right:1px solid var(--brd);border-bottom:1px solid var(--brd);padding:3px;overflow:hidden;display:flex;flex-direction:column;min-height:80px}
+.cday:nth-child(7n){border-right:none}
+.cday.om{background:var(--s2)}.cday.om .dn{color:var(--dim)}
+.cday.td{background:#fef9eb}
+.cday.td .dn{background:var(--red);color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center}
+.dn{font-size:10px;font-weight:600;color:var(--muted);margin-bottom:1px;line-height:20px}
+.cev{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px}
+.ce{padding:1px 4px;border-radius:2px;font-size:9px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;line-height:1.3}
+.ce:hover{opacity:.85}
+.cleg{display:flex;gap:10px;flex-wrap:wrap;padding:8px 0 0}
+.cleg-i{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)}
+.cleg-d{width:10px;height:10px;border-radius:2px}
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:500;display:none;align-items:center;justify-content:center}
+.mbg.show{display:flex}
+.mdl{background:var(--surface);border-radius:8px;padding:20px;width:90%;max-width:440px;max-height:80vh;overflow-y:auto;box-shadow:0 16px 48px rgba(0,0,0,.12)}
+.mdl h3{font-family:'Barlow Condensed',sans-serif;font-size:14px;margin-bottom:14px;color:var(--pop);text-transform:uppercase;letter-spacing:1px}
+.fr{display:flex;gap:6px;margin-bottom:8px;align-items:center}
+.fr input,.fr select{flex:1;padding:7px 9px;background:var(--surface);border:1px solid var(--brdl);border-radius:4px;color:var(--txt);font-size:12px;font-family:Arial}
+.fr input:focus,.fr select:focus{outline:none;border-color:var(--blu)}
+.macts{display:flex;gap:6px;justify-content:flex-end;margin-top:14px}
+.nbox{background:var(--s2);border:1px solid var(--brd);border-radius:5px;padding:12px;font-size:11px;max-height:260px;overflow-y:auto;white-space:pre-wrap;font-family:monospace;line-height:1.5}
+.wtlist{margin:10px 0}
+.wti{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;border-bottom:1px solid var(--brd);font-size:12px}
+.wti button{background:none;border:none;color:var(--dim);cursor:pointer;font-size:11px}
+.wti button:hover{color:var(--red)}
+.toast{position:fixed;bottom:16px;right:16px;padding:8px 16px;border-radius:4px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:600;z-index:1000;transform:translateY(20px);opacity:0;transition:all .3s;pointer-events:none;text-transform:uppercase;letter-spacing:0.5px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.ok{background:var(--dark);color:var(--pop);border:2px solid var(--pop-dk)}.toast.inf{background:var(--dark);color:var(--blu);border:2px solid var(--blu)}.toast.wrn{background:var(--dark);color:var(--ylw);border:2px solid var(--ylw)}.toast.err{background:var(--dark);color:var(--red);border:2px solid var(--red)}
+.sync{width:8px;height:8px;border-radius:50%;display:inline-block;margin-left:6px}
+.sync.ok{background:var(--pop);box-shadow:0 0 6px rgba(91,189,63,0.4)}.sync.ing{background:var(--ylw);animation:pu 1s infinite}.sync.bad{background:var(--red)}
+.ds-grid{display:grid;grid-template-columns:40px repeat(6,1fr);gap:0;align-items:center;min-width:280px}
+.ds-label{font-size:8px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:right;padding-right:6px}
+.ds-day{font-size:8px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center;padding:1px 0}
+.ds-today{color:var(--red)}
+.ds-val{text-align:center;font-weight:700;font-size:12px;padding:2px 4px;border-radius:3px;margin:1px 2px}
+.ds-warn{background:#fde8e5;color:var(--red)}.ds-ok{color:var(--ylw)}.ds-good{color:var(--grn)}.ds-out{color:var(--red)}.ds-none{color:var(--dim)}
+.dly-hdr{display:grid;grid-template-columns:130px repeat(6,1fr);gap:0;padding:0 14px 6px;margin-bottom:2px}
+.dly-hdr-sm{padding:0 0 4px;margin:0}
+.dly-hdr-day{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center}
+.dly-today{color:var(--red)}
+.dly-card{background:var(--surface);border:1px solid var(--brd);border-radius:6px;margin-bottom:8px;overflow:hidden;border-left:4px solid var(--grn);padding-bottom:4px}
+.dly-card-gap{border-left-color:var(--red)}
+.dly-card-hdr{padding:10px 14px 6px;display:flex;align-items:center;gap:10px}
+.dly-card-info{flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dly-card-name{font-size:14px;font-weight:700}
+.dly-card-badge{font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;background:var(--s2);border:1px solid var(--brd);flex-shrink:0}
+.dly-row{display:grid;grid-template-columns:130px repeat(6,1fr);gap:0;align-items:center;padding:3px 14px;border-bottom:1px solid var(--brd)}
+.dly-row:last-child{border-bottom:none}
+.dly-gap-row{border-bottom:none}
+.dly-cell-name{font-size:11px;font-weight:600;display:flex;align-items:center;gap:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dly-lead{color:var(--blu)}
+.dly-dot-nm{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.dly-cell{display:flex;align-items:center;justify-content:center}
+.dly-d{width:24px;height:18px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;border:1px solid var(--brd)}
+.dly-on{background:#eaf7ef;color:var(--grn);border-color:#c8ecd0}
+.dly-sick{background:#fde8e5;color:var(--red);border-color:#f5c6c0}
+.dly-call{background:#fef3c7;color:var(--orn);border-color:#f0d88a}
+.dly-noshow{background:#fee2e2;color:var(--red);border-color:#f5c6c0}
+.dly-empty{background:var(--surface);color:var(--dim);border:1px dashed var(--brdl)}
+.dly-alert{background:none;border:none;font-size:9px;font-weight:700;color:var(--red)}
+.dly-section{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--red);padding:12px 0 4px;letter-spacing:0.5px;border-top:1px solid var(--brd);margin-top:8px}
+.dly-status{background:var(--surface);border:1px solid var(--brd);border-radius:6px;margin-bottom:8px;overflow:hidden;padding:8px 14px}
+.dly-status-hdr{font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.dly-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dly-legend{display:flex;gap:14px;flex-wrap:wrap;padding:14px;margin-top:8px;background:var(--surface);border-radius:6px;border:1px solid var(--brd)}
+.dly-leg{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
+@keyframes pu{0%,100%{opacity:1}50%{opacity:.4}}
+.hide{display:none!important}
+.cw-grid{display:grid;grid-template-columns:auto repeat(6,1fr);gap:0;margin-top:10px}
+.cw-hdr{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--muted);text-align:center;padding:4px 2px;border-bottom:1px solid var(--brd)}
+.cw-label{font-size:11px;font-weight:600;padding:6px 8px 6px 0;border-bottom:1px solid var(--brd);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cw-cell{text-align:center;padding:4px 2px;border-bottom:1px solid var(--brd)}
+.chk-pw{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--pw);cursor:pointer;padding:4px 0}
+.chk-pw input{width:16px;height:16px;accent-color:var(--pw)}
+.mat-card{background:var(--surface);border:1px solid var(--brd);border-radius:6px;margin-bottom:10px;overflow:hidden}
+.mat-card.pw-row{border-left:3px solid var(--pw)}
+.mat-card-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;cursor:pointer}
+.mat-card-hdr:hover{background:var(--s2)}
+.mat-card-name{font-size:13px;font-weight:600}
+.mat-card-meta{font-size:10px;color:var(--muted);margin-top:1px}
+.mat-card-acts{display:flex;gap:4px}
+.mat-tbl{width:100%;border-collapse:collapse;font-size:11px}
+.mat-tbl th{text-align:left;padding:5px 10px;font-size:9px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--brd);background:var(--s2)}
+.mat-tbl td{padding:5px 10px;border-bottom:1px solid var(--brd)}
+.mat-tbl tr:last-child td{border-bottom:none}
+.mat-empty{color:var(--dim);font-size:11px;padding:10px 14px;font-style:italic}
+.mat-import{border-top:1px solid var(--brd);padding:10px 14px;display:none}
+.mat-card.imp .mat-import{display:block}
+.mat-csv{width:100%;height:120px;padding:8px;font-size:10px;font-family:monospace;border:1px solid var(--brdl);border-radius:4px;background:var(--surface);color:var(--txt);resize:vertical}
+.mat-csv:focus{outline:none;border-color:var(--blu)}
+.mat-rollup{background:var(--surface);border:1px solid var(--brd);border-radius:6px;padding:14px;margin-bottom:16px}
+.mat-rollup-title{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.mat-st{font-size:10px;padding:4px 6px;border-radius:3px;border:1px solid var(--brdl);background:var(--surface);font-weight:600;cursor:pointer}
+.mat-st:focus{outline:none;border-color:var(--blu)}
+.mat-st-ord{color:var(--blu)}.mat-st-stk{color:var(--grn)}.mat-st-del{color:var(--orn)}.mat-st-no{color:var(--red)}
+.mat-dinp{font-size:10px;padding:3px 6px;border:1px solid var(--brdl);border-radius:3px;background:var(--surface);color:var(--txt);width:100%}
+.mat-dinp:focus{outline:none;border-color:var(--blu)}
+.mat-notes{font-size:10px;padding:3px 6px;border:1px solid var(--brdl);border-radius:3px;background:var(--surface);color:var(--txt);width:100%;resize:none;height:24px;font-family:Arial}
+.mat-notes:focus{outline:none;border-color:var(--blu)}
+.cc{background:var(--s2);border:1px solid var(--brd);border-radius:8px;padding:14px;font-family:Arial,sans-serif}
+.cc-name{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:var(--pop);margin-bottom:2px;text-transform:uppercase;letter-spacing:1px}
+.cc-week{font-size:11px;color:var(--muted);margin-bottom:10px}
+.cc-job{background:var(--surface);border:1px solid var(--brd);border-radius:6px;padding:10px;margin-bottom:6px}
+.cc-job:last-child{margin-bottom:0}
+.cc-jname{font-size:13px;font-weight:700;margin-bottom:2px}
+.cc-jdays{font-size:11px;color:var(--blu);font-weight:600;margin-bottom:4px}
+.cc-jmeta{font-size:10px;color:var(--muted);line-height:1.5}
+.cc-jwith{font-size:11px;color:var(--txt);margin-top:4px}
+.cc-pw{color:var(--pw);font-weight:700;font-size:10px}
+.cc-none{font-size:12px;color:var(--dim);font-style:italic;padding:10px 0}
+.db-tag{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--pop);color:#fff;text-transform:uppercase;letter-spacing:.5px}
+.brd{display:grid;grid-template-columns:260px repeat(6,1fr);gap:0;border:2px solid var(--brdl);border-radius:4px;overflow:hidden;background:var(--surface)}
+.brd-hdr{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;text-align:center;padding:8px 4px;background:var(--dark);border-bottom:2px solid var(--brdl);color:var(--dim);letter-spacing:1px}
+.brd-hdr.today{color:var(--pop)}
+.brd-hdr-job{font-family:'Barlow Condensed',sans-serif;text-align:left;padding:8px;background:var(--dark);border-bottom:2px solid var(--brdl);font-size:10px;font-weight:700;color:var(--dim);letter-spacing:1px}
+.brd-job-label{padding:6px 8px;border-bottom:2px solid var(--brd3);border-right:2px solid var(--brd3);display:flex;flex-direction:column;gap:2px;cursor:pointer;min-height:48px}
+.brd-job-label:hover{background:var(--surface-h)}
+.brd-job-name{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brd-job-meta{display:flex;gap:3px;flex-wrap:wrap;align-items:center}
+.brd-cell{border-bottom:2px solid var(--brd3);border-right:2px solid var(--brd3);padding:3px;min-height:48px;display:flex;align-items:center;justify-content:center}
+.brd-cell:nth-child(7n+1){border-right:2px solid var(--brd3)}
+.brd-cell:last-child{border-right:none}
+.brd-bar{width:100%;border-radius:4px;padding:4px 6px;text-align:center;font-size:11px;font-weight:700;color:#fff;cursor:pointer;min-height:36px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px}
+.brd-bar:hover{opacity:.85}
+.brd-bar-pw{border:2px solid var(--pw)}
+.brd-bar-db{border:2px solid var(--neon);box-shadow:0 0 6px rgba(57,255,20,.3)}
+.brd-empty{background:var(--s2);border-radius:4px;width:100%;min-height:36px;border:1.5px dashed var(--brdl);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--dim)}
+.brd-needs-crew{border-radius:4px;width:100%;min-height:36px;border:1.5px dashed rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:9px;animation:needscrew 1.6s ease-in-out infinite}
+@keyframes needscrew{0%,100%{background:transparent}50%{background:rgba(255,255,255,0.18)}}
+.brd-detail{grid-column:1/-1;background:var(--bg3);border:2px solid rgba(91,189,63,0.2);border-left:3px solid var(--pop);border-radius:4px;padding:10px 14px;margin:2px 0 6px}
+.brd-drop{background:var(--pop-dim);border-color:var(--pop);border-style:solid}
+.brd-cnt{font-size:13px;font-weight:700}
+.brd-sub{font-size:8px;opacity:.8;font-weight:400}
+.chip.db{border:2px solid var(--neon);background:linear-gradient(90deg,rgba(57,255,20,.12),var(--s2) 40%)}
+.cc-job.db{border:2px solid var(--neon);background:linear-gradient(90deg,rgba(57,255,20,.08),var(--surface) 40%)}
+.dly-card.db{border-left-color:var(--neon)}
+.jh-scores{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.jh-score{flex:1;min-width:120px;background:var(--surface);border:2px solid var(--brd);border-radius:4px;padding:14px 16px;cursor:pointer;transition:border-color .15s}
+.jh-score:hover{border-color:var(--brdl)}
+.jh-score.active{border-color:var(--pop);border-width:2px}
+.jh-score-num{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;line-height:1}
+.jh-score-lbl{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-top:2px;letter-spacing:1px}
+.jh-score.og .jh-score-num{color:var(--pop)}
+.jh-score.oh .jh-score-num{color:var(--amber)}
+.jh-score.cp .jh-score-num{color:var(--dim)}
+.jh-list{display:flex;flex-direction:column;gap:3px}
+.jh-row{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:2px solid var(--brd);border-radius:4px;cursor:pointer;transition:background .1s}
+.jh-row:hover{background:var(--surface-h)}
+.jh-row.pw-row{border-left:3px solid var(--pw)}
+.jh-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.jh-dot.og{background:var(--pop)}.jh-dot.oh{background:var(--amber)}.jh-dot.cp{background:var(--dim)}
+.jh-rinfo{flex:1;min-width:0}
+.jh-rname{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jh-rmeta{font-size:10px;color:var(--muted);display:flex;gap:6px;margin-top:1px;flex-wrap:wrap}
+.jh-rstatus{font-size:10px;font-weight:600;padding:2px 8px;border-radius:3px;flex-shrink:0}
+.jh-rstatus.og{background:var(--pop-dim);color:var(--pop)}
+.jh-rstatus.oh{background:#fdf6e3;color:var(--ylw)}
+.jh-rstatus.cp{background:var(--s3);color:var(--dim)}
+.jh-rarrow{color:var(--dim);font-size:14px;flex-shrink:0}
+.exp-item{padding:9px 16px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:600;letter-spacing:.04em;cursor:pointer;color:var(--txt);border-bottom:1px solid var(--brd)}
+.exp-item:last-child{border-bottom:none}
+.exp-item:hover{background:var(--bg);color:var(--pop)}
+.jh-hist{margin-top:16px}
+.jh-back{font-size:12px;color:var(--blu);cursor:pointer;margin-bottom:12px;display:inline-flex;align-items:center;gap:4px}
+.jh-back:hover{text-decoration:underline}
+.jh-hist-hdr{font-size:15px;font-weight:700;margin-bottom:4px}
+.jh-hist-meta{font-size:11px;color:var(--muted);margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.jh-wk-card{background:var(--surface);border:1px solid var(--brd);border-radius:6px;padding:10px 14px;margin-bottom:6px}
+.jh-wk-title{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.jh-wk-crew{display:flex;flex-wrap:wrap;gap:4px}
+.jh-wk-chip{font-size:10px;padding:2px 8px;border-radius:3px;background:var(--s2);border:1px solid var(--brd)}
+.jh-status-sel{font-size:11px;padding:4px 8px;border-radius:4px;border:1px solid var(--brdl);background:var(--surface);color:var(--txt);font-weight:600;cursor:pointer}
+.jh-status-sel:focus{outline:none;border-color:var(--blu)}
+.jh-empty{text-align:center;padding:40px;color:var(--dim);font-size:13px}
+.rtb-tag{font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;background:var(--cyan);color:#fff;text-transform:uppercase;letter-spacing:.5px}
+.nb-tag{font-size:8px;font-weight:700;padding:1px 5px;border-radius:3px;background:#999;color:#fff;text-transform:uppercase;letter-spacing:.5px}
+.chk-nb{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#999;cursor:pointer;padding:4px 0}
+.chk-nb input{width:16px;height:16px;accent-color:#999}
+.chk-bill{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--cyan);cursor:pointer;padding:4px 0}
+.chk-bill input{width:16px;height:16px;accent-color:var(--cyan)}
+.bill-fields{padding:4px 0 8px;display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.bill-fields>div{display:flex;flex-direction:column;gap:2px}
+.bill-fields label{font-size:8px;text-transform:uppercase;color:var(--dim);font-weight:600}
+.rtb-card{background:var(--surface);border:1px solid var(--brd);border-radius:6px;margin-bottom:8px;overflow:hidden;border-left:4px solid var(--cyan)}
+.rtb-card.paused{border-left-color:var(--ylw);opacity:.7}
+.rtb-card.complete{border-left-color:var(--grn)}
+.rtb-hdr{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.rtb-info{flex:1;min-width:0}
+.rtb-name{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtb-meta{font-size:10px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.rtb-pct{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.rtb-bar{width:80px;height:10px;background:var(--s3);border-radius:5px;overflow:hidden}
+.rtb-bar-fill{height:100%;background:var(--cyan);border-radius:5px;transition:width .3s}
+.rtb-bar-fill.done{background:var(--grn)}
+.rtb-pct-lbl{font-size:12px;font-weight:700;color:var(--cyan);min-width:36px;text-align:right}
+.rtb-pct-lbl.done{color:var(--grn)}
+.rtb-acts{display:flex;gap:4px;padding:0 14px 10px}
+.rtb-log{padding:6px 14px 10px;border-top:1px solid var(--brd);background:var(--s2)}
+.rtb-log-title{font-size:9px;font-weight:700;text-transform:uppercase;color:var(--dim);margin-bottom:4px}
+.rtb-log-row{font-size:10px;color:var(--muted);padding:2px 0;display:flex;gap:8px}
+.rtb-log-date{font-weight:600;color:var(--txt);min-width:70px}
+.rtb-scores{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.rtb-score{flex:1;min-width:100px;background:var(--surface);border:1px solid var(--brd);border-radius:6px;padding:12px 14px;text-align:center}
+.rtb-score-num{font-size:24px;font-weight:700;line-height:1}
+.rtb-score-lbl{font-size:9px;font-weight:600;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.rtb-cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.rtb-col-hdr{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:0 0 8px;margin-bottom:8px;border-bottom:2px solid var(--brd)}
+.rtb-col-hdr.pending{border-bottom-color:var(--cyan)}
+.rtb-col-hdr.confirmed{border-bottom-color:var(--grn)}
+.rtb-del{background:none;border:none;color:var(--dim);cursor:pointer;font-size:10px;padding:2px 4px}
+.rtb-del:hover{color:var(--red)}
+.rtb-edit{border-top:1px solid var(--brd);padding:8px 14px;background:var(--s2)}
+.rtb-edit-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.rtb-edit-grid label{font-size:8px;text-transform:uppercase;color:var(--dim);display:block;margin-bottom:2px;font-weight:600}
+.jh-cols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.jh-col-hdr{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:0 0 8px;margin-bottom:8px;border-bottom:2px solid var(--brd)}
+.jh-col-hdr.og{border-bottom-color:var(--pop)}
+.jh-col-hdr.oh{border-bottom-color:var(--amber)}
+.jh-col-hdr.cp{border-bottom-color:var(--dim)}
+.stats-bar{background:var(--dark);border-bottom:2px solid var(--brdl);padding:10px 20px;display:grid;grid-template-columns:50px repeat(6,1fr);gap:0;align-items:center}
+.sb-label{font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--dim);text-align:right;padding-right:10px;letter-spacing:1px}
+.sb-day{font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--dim);text-align:center;letter-spacing:1px}
+.sb-day.sb-today{color:var(--pop)}
+.sb-val{text-align:center;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:28px;padding:4px;border-radius:4px;cursor:pointer;transition:all .12s}
+.sb-val:hover{background:rgba(255,255,255,0.06)}
+.sb-warn{color:var(--red)}.sb-ok{color:var(--ylw)}.sb-good{color:var(--pop)}
+.sb-out{color:var(--red);font-size:20px}.sb-none{color:var(--dim);font-size:20px}
+.crew-days-wrap{padding:0 0 2px 16px}
+.crew-days{display:flex;align-items:center;gap:0;margin:1px 0}
+.crew-days-lbl{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--muted);width:36px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crew-dots{display:flex;gap:3px}
+.crew-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.crew-dot-on{box-shadow:0 0 3px rgba(0,0,0,0.2)}
+.crew-dot-off{background:rgba(255,255,255,0.15);border:1px solid var(--brd3)}
+.crew-dot-sick{background:var(--red)}
+.crew-dot-call{background:var(--amber)}
+.crew-tg-row{display:flex;align-items:center;gap:4px;padding:3px 0;border-bottom:1px solid var(--brd3)}
+.crew-tg-row:last-child{border-bottom:none}
+.crew-tg-name{font-size:11px;font-weight:600;width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crew-tg-days{display:flex;gap:3px;flex:1}
+.tg-day{width:32px;height:24px;border-radius:4px;border:2px solid var(--brd3);background:var(--surface);font-family:'Barlow Condensed',sans-serif;font-size:9px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;text-transform:uppercase}
+.tg-day:hover{border-color:var(--pop)}
+.tg-day.tg-on{background:var(--pop-dk);border-color:var(--pop);color:#fff}
+.tg-day.tg-on:hover{background:var(--red);border-color:var(--red)}
+.crew-tg-x{background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px;padding:0 4px}
+.crew-tg-x:hover{color:var(--red)}
+.cl-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.cl-tbl th{text-align:left;padding:6px 8px;font-family:'Barlow Condensed',sans-serif;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);border-bottom:2px solid var(--brd);background:var(--s2)}
+.cl-tbl td{padding:5px 8px;border-bottom:1px solid var(--brd3)}
+.cl-tbl tr:hover td{background:var(--surface-h)}
+.cl-inp{width:100%;padding:4px 6px;border:2px solid var(--brdl);border-radius:3px;background:var(--surface);color:var(--txt);font-size:11px;font-family:'Barlow',sans-serif}
+.cl-inp:focus{outline:none;border-color:var(--pop);box-shadow:0 0 0 2px var(--pop-dim)}
+.zone-label{font-family:'Barlow Condensed',sans-serif;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--pop);padding:0 2px 3px}
+.actions-group{display:flex;flex-direction:column;gap:3px}
+.actions-row{display:flex;gap:5px;flex-wrap:wrap}
+.defer-badge{font-size:8px;font-weight:700;padding:1px 6px;border-radius:3px;background:#FFE600;color:#000;text-transform:uppercase;letter-spacing:.5px;display:inline-flex;align-items:center;gap:3px}
+.defer-drawer{margin-top:8px;padding:10px;background:var(--s2);border:1px solid var(--brdl);border-radius:4px;display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.defer-drawer label{font-size:8px;text-transform:uppercase;color:var(--dim);font-weight:600;display:block;margin-bottom:2px}
+.defer-days{display:flex;gap:4px;flex-wrap:wrap}
+.defer-day{font-size:10px;font-weight:700;padding:4px 7px;border-radius:3px;border:1px solid var(--brdl);background:var(--surface);cursor:pointer;font-family:"Barlow Condensed",sans-serif;text-transform:uppercase;transition:all .12s}
+.defer-day.on{background:#FFE600;color:#000;border-color:#ccb800}
+.brd-bar-defer{background:#FFE600!important}
+.brd-bar-defer .brd-cnt{color:#000!important}
+.brd-bar-defer .brd-sub{color:#000!important;opacity:.7}
+.job-notes{width:100%;padding:6px 8px;background:var(--surface);border:1.5px solid var(--brdl);border-radius:4px;color:var(--txt);font-size:11px;font-family:"Barlow",sans-serif;resize:vertical;min-height:52px;margin-bottom:2px}
+.job-notes:focus{outline:none;border-color:var(--pop);box-shadow:0 0 0 2px var(--pop-dim)}
+.sc-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px}
+.sc-nav-btn{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;padding:12px 20px;border-radius:6px;border:2px solid var(--brdl);background:var(--surface);color:var(--txt);cursor:pointer;text-transform:uppercase;flex:1;text-align:center}
+.sc-nav-btn:active{background:var(--surface-h)}
+.sc-nav-btn.p{background:var(--pop-dk);border-color:var(--pop);color:#fff}
+.sc-counter{font-size:13px;font-weight:600;color:var(--muted);text-align:center;min-width:60px;flex-shrink:0}
+.sc-copy{width:100%;padding:16px;font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:var(--pop-dk);border:2px solid var(--pop);color:#fff;border-radius:6px;cursor:pointer;margin-top:10px}
+.sc-copy:active{background:var(--pop)}
+.sc-wk-nav{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.sc-wk-lbl{flex:1;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px}
+.sc-wk-btn{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;padding:8px 14px;border-radius:4px;border:2px solid var(--brdl);background:var(--surface);color:var(--txt);cursor:pointer;text-transform:uppercase}
+.sc-empty{text-align:center;padding:40px 20px;color:var(--dim);font-size:14px}
+@media(max-width:600px){
+  #mCards .mdl{width:100%!important;max-width:100%!important;max-height:100vh!important;height:100vh;border-radius:0!important;padding:16px!important;margin:0!important}
+  .mbg{align-items:flex-start!important}
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="loading" id="ld"><div class="spin"></div></div>
+<div class="hdr" id="hdrBar">
+<h1>SCHEDULE <span>COMMANDER</span><span class="sync ok" id="sy"></span></h1>
+<div class="acts">
+<div class="actions-group">
+<div class="zone-label">Actions</div>
+<div class="actions-row">
+<button class="btn" onclick="refreshData()">Refresh</button>
+<button class="btn" onclick="openM('mJob')">+ Job</button>
+<button class="btn" onclick="openM('mCrew')">+ Crew</button>
+<button class="btn" onclick="openM('mWT')">Work Types</button>
+<button class="btn" onclick="openM('mCrewList')">Crew List</button>
+<button class="btn" onclick="showCrewCards()">Send Schedules</button>
+<div style="position:relative;display:inline-block">
+<button class="btn p" onclick="tgExportMenu()">Export</button>
+<div id="exportMenu" style="display:none;position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:2px solid var(--brdl);border-radius:5px;z-index:999;min-width:180px;box-shadow:0 4px 12px rgba(0,0,0,.25)">
+<div class="exp-item" onclick="printWeekSchedule()">Week Schedule</div>
+<div class="exp-item" onclick="printJobList()">Job List</div>
+<div class="exp-item" onclick="printBillingReport()">Billing Report</div>
+<div class="exp-item" onclick="printMaterialsList()">Materials List</div>
+<div class="exp-item" onclick="printDailyStatus()">Daily Crew Status</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="tabs" id="tabBar">
+<div class="zone-label" style="padding:8px 8px 8px 0;display:flex;align-items:center">Views</div>
+<button class="tab on" id="t0" onclick="goView('j')">Jobs</button>
+<button class="tab" id="t1" onclick="goView('s')">Crew Schedule</button>
+<button class="tab" id="t2" onclick="goView('c')">Calendar</button>
+<button class="tab" id="t3" onclick="goView('d')">Daily</button>
+<button class="tab" id="t4" onclick="goView('m')">Materials</button>
+<button class="tab" id="t5" onclick="goView('b')">Billing</button>
+<button class="tab" id="t6" onclick="goView('sc')">📋 Schedules</button>
+</div>
+<div class="spacer" id="spacer"></div>
+<div class="stats-bar" id="statsBar"></div>
+<div class="main" id="vJ" style="margin-left:0;max-width:1200px;margin:0 auto;padding:16px"></div>
+<div class="wrap hide" id="vS">
+<div class="pool" id="pool"></div>
+<div class="main" id="jobs"></div>
+</div>
+<div class="cal hide" id="vC">
+<div class="cnav">
+<button class="btn" onclick="cNav(-1)">Prev</button>
+<div class="cmo" id="cMo"></div>
+<button class="btn" onclick="cNav(1)">Next</button>
+<button class="btn" onclick="cNow()">Today</button>
+</div>
+<div class="cgrid">
+<div class="chr"><div class="chc">Sun</div><div class="chc">Mon</div><div class="chc">Tue</div><div class="chc">Wed</div><div class="chc">Thu</div><div class="chc">Fri</div><div class="chc">Sat</div></div>
+<div class="cbody" id="cB"></div>
+</div>
+<div class="cleg" id="cL"></div>
+</div>
+<div class="main hide" id="vD" style="padding:16px;max-width:1100px;margin:0 auto"></div>
+<div class="main hide" id="vM" style="padding:16px;max-width:1000px;margin:0 auto"></div>
+<div class="main hide" id="vB" style="padding:16px;max-width:900px;margin:0 auto"></div>
+<div class="hide" id="vSC" style="padding:12px;max-width:480px;margin:0 auto"></div>
+<div class="mbg" id="mJob" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="mdl"><h3>Add Job</h3>
+<div class="fr"><input id="fJn" placeholder="Job #"/><input id="fJna" placeholder="Customer Name"/></div>
+<div class="fr"><input id="fJa" placeholder="Proposal $"/></div>
+<div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:4px">Work Types</div>
+<div id="fJt" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;padding:6px;background:var(--s2);border-radius:4px;border:1px solid var(--brd)"></div>
+<div class="fr"><input id="fJc" type="number" min="1" value="3" placeholder="Crew#"/><input id="fJl" placeholder="Lead/Sales"/></div>
+<div class="fr"><input id="fJv" placeholder="Vehicle"/><input id="fJe" placeholder="Equipment"/></div>
+<div class="fr"><input id="fJp" placeholder="Power Source"/><input id="fJs" placeholder="Scope of Work"/></div>
+<div class="fr"><input id="fJsd" type="date" onchange="document.getElementById('fJed').min=this.value;if(document.getElementById('fJed').value&&document.getElementById('fJed').value<this.value)document.getElementById('fJed').value=this.value"/><input id="fJed" type="date"/></div>
+<div class="fr"><label class="chk-pw"><input type="checkbox" id="fJpw"/> Prevailing Wage</label></div>
+<div class="macts"><button class="btn" onclick="closeM('mJob')">Cancel</button><button class="btn p" onclick="doAddJob()">Add</button></div>
+</div></div>
+<div class="mbg" id="mCrew" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="mdl"><h3>Add Crew</h3>
+<div class="fr"><input id="fCn" placeholder="Name"/><input id="fCt" placeholder="Team # or Floater"/></div>
+<div class="fr"><input id="fCp" placeholder="Phone (optional)"/></div>
+<div class="macts"><button class="btn" onclick="closeM('mCrew')">Cancel</button><button class="btn p" onclick="doAddCrew()">Add</button></div>
+</div></div>
+<div class="mbg" id="mWT" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="mdl"><h3>Work Types</h3>
+<div class="wtlist" id="wtList"></div>
+<div class="fr"><input id="fWt" placeholder="New work type"/><button class="btn p" onclick="doAddWT()">Add</button></div>
+</div></div>
+<div class="mbg" id="mNot" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="mdl"><h3>Schedule Notification</h3>
+<div class="nbox" id="nTxt"></div>
+<div class="macts"><button class="btn" onclick="closeM('mNot')">Close</button><button class="btn p" onclick="cpTxt()">Copy</button></div>
+</div></div>
+<div class="mbg" id="mCards" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="mdl" style="max-width:420px;max-height:90vh;overflow-y:auto;padding:14px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><h3 style="margin:0">Crew Schedules</h3><div style="display:flex;gap:4px"><button class="btn sm" id="ccPrev" onclick="ccNav(-1)">← Prev</button><button class="btn sm" id="ccNext" onclick="ccNav(1)">Next →</button></div></div>
+<div id="ccCards"></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><span id="ccCount" style="font-size:10px;color:var(--muted)"></span><div style="display:flex;gap:4px"><button class="btn" onclick="closeM('mCards')">Close</button><button class="btn p" onclick="cpCard()">Copy Text</button></div></div>
+</div></div>
+<div class="mbg" id="mCrewList" onclick="if(event.target===this)this.classList.remove('show')">
+<div class="mdl" style="max-width:600px;max-height:85vh;overflow-y:auto">
+<h3>Crew List</h3>
+<div id="crewListBody"></div>
+<div style="margin-top:10px;padding-top:10px;border-top:2px solid var(--brd)">
+<div style="font-family:'Barlow Condensed',sans-serif;font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--dim);margin-bottom:4px;font-weight:700">Add New</div>
+<div class="fr"><input id="clName" placeholder="Name (Last, First)" class="cl-inp"/><input id="clTeam" placeholder="Team # or Floater" class="cl-inp"/><input id="clPhone" placeholder="Phone" class="cl-inp"/><button class="btn p" onclick="clAdd()">Add</button></div>
+</div>
+<div class="macts"><button class="btn" onclick="closeM('mCrewList')">Close</button></div>
+</div></div>
+<div class="toast" id="tst"></div>
+<script>
+var D={jobs:[],crew:[],assignments:[],crewStatus:[],workTypes:[],materials:[],billingLog:[]};
+var CS={};var drag=null;var exJ={};var exDefer={};var vw='j';var cD=new Date();
+var JC=['#3498db','#e74c3c','#2ecc71','#9b59b6','#e67e22','#1abc9c','#f39c12','#c0392b','#2980b9','#8e44ad','#27ae60','#d35400','#16a085','#7f8c8d','#2c3e50','#d4a017'];
+function flipName(n){var p=n.split(',');return p.length===2?p[1].trim()+' '+p[0].trim():n;}
+var wkStart=getMonday(new Date());var writing=false;var jhFilter='all';var jhJobId=null;
+var jWkStart=getMonday(new Date());
+var jhSearch='';
+
+function getMonday(dt){var d=new Date(dt);var day=d.getDay();var diff=d.getDate()-day+(day===0?-6:1);d.setDate(diff);d.setHours(0,0,0,0);return d;}
+function wkEnd(){var d=new Date(wkStart);d.setDate(d.getDate()+5);return d;}
+function wkKey(){return fmtD(wkStart);}
+function fmtD(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function fmtWk(){var ms=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var e=wkEnd();return ms[wkStart.getMonth()]+' '+wkStart.getDate()+' - '+ms[e.getMonth()]+' '+e.getDate()+', '+e.getFullYear();}
+function wkNav(dir){wkStart=new Date(wkStart);wkStart.setDate(wkStart.getDate()+(dir*7));render();}
+function wkNow(){wkStart=getMonday(new Date());render();}
+
+function fixLayout(){var hh=document.getElementById('hdrBar').offsetHeight;var tb=document.getElementById('tabBar');tb.style.top=hh+'px';var sb=document.getElementById('statsBar');sb.style.position='fixed';sb.style.top=(hh+tb.offsetHeight)+'px';sb.style.left='0';sb.style.right='0';sb.style.zIndex='98';var sbh=(sb.style.display==='none')?0:sb.offsetHeight;var total=hh+tb.offsetHeight+sbh;document.getElementById('spacer').style.height=total+'px';document.getElementById('pool').style.top=total+'px';var wknavs=document.querySelectorAll('.wknav');for(var i=0;i<wknavs.length;i++){wknavs[i].style.top=total+'px';}}
+window.addEventListener('load',function(){refreshData();});
+window.addEventListener('resize',fixLayout);
+
+function refreshData(){sSync('ing');google.script.run.withSuccessHandler(function(d){D=d;CS={};for(var i=0;i<D.crewStatus.length;i++){var c=D.crewStatus[i];var dk=c.Date||c.WeekOf;CS[c.Name+'|'+dk]=c.Status;}buildWTSelect();render();fixLayout();document.getElementById('ld').style.display='none';sSync('ok');}).withFailureHandler(function(e){msg('Load failed','err');document.getElementById('ld').style.display='none';sSync('bad');}).loadAllData();}
+
+function sSync(s){document.getElementById('sy').className='sync '+s;}
+function goView(v){vw=v;
+  document.getElementById('t0').className='tab'+(v==='j'?' on':'');
+  document.getElementById('t1').className='tab'+(v==='s'?' on':'');
+  document.getElementById('t2').className='tab'+(v==='c'?' on':'');
+  document.getElementById('t3').className='tab'+(v==='d'?' on':'');
+  document.getElementById('t4').className='tab'+(v==='m'?' on':'');
+  document.getElementById('t5').className='tab'+(v==='b'?' on':'');
+  document.getElementById('t6').className='tab'+(v==='sc'?' on':'');
+  document.getElementById('vJ').classList.toggle('hide',v!=='j');
+  document.getElementById('vS').classList.toggle('hide',v!=='s');
+  document.getElementById('vC').classList.toggle('hide',v!=='c');
+  document.getElementById('vD').classList.toggle('hide',v!=='d');
+  document.getElementById('vM').classList.toggle('hide',v!=='m');
+  document.getElementById('vB').classList.toggle('hide',v!=='b');
+  document.getElementById('vSC').classList.toggle('hide',v!=='sc');
+  document.getElementById('statsBar').style.display=(v==='s')?'grid':'none';
+  if(v==='j')rJobsHome();
+  if(v==='c')rCal();
+  if(v==='d')rDaily();
+  if(v==='m')rMaterials();
+  if(v==='b')rBilling();
+  if(v==='sc')rSchedules();
+  setTimeout(fixLayout,10);
+}
+function render(){rPool();rJobs();rStats();if(vw==='j')rJobsHome();if(vw==='c')rCal();if(vw==='d')rDaily();if(vw==='m')rMaterials();if(vw==='b')rBilling();}
+function getCSt(name,dateStr){return CS[name+'|'+(dateStr||wkKey())]||'available';}
+function getCStWeek(name){var worst='available';for(var d=0;d<6;d++){var dt=new Date(wkStart);dt.setDate(dt.getDate()+d);var s=getCSt(name,fmtD(dt));if(s!=='available')worst=s;}return worst;}
+function wkDates(){var r=[];for(var i=0;i<6;i++){var dt=new Date(wkStart);dt.setDate(dt.getDate()+i);r.push(fmtD(dt));}return r;}
+function wkAsgn(jid){var dates=wkDates();var r=[];for(var i=0;i<D.assignments.length;i++){var a=D.assignments[i];var ad=a.Date||a.WeekOf;if(String(a.JobID)===String(jid)&&dates.indexOf(ad)>=0){var dup=false;for(var ri=0;ri<r.length;ri++){if(r[ri].CrewName===a.CrewName&&(r[ri].Date||r[ri].WeekOf)===ad){dup=true;break;}}if(!dup)r.push(a);}}return r;}
+function wkAsgnUnique(jid){var a=wkAsgn(jid);var names={};for(var i=0;i<a.length;i++)names[a[i].CrewName]=true;return Object.keys(names);}
+function crewJobDays(jid,name){var dates=wkDates();var r=[];for(var i=0;i<D.assignments.length;i++){var a=D.assignments[i];var ad=a.Date||a.WeekOf;if(String(a.JobID)===String(jid)&&a.CrewName===name&&dates.indexOf(ad)>=0)r.push(ad);}return r;}
+function crewAllDays(name){var dates=wkDates();var wj={};var wjList=wkJobs();for(var i=0;i<wjList.length;i++)wj[String(wjList[i].JobID)]=true;var r={};for(var i=0;i<D.assignments.length;i++){var a=D.assignments[i];var ad=a.Date||a.WeekOf;if(a.CrewName===name&&dates.indexOf(ad)>=0&&wj[String(a.JobID)]){if(!r[ad])r[ad]=[];var j=null;for(var ji=0;ji<D.jobs.length;ji++){if(String(D.jobs[ji].JobID)===String(a.JobID)){j=D.jobs[ji];break;}}r[ad].push({jobId:a.JobID,job:j});}}return r;}
+function isDoubleBooked(name){var ad=crewAllDays(name);for(var dk in ad){if(ad[dk].length>1)return true;}return false;}
+function getDoubleBookedDays(name){var ad=crewAllDays(name);var r=[];for(var dk in ad){if(ad[dk].length>1)r.push(dk);}return r;}
+function dayLabel(dates){var days=['Mo','Tu','We','Th','Fr','Sa'];var wkd=wkDates();var bits=[];for(var i=0;i<wkd.length;i++){bits.push(dates.indexOf(wkd[i])>=0?1:0);}var all=true;for(var i=0;i<5;i++){if(!bits[i])all=false;}if(all&&!bits[5])return 'Mo-Fr';if(all&&bits[5])return 'Mo-Sa';var r=[];var i=0;while(i<6){if(bits[i]){var s=i;while(i<6&&bits[i])i++;var e=i-1;if(s===e)r.push(days[s]);else r.push(days[s]+'-'+days[e]);}else{i++;}}return r.join(',');}
+function allAsgn(jid){var r=[];for(var i=0;i<D.assignments.length;i++){if(String(D.assignments[i].JobID)===String(jid))r.push(D.assignments[i]);}return r;}
+function wkAssignedNames(){var dates=wkDates();var s={};for(var i=0;i<D.assignments.length;i++){var ad=D.assignments[i].Date||D.assignments[i].WeekOf;if(dates.indexOf(ad)>=0)s[D.assignments[i].CrewName]=true;}return s;}
+function wkJobs(){var ws=fmtD(wkStart);var we=fmtD(wkEnd());var r=[];for(var i=0;i<D.jobs.length;i++){var j=D.jobs[i];if(!j.StartDate&&!j.EndDate){r.push(j);continue;}var js=j.StartDate?String(j.StartDate).split('T')[0]:'';var je=j.EndDate?String(j.EndDate).split('T')[0]:'';if(!js&&!je){r.push(j);continue;}if(!je)je='9999-12-31';if(!js)js='0000-01-01';if(js<=we&&je>=ws)r.push(j);}return r;}
+function jobInRange(j,ds){var js=j.StartDate?String(j.StartDate).split('T')[0]:'';var je=j.EndDate?String(j.EndDate).split('T')[0]:'';if(!js&&!je)return false;if(js&&ds<js)return false;if(je&&ds>je)return false;return true;}
+function fmt12(t){if(!t)return '';var p=t.split(':');var h=parseInt(p[0]);var m=p[1]||'00';var ap=h>=12?'pm':'am';h=h%12||12;return h+':'+m+ap;}
+function isPW(j){return j.PrevailingWage==='Yes'||j.PrevailingWage==='true'||j.PrevailingWage===true;}
+function activeCrew(){return D.crew.filter(function(c){return c.Archived!=='Yes';});}
+function rPool(){
+  var el=document.getElementById('pool');var an=wkAssignedNames();var tm={};var fl=[];
+  var ac=activeCrew();
+  for(var i=0;i<ac.length;i++){var c=ac[i];var t=String(c.Team);if(t.toLowerCase()==='floater'||t==='0')fl.push(c);else{if(!tm[t])tm[t]=[];tm[t].push(c);}}
+  var av=0;for(var i=0;i<ac.length;i++){if(getCSt(ac[i].Name)==='available'&&!an[ac[i].Name])av++;}
+  var h='<div class="ptitle">Crew <span class="av">'+av+' avail</span></div>';
+  var ks=Object.keys(tm).sort(function(a,b){return a-b;});
+  for(var ki=0;ki<ks.length;ki++){h+='<div class="tlbl">Team '+ks[ki]+'</div>';for(var ci=0;ci<tm[ks[ki]].length;ci++)h+=cHTML(tm[ks[ki]][ci],an);}
+  if(fl.length){h+='<div class="tlbl">Floaters</div>';for(var i=0;i<fl.length;i++)h+=cHTML(fl[i],an);}
+  el.innerHTML=h;
+  var chips=el.querySelectorAll('.chip:not(.out)');
+  for(var i=0;i<chips.length;i++){(function(ch){ch.draggable=true;ch.addEventListener('dragstart',function(){drag={name:ch.dataset.n,from:null};ch.style.opacity='.3';});ch.addEventListener('dragend',function(){ch.style.opacity='1';drag=null;});})(chips[i]);}
+}
+
+function cHTML(c,an){
+  var dates=wkDates();var anyOut=false;var allOut=true;var worstSt='available';
+  for(var di=0;di<6;di++){var dst=getCSt(c.Name,dates[di]);if(dst!=='available'){anyOut=true;worstSt=dst;}else{allOut=false;}}
+  var out=allOut&&anyOut;var asg=!!an[c.Name];
+  var dcls='d ';if(out){if(worstSt==='sick')dcls+='si';else if(worstSt==='off')dcls+='of';else dcls+='no';}else if(asg)dcls+='as';else if(anyOut)dcls+='no';else dcls+='av';
+  var esc=c.Name.replace(/'/g,"\\'");
+  var db=!out&&asg&&isDoubleBooked(c.Name);
+  var detail='';
+  if(asg){
+    var ad=crewAllDays(c.Name);
+    var jobMap={};for(var dk in ad){for(var ai=0;ai<ad[dk].length;ai++){var jj=ad[dk][ai];var jk=jj.jobId;if(!jobMap[jk])jobMap[jk]={job:jj.job,dates:[]};jobMap[jk].dates.push(dk);}}
+    detail+='<div class="crew-days-wrap">';
+    for(var jk in jobMap){var jm=jobMap[jk];var co=jm.job?(jm.job.Color||jCol(parseInt(jk)%16)):'#888';if(jm.job&&isPW(jm.job))co='#6d28d9';
+    detail+='<div class="crew-days"><div class="crew-days-lbl">'+(jm.job?jm.job.JobNum:'?')+'</div><div class="crew-dots">';
+    for(var di=0;di<6;di++){var ds=dates[di];var onDay=jm.dates.indexOf(ds)>=0;var daySt=getCSt(c.Name,ds);
+    if(daySt==='sick')detail+='<div class="crew-dot crew-dot-sick"></div>';
+    else if(daySt==='off'||daySt==='noshow')detail+='<div class="crew-dot crew-dot-call"></div>';
+    else if(onDay)detail+='<div class="crew-dot crew-dot-on" style="background:'+co+'"></div>';
+    else detail+='<div class="crew-dot crew-dot-off"></div>';}
+    detail+='</div></div>';}
+    detail+='</div>';
+  }
+  else if(out){detail='<div style="font-size:9px;color:var(--dim);margin-left:16px">'+worstSt+'</div>';}
+  return '<div class="chip'+(out?' out':'')+(db?' db':'')+'" data-n="'+c.Name+'" style="flex-wrap:wrap" onclick="showCrewWeek(\''+esc+'\')">'+'<span class="'+dcls+'"></span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+flipName(c.Name)+'</span>'+(db?'<span class="db-tag">2X</span>':'')+'<div class="sbtns"><button class="sbtn" onclick="event.stopPropagation();tgSt(\''+esc+'\',\'sick\')">S</button><button class="sbtn" onclick="event.stopPropagation();tgSt(\''+esc+'\',\'off\')">O</button><button class="sbtn" onclick="event.stopPropagation();tgSt(\''+esc+'\',\'noshow\')">N</button></div>'+detail+'</div>';
+}
+
+function showCrewWeek(name){
+  var crew=null;for(var i=0;i<D.crew.length;i++){if(D.crew[i].Name===name){crew=D.crew[i];break;}}
+  if(!crew)return;
+  var days=['Mon','Tue','Wed','Thu','Fri','Sat'];var dates=wkDates();var today=fmtD(new Date());
+  var h='<h3>'+flipName(name)+'</h3>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Team: '+(crew.Team||'—');
+  if(crew.Phone)h+=' &nbsp;|&nbsp; Phone: <a href="tel:'+crew.Phone+'" style="color:var(--blu)">'+crew.Phone+'</a>';
+  h+='</div><div style="font-size:11px;color:var(--muted);margin-bottom:10px">Week: '+fmtWk()+'</div>';
+  h+='<div class="cw-grid"><div class="cw-hdr"></div>';
+  for(var di=0;di<6;di++){h+='<div class="cw-hdr" style="'+(dates[di]===today?'color:var(--red)':'')+'">'+days[di]+'<br><span style="font-size:8px;opacity:.7">'+dates[di].split('-')[2]+'</span></div>';}
+  h+='<div class="cw-label" style="color:var(--muted);font-size:9px">STATUS</div>';
+  for(var di=0;di<6;di++){var st=getCSt(name,dates[di]);var lbl='✓';var sty='color:var(--grn)';if(st==='sick'){lbl='SICK';sty='color:var(--red);font-weight:700';}else if(st==='off'){lbl='CALL';sty='color:var(--orn);font-weight:700';}else if(st==='noshow'){lbl='N/S';sty='color:var(--red);font-weight:700';}h+='<div class="cw-cell" style="'+sty+'">'+lbl+'</div>';}
+  var ad=crewAllDays(name);var jobIds={};for(var dk in ad){for(var ai=0;ai<ad[dk].length;ai++){jobIds[ad[dk][ai].jobId]=ad[dk][ai].job;}}
+  var jkeys=Object.keys(jobIds);
+  if(jkeys.length){for(var ji=0;ji<jkeys.length;ji++){var jb=jobIds[jkeys[ji]];var jlbl=jb?(jb.JobNum+' '+jb.JobName):'Job '+jkeys[ji];h+='<div class="cw-label" style="color:var(--blu)">'+jlbl+'</div>';for(var di=0;di<6;di++){var onDay=false;if(ad[dates[di]]){for(var ai=0;ai<ad[dates[di]].length;ai++){if(String(ad[dates[di]][ai].jobId)===String(jkeys[ji]))onDay=true;}}h+='<div class="cw-cell">'+(onDay?'<span style="color:var(--grn);font-weight:700">✓</span>':'<span style="color:var(--dim)">—</span>')+'</div>';}}}
+  else{h+='<div class="cw-label" style="color:var(--dim)">No assignments</div>';for(var di=0;di<6;di++){h+='<div class="cw-cell" style="color:var(--dim)">—</div>';}}
+  h+='</div><div class="macts"><button class="btn" onclick="closeM(\'mCrewWk\')">Close</button></div>';
+  var md=document.getElementById('mCrewWk');if(!md){md=document.createElement('div');md.id='mCrewWk';md.className='mbg';md.onclick=function(e){if(e.target===md)md.classList.remove('show');};md.innerHTML='<div class="mdl"></div>';document.body.appendChild(md);}md.querySelector('.mdl').innerHTML=h;md.classList.add('show');
+}
+function rJobs(){
+  var el=document.getElementById('jobs');var wj=wkJobs();
+  var dates=wkDates();var days=['Mo','Tu','We','Th','Fr','Sa'];var today=fmtD(new Date());
+  var h='<div class="wknav"><button class="btn" onclick="wkNav(-1)">Prev</button><div class="wklbl">'+fmtWk()+'</div><button class="btn" onclick="wkNav(1)">Next</button><button class="btn" onclick="wkNow()">This Week</button></div>';
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:0 0 6px;margin-bottom:6px;border-bottom:1px solid var(--brd)">Jobs This Week ('+wj.length+')</div>';
+  h+='<div class="brd">';
+  h+='<div class="brd-hdr-job">JOB</div>';
+  for(var di=0;di<6;di++){h+='<div class="brd-hdr'+(dates[di]===today?' today':'')+'">'+days[di]+'<br><span style="font-size:9px;opacity:.7">'+dates[di].split("-")[1]+'/'+dates[di].split("-")[2]+'</span></div>';}
+  var wjSched=[],wjUnsched=[];
+  for(var i=0;i<wj.length;i++){var uct=wkAsgnUnique(wj[i].JobID);if(uct.length>0)wjSched.push(wj[i]);else wjUnsched.push(wj[i]);}
+  var allRows=wjSched.concat([null]).concat(wjUnsched);
+  for(var i=0;i<allRows.length;i++){
+    if(allRows[i]===null){
+      if(wjUnsched.length===0)continue;
+      h+='<div style="grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:8px 0 4px;margin-top:4px">';
+      h+='<div style="flex:1;height:1px;background:var(--brd)"></div>';
+      h+='<div style="font-size:10px;font-weight:600;color:var(--dim);white-space:nowrap;letter-spacing:.04em">Unscheduled this week</div>';
+      h+='<div style="flex:1;height:1px;background:var(--brd)"></div>';
+      h+='</div>';
+      continue;
+    }
+    var j=allRows[i];var nd=parseInt(j.CrewNeeded)||0;var pw=isPW(j);
+    var unames=wkAsgnUnique(j.JobID);var ct=unames.length;
+    var isUnsched=wjUnsched.indexOf(j)>=0;
+    var co=j.Color||jCol(i);if(pw)co='var(--pw)';
+    h+='<div class="brd-job-label" onclick="tgJ(\''+j.JobID+'\')" style="'+(isUnsched?'opacity:0.45':'')+'">';
+    h+='<div class="brd-job-name">'+j.JobNum+' - '+j.JobName+'</div>';
+    h+='<div class="brd-job-meta">'+wTags(j.WorkType);
+    if(pw)h+='<span class="pw-tag">PW</span>';
+    if(j.PartialBilling==='Yes')h+='<span class="rtb-tag">RTB</span>';
+    if(j.NoBill==='Yes')h+='<span class="nb-tag">NO BILL</span>';
+    if(j.Vehicle)h+='<span class="tg vh" style="font-size:8px">'+j.Vehicle+'</span>';
+    h+='</div>';
+    h+='<div style="font-size:9px;color:var(--muted);display:flex;align-items:center;gap:6px">'+ct+'/'+nd+' crew';
+    if(j.DeferredTime&&j.DeferredDays)h+='<span class="defer-badge">&#9200; '+fmt12(j.DeferredTime)+'</span>';
+    h+='</div>';
+    h+='</div>';
+    for(var di=0;di<6;di++){
+      var ds=dates[di];var dayCrew=[];
+      for(var ai=0;ai<D.assignments.length;ai++){
+        var a=D.assignments[ai];var ad=a.Date||a.WeekOf;
+        if(String(a.JobID)===String(j.JobID)&&ad===ds){
+          var dup=false;for(var dc=0;dc<dayCrew.length;dc++){if(dayCrew[dc]===a.CrewName)dup=true;}
+          if(!dup)dayCrew.push(a.CrewName);
+        }
+      }
+      h+='<div class="brd-cell" ondragover="dzO(event)" ondragleave="dzL(event)" ondrop="dzD(event,\''+j.JobID+'\')" style="'+(isUnsched?'opacity:0.45':'')+'">';
+      if(dayCrew.length){
+        var hasDb=false;for(var dc=0;dc<dayCrew.length;dc++){if(getDoubleBookedDays(dayCrew[dc]).indexOf(ds)>=0)hasDb=true;}
+        var ddays=j.DeferredDays?String(j.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+        var isDefer=ddays.indexOf(ds)>=0;
+        var barCls='brd-bar'+(pw?' brd-bar-pw':'')+(hasDb?' brd-bar-db':'')+(isDefer?' brd-bar-defer':'');
+        h+='<div class="'+barCls+'" style="'+(isDefer?'background:#FFE600;':'background:'+co+';')+'" title="'+dayCrew.join(', ')+'">';
+        h+='<div class="brd-cnt">'+dayCrew.length+'</div>';
+        if(nd>0&&dayCrew.length<nd)h+='<div class="brd-sub" style="color:#ffd;font-weight:700">need '+(nd-dayCrew.length)+'</div>';
+        else if(hasDb)h+='<div class="brd-sub">⚠2X</div>';
+        h+='</div>';
+      }else{
+       var inRange=jobInRange(j,ds);
+var cellNeedsCrew=jobInRange(j,ds);h+='<div class="'+(cellNeedsCrew?'brd-needs-crew':'brd-empty')+'" ondragover="dzO(event)" ondragleave="dzL(event)" ondrop="dzD(event,\''+j.JobID+'\')">'+(cellNeedsCrew?'':'—')+'</div>';
+      }
+      h+='</div>';
+    }
+    if(exJ[String(j.JobID)]){
+    h+='<div class="brd-detail" id="j-'+j.JobID+'">';
+    h+='<div class="jdet"><div class="dgrid">';
+    h+='<div><label>Vehicle</label><input class="dinp" value="'+(j.Vehicle||'')+'" onchange="updJ(\''+j.JobID+'\',\'Vehicle\',this.value)"/></div>';
+    h+='<div><label>Equipment</label><input class="dinp" value="'+(j.Equipment||'')+'" onchange="updJ(\''+j.JobID+'\',\'Equipment\',this.value)"/></div>';
+    h+='<div><label>Power</label><input class="dinp" value="'+(j.PowerSource||'')+'" onchange="updJ(\''+j.JobID+'\',\'PowerSource\',this.value)"/></div>';
+    h+='<div><label>Lead</label><input class="dinp" value="'+(j.Lead||'')+'" onchange="updJ(\''+j.JobID+'\',\'Lead\',this.value)"/></div>';
+    h+='</div><div class="dgrid">';
+    h+='<div><label>Start</label><input class="dinp" type="date" value="'+(j.StartDate||'')+'" onchange="updJ(\''+j.JobID+'\',\'StartDate\',this.value)"/></div>';
+    h+='<div><label>End</label><input class="dinp" type="date" value="'+(j.EndDate||'')+'" onchange="updJ(\''+j.JobID+'\',\'EndDate\',this.value)"/></div>';
+    h+='<div><label>Scope / SOW</label><div style="display:flex;gap:4px;align-items:center"><input class="dinp" style="flex:1" value="'+(j.SOW||'')+'" placeholder="Paste Drive link..." onchange="updJ(\''+j.JobID+'\',\'SOW\',this.value)"/>'+(j.SOW&&(j.SOW.startsWith('http')||j.SOW.startsWith('www'))?'<a href="'+(j.SOW.startsWith('http')?j.SOW:'https://'+j.SOW)+'" target="_blank" style="font-size:16px;text-decoration:none;padding:2px 4px;border-radius:3px;border:1px solid var(--brdl);background:var(--s2);cursor:pointer" title="Open SOW">&#128196;</a>':'')+'</div></div>';
+    h+='<div><label>Crew#</label><input class="dinp" type="number" min="1" value="'+nd+'" style="width:60px" onchange="updJ(\''+j.JobID+'\',\'CrewNeeded\',this.value)"/></div>';
+    h+='</div>';
+    h+='<div style="margin-bottom:8px"><label style="font-size:8px;text-transform:uppercase;color:var(--dim);font-weight:600;display:block;margin-bottom:3px">Job Notes</label><textarea class="job-notes" onchange="updJ(\''+j.JobID+'\',\'Notes\',this.value)" placeholder="Internal notes for this job...">'+(j.Notes||'')+'</textarea></div>';
+    var ddOpen=!!exDefer[String(j.JobID)];
+    var ddays2=j.DeferredDays?String(j.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+    var dBtnStyle=j.DeferredTime?'background:#FFE600;color:#000;border-color:#ccb800':'';
+    var dBtnLabel='&#9200; Deferred Start'+(j.DeferredTime?' ('+fmt12(j.DeferredTime)+')':'');
+    h+='<div style="margin-bottom:8px">';
+    h+='<button class="btn sm" style="'+dBtnStyle+'" onclick="event.stopPropagation();tgDefer(\''+j.JobID+'\')">';
+    h+=dBtnLabel+'</button>';
+    if(ddOpen){
+      var dayNamesD=['Mo','Tu','We','Th','Fr','Sa'];var datesD=wkDates();
+      h+='<div class="defer-drawer">';
+      h+='<div><label>Start Time</label><input class="dinp" type="time" value="'+(j.DeferredTime||'')+'" style="width:110px" onchange="updJ(\''+j.JobID+'\',\'DeferredTime\',this.value);rJobs()"/></div>';
+      h+='<div><label>On These Days</label><div class="defer-days">';
+      for(var di2=0;di2<6;di2++){
+        if(!jobInRange(j,datesD[di2]))continue;
+        var ison2=ddays2.indexOf(datesD[di2])>=0;
+        h+='<div class="defer-day'+(ison2?' on':'')+'" onclick="tgDeferDay(\''+j.JobID+'\',\''+datesD[di2]+'\')">';
+        h+=dayNamesD[di2]+'</div>';
+      }
+      h+='</div></div>';
+      if(j.DeferredTime||ddays2.length){
+        h+='<button class="btn sm" style="color:var(--red)" onclick="clrDefer(\''+j.JobID+'\')">';
+        h+='Clear</button>';
+      }
+      h+='</div>';
+    }
+    h+='</div>';
+   h+='<label class="chk-pw" style="margin-bottom:8px;display:inline-flex;width:fit-content"><input type="checkbox" '+(pw?'checked':'')+' onchange="updJ(\''+j.JobID+'\',\'PrevailingWage\',this.checked?\'Yes\':\'No\')"/> Prevailing Wage</label>';
+    var hasPB=j.PartialBilling==='Yes';var pbd=j.PartialBillDate||'';var ppct=j.PartialPercent||'';var billed=parseFloat(j.BilledToDate)||0;var bPaused=j.BillingPaused==='Yes';
+    h+='<label class="chk-bill" style="display:inline-flex;width:fit-content"><input type="checkbox" '+(hasPB?'checked':'')+' onchange="updJ(\''+j.JobID+'\',\'PartialBilling\',this.checked?\'Yes\':\'No\');rJobs()"/> Partial Billing</label>';
+    if(hasPB){h+='<div class="bill-fields">';
+    h+='<div><label>Next Bill Date</label><input class="dinp" type="date" value="'+pbd+'" onchange="updJ(\''+j.JobID+'\',\'PartialBillDate\',this.value)" style="width:130px"/></div>';
+    h+='<div><label>Partial %</label><input class="dinp" type="number" min="1" max="100" value="'+ppct+'" onchange="updJ(\''+j.JobID+'\',\'PartialPercent\',this.value)" style="width:70px"/></div>';
+    h+='<div><label>Billed To Date %</label><input class="dinp" type="number" min="0" max="100" value="'+billed+'" onchange="updJ(\''+j.JobID+'\',\'BilledToDate\',this.value)" style="width:70px;font-weight:700;color:var(--cyan)"/></div>';
+    h+='<div><label>Paused</label><input type="checkbox" '+(bPaused?'checked':'')+' onchange="updJ(\''+j.JobID+'\',\'BillingPaused\',this.checked?\'Yes\':\'No\')" style="width:16px;height:16px;accent-color:var(--ylw)"/></div>';
+    h+='<div><label>Notes</label><input class="dinp" value="'+(j.BillingNotes||'')+'" onchange="updJ(\''+j.JobID+'\',\'BillingNotes\',this.value)" style="width:160px" placeholder="Billing notes"/></div>';
+    h+='</div>';}
+    var isNB=j.NoBill==='Yes';
+    h+='<label class="chk-nb" style="display:inline-flex;width:fit-content"><input type="checkbox" '+(isNB?'checked':'')+' onchange="updJ(\''+j.JobID+'\',\'NoBill\',this.checked?\'Yes\':\'No\');rJobs()"/> No Bill</label>';
+    if(isNB){h+='<div class="bill-fields"><div style="flex:1"><label>Reason (required)</label><input class="dinp" value="'+(j.NoBillReason||'')+'" onchange="updJ(\''+j.JobID+'\',\'NoBillReason\',this.value)" placeholder="Why is this job not billed?" style="width:100%;border-color:'+(j.NoBillReason?'var(--brdl)':'var(--red)')+'"/></div></div>';}
+    var curTypes=(j.WorkType||'').split(',').map(function(t){return t.trim();});
+    h+='<div style="font-size:8px;text-transform:uppercase;color:var(--dim);font-weight:600;margin-bottom:3px">Work Types</div>';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">';
+    for(var wi=0;wi<D.workTypes.length;wi++){var wt=D.workTypes[wi];var isOn=curTypes.indexOf(wt)>=0;h+='<label style="display:flex;align-items:center;gap:3px;font-size:10px;cursor:pointer;padding:2px 6px;border-radius:3px;background:'+(isOn?'var(--s3)':'var(--surface)')+';border:1px solid '+(isOn?'var(--red)':'var(--brd)')+'"><input type="checkbox" value="'+wt+'" '+(isOn?'checked':'')+' onchange="tgWT(\''+j.JobID+'\')" class="wtcb-'+j.JobID+'" style="width:12px;height:12px"/>'+wt+'</label>';}
+    h+='</div>';
+    var jHasRange=!!(j.StartDate&&String(j.StartDate).trim()!==''||j.EndDate&&String(j.EndDate).trim()!=='');
+    h+='<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:8px;text-transform:uppercase;color:var(--dim);font-weight:700;margin-bottom:3px;letter-spacing:1px">'+(jHasRange?'<span style="color:#fff;font-weight:700">Scheduled Days Available</span>':'<span style="color:var(--red)">&#9888; Set Start/End dates to enable crew assignment</span>')+'</div>';
+    h+='<div class="dzone" ondragover="dzO(event)" ondragleave="dzL(event)" ondrop="'+(jHasRange?'dzD(event,\''+j.JobID+'\')':'event.preventDefault();msg(\'Set Start/End dates before assigning crew\',\'err\')')+'">'; 
+    var unames=wkAsgnUnique(j.JobID);var dayNames=['Mo','Tu','We','Th','Fr','Sa'];var dates=wkDates();
+    if(unames.length){
+      h+='<div style="width:100%"><div style="display:flex;align-items:center;gap:3px;padding:2px 0;margin-bottom:4px"><div style="width:100px"></div><div class="crew-tg-days">';
+      for(var di=0;di<6;di++){h+='<div style="width:32px;text-align:center;font-family:\'Barlow Condensed\',sans-serif;font-size:8px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">'+dayNames[di]+'</div>';}
+      h+='</div><div style="width:22px"></div></div>';
+      for(var ui=0;ui<unames.length;ui++){var cn=unames[ui];var cdays=crewJobDays(j.JobID,cn);var esc2=cn.replace(/'/g,"\\'");
+      h+='<div class="crew-tg-row"><div class="crew-tg-name" title="'+cn+'">'+flipName(cn)+'</div><div class="crew-tg-days">';
+      for(var di=0;di<6;di++){var onDay=cdays.indexOf(dates[di])>=0;var inRng=jobInRange(j,dates[di]);if(!inRng){h+='<div style="width:32px;flex-shrink:0"></div>';}else{h+='<div class="tg-day'+(onDay?' tg-on':'')+'" onclick="tgCrewDay(\''+j.JobID+'\',\''+esc2+'\',\''+dates[di]+'\','+(!onDay)+')">'+dayNames[di]+'</div>';}}
+      h+='</div><button class="crew-tg-x" onclick="rmCrew(\''+j.JobID+'\',\''+esc2+'\')" title="Remove">✕</button></div>';}
+      h+='</div>';}
+    else{h+='<div class="mt">Drop crew here</div>';}
+    var jAssigned=wkAsgnUnique(j.JobID);
+    if(jAssigned.length){h+='<button class="btn sm p" style="margin-top:4px" onclick="event.stopPropagation();sendJobSchedule(\''+j.JobID+'\')">&#128228; Send This Job\'s Schedule</button>';}
+    h+='</div></div></div>';
+    }
+  }
+  if(!wj.length){h+='<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--dim)">No jobs this week</div>';}
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+function gTag(t){if(!t)return '';t=t.toLowerCase();if(t.indexOf('flake')>=0)return 'fl';if(t.indexOf('epoxy')>=0)return 'ep';if(t.indexOf('caulk')>=0)return 'ca';if(t.indexOf('demo')>=0)return 'de';if(t.indexOf('joint')>=0||t.indexOf('fill')>=0||t.indexOf('seal')>=0)return 'jo';if(t.indexOf('plenum')>=0)return 'pl';return '';}
+function wTags(wt){if(!wt)return '';var types=String(wt).split(',');var h='';for(var i=0;i<types.length;i++){var t=types[i].trim();if(t)h+='<span class="tg '+gTag(t)+'">'+t+'</span>';}return h;}
+function wList(wt){if(!wt)return '';return String(wt).split(',').map(function(t){return t.trim();}).filter(function(t){return t;}).join(', ');}
+
+var bWkStart=getMonday(new Date());
+function bWkEnd(){var d=new Date(bWkStart);d.setDate(d.getDate()+6);return d;}
+function bFmtWk(){var ms=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var e=new Date(bWkStart);e.setDate(e.getDate()+5);return ms[bWkStart.getMonth()]+' '+bWkStart.getDate()+' - '+ms[e.getMonth()]+' '+e.getDate()+', '+e.getFullYear();}
+function bWkNav(dir){bWkStart=new Date(bWkStart);bWkStart.setDate(bWkStart.getDate()+(dir*7));rBilling();}
+function bWkNow(){bWkStart=getMonday(new Date());rBilling();}
+function getBilledToDate(jid){var total=0;if(!D.billingLog)return 0;for(var i=0;i<D.billingLog.length;i++){if(String(D.billingLog[i].JobID)===String(jid))total+=parseFloat(D.billingLog[i].Percent)||0;}return Math.min(total,100);}
+
+function rBilling(){
+  var el=document.getElementById('vB');
+  var ws=fmtD(bWkStart);var we=fmtD(bWkEnd());
+  var h='<div class="wknav"><button class="btn" onclick="bWkNav(-1)">Prev</button><div class="wklbl">'+bFmtWk()+'</div><button class="btn" onclick="bWkNav(1)">Next</button><button class="btn" onclick="bWkNow()">This Week</button></div>';
+  var pending=[];var noBillJobs=[];
+  for(var i=0;i<D.jobs.length;i++){
+    var j=D.jobs[i];var billed=getBilledToDate(j.JobID);
+    if(j.NoBill==='Yes'){if(j.EndDate){var je2=String(j.EndDate).split('T')[0];if(je2<=we)noBillJobs.push(j);}continue;}
+    if(j.EndDate){var je=String(j.EndDate).split('T')[0];if(je<=we&&billed<100){pending.push({job:j,type:'Complete',pct:100-billed,billed:billed,trigger:'End: '+je+(je<ws?' (overdue)':''),paused:false});}}
+    if(j.PartialBilling==='Yes'&&j.PartialBillDate&&j.BillingPaused!=='Yes'){var pbd=String(j.PartialBillDate).split('T')[0];if(pbd<=we&&billed<100){pending.push({job:j,type:'Partial',pct:parseFloat(j.PartialPercent)||0,billed:billed,trigger:'Bill: '+pbd+(pbd<ws?' (overdue)':''),paused:false});}}
+    if(j.BillingPaused==='Yes'&&j.PartialBilling==='Yes'&&billed<100){pending.push({job:j,type:'Partial',pct:parseFloat(j.PartialPercent)||0,billed:billed,trigger:'PAUSED'+(j.PartialBillDate?' - was: '+j.PartialBillDate:''),paused:true});}
+  }
+  var seen={};var dedP=[];for(var i=0;i<pending.length;i++){var k=String(pending[i].job.JobID);if(!seen[k]){seen[k]=true;dedP.push(pending[i]);}}pending=dedP;
+  var confirmed=[];var invoiced=[];
+  if(D.billingLog){for(var i=0;i<D.billingLog.length;i++){var lg=D.billingLog[i];var ld=String(lg.Date).split('T')[0];if(ld>=ws&&ld<=we){var j2=null;for(var ji=0;ji<D.jobs.length;ji++){if(String(D.jobs[ji].JobID)===String(lg.JobID)){j2=D.jobs[ji];break;}}if(lg.Invoiced==='Yes'){invoiced.push({log:lg,job:j2});}else{confirmed.push({log:lg,job:j2});}}}}
+  var confirmedBill=[];var confirmedNB=[];
+  for(var ci=0;ci<confirmed.length;ci++){if(confirmed[ci].job&&confirmed[ci].job.NoBill==='Yes')confirmedNB.push(confirmed[ci]);else confirmedBill.push(confirmed[ci]);}
+  var pCt=0,cCt=0,pausedCt=0;for(var i=0;i<pending.length;i++){if(pending[i].paused)pausedCt++;else if(pending[i].type==='Complete')cCt++;else pCt++;}
+  h+='<div class="rtb-scores">';
+  h+='<div class="rtb-score"><div class="rtb-score-num" style="color:var(--cyan)">'+pCt+'</div><div class="rtb-score-lbl">Pending Partial</div></div>';
+  h+='<div class="rtb-score"><div class="rtb-score-num" style="color:var(--grn)">'+cCt+'</div><div class="rtb-score-lbl">Pending Complete</div></div>';
+  h+='<div class="rtb-score"><div class="rtb-score-num" style="color:var(--ylw)">'+pausedCt+'</div><div class="rtb-score-lbl">Paused</div></div>';
+  h+='<div class="rtb-score"><div class="rtb-score-num" style="color:var(--grn)">'+confirmedBill.length+'</div><div class="rtb-score-lbl">Confirmed</div></div>';
+  h+='<div class="rtb-score"><div class="rtb-score-num" style="color:var(--orn)">'+invoiced.length+'</div><div class="rtb-score-lbl">Invoiced</div></div>';
+  h+='<div class="rtb-score"><div class="rtb-score-num" style="color:#999">'+noBillJobs.length+'</div><div class="rtb-score-lbl">No Bill</div></div>';
+  h+='</div>';
+  h+='<div class="rtb-cols"><div>';
+  h+='<div class="rtb-col-hdr pending">Pending ('+pending.length+')</div>';
+  if(!pending.length)h+='<div style="text-align:center;padding:30px;color:var(--dim);font-size:12px">No items pending</div>';
+  for(var i=0;i<pending.length;i++){
+    var it=pending[i];var j=it.job;var isPsd=it.paused;var newTotal=Math.min(it.billed+it.pct,100);
+    var esc=String(j.JobID);
+    h+='<div class="rtb-card'+(isPsd?' paused':'')+(it.type==='Complete'&&!isPsd?' complete':'')+'">';
+    h+='<div class="rtb-hdr"><div class="rtb-info"><div class="rtb-name">'+j.JobNum+' - '+j.JobName+'</div>';
+    h+='<div class="rtb-meta"><span style="font-weight:700;color:'+(it.type==='Complete'?'var(--grn)':'var(--cyan)')+'">'+it.type+(isPsd?' (PAUSED)':'')+'</span>';
+    h+='<span>'+it.trigger+'</span>';
+    if(j.Amount)h+='<span>'+j.Amount+'</span>';
+    h+=wTags(j.WorkType);if(isPW(j))h+='<span class="pw-tag">PW</span>';
+    h+='</div></div>';
+    h+='<div class="rtb-pct"><div class="rtb-bar"><div class="rtb-bar-fill'+(newTotal>=100?' done':'')+'" style="width:'+newTotal+'%"></div></div>';
+    h+='<div class="rtb-pct-lbl'+(newTotal>=100?' done':'')+'">'+it.pct+'%</div></div></div>';
+    if(it.type==='Partial'){
+      h+='<div class="rtb-edit"><div class="rtb-edit-grid">';
+      h+='<div><label>Next Bill Date</label><input class="dinp" type="date" value="'+(j.PartialBillDate||'')+'" onchange="updJ(\''+esc+'\',\'PartialBillDate\',this.value);setTimeout(rBilling,200)"/></div>';
+      h+='<div><label>Bill %</label><input class="dinp" type="number" min="1" max="100" value="'+(j.PartialPercent||'')+'" onchange="updJ(\''+esc+'\',\'PartialPercent\',this.value);setTimeout(rBilling,200)"/></div>';
+      h+='<div><label>Notes</label><input class="dinp" value="'+(j.BillingNotes||'')+'" onchange="updJ(\''+esc+'\',\'BillingNotes\',this.value)" placeholder="Notes"/></div>';
+      h+='</div></div>';
+    }
+    if(j.BillingNotes&&it.type!=='Partial')h+='<div style="padding:4px 14px;font-size:10px;color:var(--orn)">'+j.BillingNotes+'</div>';
+    h+='<div class="rtb-acts">';
+    if(!isPsd){
+      h+='<button class="btn sm" style="background:var(--cyan);color:#fff;border-color:var(--cyan)" onclick="confirmBill(\''+esc+'\','+it.pct+',\''+it.type+'\')">Confirm</button>';
+      h+='<button class="btn sm" onclick="pauseBill(\''+esc+'\')">Pause</button>';
+    }else{
+      h+='<button class="btn sm" style="background:var(--ylw);color:#fff;border-color:var(--ylw)" onclick="unpauseBill(\''+esc+'\')">Unpause</button>';
+      h+='<button class="btn sm" onclick="rescheduleBill(\''+esc+'\')">Reschedule</button>';
+    }
+    h+='</div>';
+    var logs=[];if(D.billingLog){for(var li=0;li<D.billingLog.length;li++){if(String(D.billingLog[li].JobID)===String(j.JobID))logs.push(D.billingLog[li]);}}
+    if(logs.length){h+='<div class="rtb-log"><div class="rtb-log-title">History ('+it.billed+'% billed)</div>';for(var li=0;li<logs.length;li++){var lg2=logs[li];h+='<div class="rtb-log-row"><span class="rtb-log-date">'+lg2.Date+'</span><span>'+lg2.Percent+'% '+lg2.Type+'</span></div>';}h+='</div>';}
+    h+='</div>';
+  }
+  h+='</div><div>';
+  h+='<div class="rtb-col-hdr confirmed">Confirmed This Week ('+confirmedBill.length+')</div>';
+  if(!confirmedBill.length)h+='<div style="text-align:center;padding:30px;color:var(--dim);font-size:12px">Nothing confirmed yet</div>';
+  for(var ci=0;ci<confirmedBill.length;ci++){
+    var c=confirmedBill[ci];var lg=c.log;var j=c.job;var cumPct=parseFloat(lg.CumulativePercent)||0;
+    var escJ=String(lg.JobID);var escD=String(lg.Date);
+    h+='<div class="rtb-card complete"><div class="rtb-hdr"><div class="rtb-info"><div class="rtb-name">'+(j?j.JobNum+' - '+j.JobName:'Job '+lg.JobID)+'</div>';
+    h+='<div class="rtb-meta"><span style="font-weight:700;color:var(--grn)">'+lg.Type+'</span><span>Confirmed '+lg.Date+'</span>';
+    if(j&&j.Amount)h+='<span>'+j.Amount+'</span>';if(j)h+=wTags(j.WorkType);if(j&&isPW(j))h+='<span class="pw-tag">PW</span>';
+    h+='</div></div>';
+    h+='<div class="rtb-pct"><div class="rtb-bar"><div class="rtb-bar-fill'+(cumPct>=100?' done':'')+'" style="width:'+cumPct+'%"></div></div>';
+    h+='<div class="rtb-pct-lbl'+(cumPct>=100?' done':'')+'">'+lg.Percent+'%</div></div></div>';
+    h+='<div class="rtb-acts"><div style="font-size:10px;color:var(--muted);flex:1">Cumulative: '+cumPct+'%'+(cumPct>=100?' FULLY BILLED':'')+'</div>';
+    h+='<button class="btn sm" style="background:var(--orn);color:#fff;border-color:var(--orn)" onclick="markInvoiced(\''+escJ+'\',\''+escD+'\','+lg.Percent+')">Mark Invoiced</button>';
+    h+='<button class="btn sm" style="color:var(--red)" onclick="deleteBillLog(\''+escJ+'\',\''+escD+'\','+lg.Percent+')">X Delete</button></div>';
+    h+='</div>';
+  }
+  if(confirmedNB.length){
+    h+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0 6px;margin-top:8px">';
+    h+='<div style="flex:1;height:1px;background:var(--brd)"></div>';
+    h+='<div style="font-size:10px;font-weight:600;color:var(--dim);white-space:nowrap;letter-spacing:.04em">No bill — confirmed</div>';
+    h+='<div style="flex:1;height:1px;background:var(--brd)"></div>';
+    h+='</div>';
+    for(var ci=0;ci<confirmedNB.length;ci++){
+      var c=confirmedNB[ci];var lg=c.log;var j=c.job;var cumPct=parseFloat(lg.CumulativePercent)||0;
+      var escJ=String(lg.JobID);var escD=String(lg.Date);
+      h+='<div class="rtb-card complete" style="opacity:0.5"><div class="rtb-hdr"><div class="rtb-info"><div class="rtb-name">'+(j?j.JobNum+' - '+j.JobName:'Job '+lg.JobID)+'</div>';
+      h+='<div class="rtb-meta"><span style="font-weight:700;color:var(--grn)">'+lg.Type+'</span><span>Confirmed '+lg.Date+'</span>';
+      if(j&&j.Amount)h+='<span>'+j.Amount+'</span>';if(j)h+=wTags(j.WorkType);if(j&&isPW(j))h+='<span class="pw-tag">PW</span>';h+='<span class="nb-tag">NO BILL</span>';
+      h+='</div></div>';
+      h+='<div class="rtb-pct"><div class="rtb-bar"><div class="rtb-bar-fill'+(cumPct>=100?' done':'')+'" style="width:'+cumPct+'%"></div></div>';
+      h+='<div class="rtb-pct-lbl'+(cumPct>=100?' done':'')+'">'+lg.Percent+'%</div></div></div>';
+      h+='<div class="rtb-acts"><div style="font-size:10px;color:var(--muted);flex:1">Cumulative: '+cumPct+'%'+(cumPct>=100?' FULLY BILLED':'')+'</div>';
+      h+='<button class="btn sm" style="color:var(--red)" onclick="deleteBillLog(\''+escJ+'\',\''+escD+'\','+lg.Percent+')">X Delete</button></div>';
+      h+='</div>';
+    }
+  }
+  h+='</div><div>';
+  h+='<div class="rtb-col-hdr" style="border-bottom-color:var(--orn)">Invoiced This Week ('+invoiced.length+')</div>';
+  if(!invoiced.length)h+='<div style="text-align:center;padding:30px;color:var(--dim);font-size:12px">None invoiced yet</div>';
+  for(var ii=0;ii<invoiced.length;ii++){
+    var c=invoiced[ii];var lg=c.log;var j=c.job;var cumPct=parseFloat(lg.CumulativePercent)||0;
+    var escJ=String(lg.JobID);var escD=String(lg.Date);
+    h+='<div class="rtb-card complete" style="border-left-color:var(--orn)"><div class="rtb-hdr"><div class="rtb-info"><div class="rtb-name">'+(j?j.JobNum+' - '+j.JobName:'Job '+lg.JobID)+'</div>';
+    h+='<div class="rtb-meta"><span style="font-weight:700;color:var(--orn)">Invoiced</span><span>'+lg.Date+'</span>';
+    if(j&&j.Amount)h+='<span>'+j.Amount+'</span>';if(j)h+=wTags(j.WorkType);if(j&&isPW(j))h+='<span class="pw-tag">PW</span>';
+    h+='</div></div>';
+    h+='<div class="rtb-pct"><div class="rtb-bar"><div class="rtb-bar-fill done" style="width:'+cumPct+'%"></div></div>';
+    h+='<div class="rtb-pct-lbl done">'+lg.Percent+'%</div></div></div>';
+    h+='<div class="rtb-acts"><div style="font-size:10px;color:var(--muted);flex:1">Invoiced: '+(lg.InvoicedDate||lg.Date)+'</div>';
+    h+='<button class="btn sm" style="color:var(--red)" onclick="deleteBillLog(\''+escJ+'\',\''+escD+'\','+lg.Percent+')">X Delete</button></div>';
+    h+='</div>';
+  }
+  h+='</div></div>';
+  if(noBillJobs.length){
+    h+='<div style="margin-top:16px;border-top:1px solid var(--brd);padding-top:12px">';
+    h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#999;margin-bottom:8px;cursor:pointer" onclick="var el=document.getElementById(\'nbList\');el.style.display=el.style.display===\'none\'?\'block\':\'none\'">No Bill Jobs ('+noBillJobs.length+') ▾</div>';
+    h+='<div id="nbList" style="display:none">';
+    for(var ni=0;ni<noBillJobs.length;ni++){
+      var nj=noBillJobs[ni];
+      h+='<div class="rtb-card" style="border-left-color:#999;opacity:.7"><div class="rtb-hdr"><div class="rtb-info">';
+      h+='<div class="rtb-name">'+nj.JobNum+' - '+nj.JobName+'</div>';
+      h+='<div class="rtb-meta"><span class="nb-tag">NO BILL</span>';
+      h+=wTags(nj.WorkType);if(isPW(nj))h+='<span class="pw-tag">PW</span>';
+      if(nj.Amount)h+='<span>'+nj.Amount+'</span>';
+      h+='</div>';
+      h+='<div style="font-size:10px;color:var(--orn);margin-top:3px">Reason: '+(nj.NoBillReason||'<em style="color:var(--red)">No reason provided</em>')+'</div>';
+      h+='</div></div></div>';
+    }
+    h+='</div></div>';
+  }
+  el.innerHTML=h;
+}
+function confirmBill(jid,pct,type){
+  if(!confirm('Confirm billing '+pct+'% ('+type+')?'))return;
+  var today=fmtD(new Date());var oldBilled=getBilledToDate(jid);var newBilled=Math.min(oldBilled+pct,100);
+  if(!D.billingLog)D.billingLog=[];
+  D.billingLog.push({JobID:String(jid),Date:today,Percent:String(pct),CumulativePercent:String(newBilled),Type:type,Notes:''});
+  for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){D.jobs[i].BilledToDate=String(newBilled);if(type==='Partial'&&newBilled<100){D.jobs[i].PartialBillDate='';D.jobs[i].PartialPercent='';}if(newBilled>=100){D.jobs[i].PartialBilling='No';D.jobs[i].PartialBillDate='';D.jobs[i].PartialPercent='';}break;}}
+  rBilling();msg('Billing confirmed: '+pct+'%','ok');sSync('ing');
+  google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).logBilling(String(jid),today,String(pct),String(newBilled),type,'');
+  var u={BilledToDate:String(newBilled)};if(type==='Partial'&&newBilled<100){u.PartialBillDate='';u.PartialPercent='';}if(newBilled>=100){u.PartialBilling='No';u.PartialBillDate='';u.PartialPercent='';}
+  google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){msg('Job update error — refresh and verify','err');}).updateJob(jid,u);
+}
+function pauseBill(jid){updJ(jid,'BillingPaused','Yes');setTimeout(rBilling,100);}
+function unpauseBill(jid){updJ(jid,'BillingPaused','No');setTimeout(rBilling,100);}
+function rescheduleBill(jid){var nd=prompt('New billing date (YYYY-MM-DD):');if(!nd)return;updJ(jid,'PartialBillDate',nd);updJ(jid,'BillingPaused','No');setTimeout(rBilling,200);}
+
+function exportBilling(){
+  var ws=fmtD(bWkStart);var we=fmtD(bWkEnd());var items=[];
+  for(var i=0;i<D.jobs.length;i++){var j=D.jobs[i];var billed=getBilledToDate(j.JobID);if(j.EndDate){var je=String(j.EndDate).split('T')[0];if(je<=we&&billed<100)items.push({job:j,type:'Complete',pct:100-billed,billed:billed});}if(j.PartialBilling==='Yes'&&j.PartialBillDate){var pbd=String(j.PartialBillDate).split('T')[0];if(pbd<=we&&billed<100&&j.BillingPaused!=='Yes')items.push({job:j,type:'Partial',pct:parseFloat(j.PartialPercent)||0,billed:billed});}}
+  var confItems=[];if(D.billingLog){for(var i=0;i<D.billingLog.length;i++){var lg=D.billingLog[i];var ld=String(lg.Date).split('T')[0];if(ld>=ws&&ld<=we){var j2=null;for(var ji=0;ji<D.jobs.length;ji++){if(String(D.jobs[ji].JobID)===String(lg.JobID)){j2=D.jobs[ji];break;}}confItems.push({log:lg,job:j2});}}}
+  var t='READY TO BILL - '+bFmtWk()+'\n========================================\n\n';
+  if(items.length){t+='--- PENDING ---\n\n';for(var i=0;i<items.length;i++){var it=items[i];var j=it.job;t+=j.JobNum+' - '+j.JobName+'\nType: '+it.type+' | This Cycle: '+it.pct+'% | Billed: '+it.billed+'% | New Total: '+Math.min(it.billed+it.pct,100)+'%\n';if(j.Amount)t+='Contract: '+j.Amount+'\n';if(isPW(j))t+='** PREVAILING WAGE **\n';if(j.BillingNotes)t+='Note: '+j.BillingNotes+'\n';t+='\n';}}
+  if(confItems.length){t+='--- CONFIRMED ---\n\n';for(var i=0;i<confItems.length;i++){var c=confItems[i];var lg=c.log;var j=c.job;t+=(j?j.JobNum+' - '+j.JobName:'Job '+lg.JobID)+'\nConfirmed: '+lg.Date+' | '+lg.Percent+'% '+lg.Type+' | Cumulative: '+lg.CumulativePercent+'%\n\n';}}
+  if(!items.length&&!confItems.length)t+='No billing items this week.\n';
+  navigator.clipboard.writeText(t).then(function(){msg('Billing export copied','ok');}).catch(function(){msg('Copy failed','err');});
+}
+
+function deleteBillLog(jid,date,pct){
+  if(!confirm('Delete billing record: '+pct+'% on '+date+'?'))return;
+  if(D.billingLog){for(var i=D.billingLog.length-1;i>=0;i--){var lg=D.billingLog[i];if(String(lg.JobID)===String(jid)&&String(lg.Date)===date&&parseFloat(lg.Percent)===pct){D.billingLog.splice(i,1);break;}}}
+  var newBilled=getBilledToDate(jid);
+  for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){D.jobs[i].BilledToDate=String(newBilled);break;}}
+  rBilling();msg('Billing record deleted','wrn');sSync('ing');
+  google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).deleteBillingLog(String(jid),date,String(pct));
+  google.script.run.updateJob(jid,{BilledToDate:String(newBilled)});
+}
+function markInvoiced(jobId, date, pct){
+  if(!confirm('Mark this entry as invoiced?'))return;
+  if(D.billingLog){
+    for(var i=0;i<D.billingLog.length;i++){
+      var lg=D.billingLog[i];
+      if(String(lg.JobID)===String(jobId)&&String(lg.Date)===String(date)){
+        lg.Invoiced='Yes';
+        lg.InvoicedDate=fmtD(new Date());
+        break;
+      }
+    }
+  }
+  rBilling();
+  google.script.run.withSuccessHandler(function(){
+    refreshData();
+  }).markBillingInvoiced(jobId, date);
+}
+function rCal(){
+  var yr=cD.getFullYear();var mo=cD.getMonth();
+  var ms=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cMo').textContent=ms[mo]+' '+yr;
+  var fd=new Date(yr,mo,1).getDay();var dim=new Date(yr,mo+1,0).getDate();var pd=new Date(yr,mo,0).getDate();var now=new Date();
+  var b=document.getElementById('cB');var h='';var dn=1;var nn=1;
+  var numRows=Math.ceil((fd+dim)/7)+1;
+  for(var r=0;r<numRows;r++){for(var c=0;c<7;c++){
+    var ci=r*7+c;var om=false;var d;var dt;
+    if(ci<fd){d=pd-fd+ci+1;om=true;dt=new Date(yr,mo-1,d);}
+    else if(dn>dim){d=nn++;om=true;dt=new Date(yr,mo+1,d);}
+    else{d=dn++;dt=new Date(yr,mo,d);}
+    var it=!om&&dt.getFullYear()===now.getFullYear()&&dt.getMonth()===now.getMonth()&&dt.getDate()===now.getDate();
+    var cls='cday'+(om?' om':'')+(it?' td':'');var ds=fmtD(dt);
+    h+='<div class="'+cls+'"><div class="dn">'+d+'</div><div class="cev">';
+    for(var ji=0;ji<D.jobs.length;ji++){var j=D.jobs[ji];if(!j.StartDate||!j.EndDate)continue;var st=String(j.StartDate).split('T')[0];var en=String(j.EndDate).split('T')[0];if(ds>=st&&ds<=en){var cc=0;for(var ai=0;ai<D.assignments.length;ai++){var ad=D.assignments[ai].Date||D.assignments[ai].WeekOf;if(String(D.assignments[ai].JobID)===String(j.JobID)&&ad===ds)cc++;}var co=j.Color||jCol(ji);h+='<div class="ce" style="background:'+(isPW(j)?'var(--pw)':co)+'" title="'+j.JobNum+' '+j.JobName+'">'+j.JobNum+' '+j.JobName+' <span style="background:#39ff14;color:#000;padding:0 3px;border-radius:2px;margin-left:2px;font-weight:700">'+cc+'</span></div>';}}
+    h+='</div></div>';
+  }}
+  b.innerHTML=h;
+  var lg=document.getElementById('cL');var lh='';
+  for(var i=0;i<D.jobs.length;i++){var j2=D.jobs[i];if(!j2.StartDate)continue;var c2=isPW(j2)?'var(--pw)':(j2.Color||jCol(i));lh+='<div class="cleg-i"><div class="cleg-d" style="background:'+c2+'"></div>'+j2.JobNum+' - '+j2.JobName+(isPW(j2)?' <span class="pw-tag" style="font-size:7px">PW</span>':'')+'</div>';}
+  lg.innerHTML=lh;
+}
+function cNav(dir){cD.setMonth(cD.getMonth()+dir);rCal();}
+function cNow(){cD=new Date();rCal();}
+function rStats(){
+  var days=['Mon','Tue','Wed','Thu','Fri','Sat'];var dates=wkDates();var today=fmtD(new Date());var wj=wkJobs();
+  var ac=activeCrew();
+  var h='<div class="sb-label"></div>';
+  for(var i=0;i<6;i++){h+='<div class="sb-day'+(dates[i]===today?' sb-today':'')+'">'+days[i]+'<br><span style="font-size:9px;opacity:.6">'+dates[i].split('-')[1]+'/'+dates[i].split('-')[2]+'</span></div>';}
+  h+='<div class="sb-label" style="color:var(--pop)">Avail</div>';
+  for(var i=0;i<6;i++){var out=0;var asgn=0;for(var ci=0;ci<ac.length;ci++){var st=getCSt(ac[ci].Name,dates[i]);if(st!=='available'){out++;}else{var isAsgn=false;for(var ji=0;ji<wj.length;ji++){var wa=wkAsgn(wj[ji].JobID);for(var ai=0;ai<wa.length;ai++){if(wa[ai].CrewName===ac[ci].Name&&(wa[ai].Date||wa[ai].WeekOf)===dates[i]){isAsgn=true;break;}}if(isAsgn)break;}if(isAsgn)asgn++;}}var av=ac.length-out-asgn;h+='<div class="sb-val '+(av<=1?'sb-warn':av<=3?'sb-ok':'sb-good')+'" onclick="showDayDetail(\''+dates[i]+'\')">'+av+'</div>';}
+  h+='<div class="sb-label" style="color:var(--red)">Out</div>';
+  for(var i=0;i<6;i++){var out=0;for(var ci=0;ci<ac.length;ci++){if(getCSt(ac[ci].Name,dates[i])!=='available')out++;}h+='<div class="sb-val '+(out>0?'sb-out':'sb-none')+'">'+out+'</div>';}
+  document.getElementById('statsBar').innerHTML=h;
+  setTimeout(fixLayout,10);
+}
+
+function tgJ(id){var s=String(id);exJ[s]=!exJ[s];rJobs();}
+function tgSt(name,st){openDayPicker(name,st);}
+function openDayPicker(name,st){var days=['Mon','Tue','Wed','Thu','Fri','Sat'];var dates=wkDates();var h='<h3 style="margin-bottom:10px">'+name+' — '+st.toUpperCase()+'</h3><div style="font-size:12px;color:var(--muted);margin-bottom:12px">Select days:</div><div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';for(var i=0;i<6;i++){var ds=dates[i];var cur=getCSt(name,ds);var on=cur===st;h+='<button class="btn'+(on?' p':'')+'" style="min-width:52px" onclick="tgDay(this,\''+name+'\',\''+st+'\',\''+ds+'\')" data-ds="'+ds+'" data-on="'+(on?'1':'0')+'">'+days[i]+'</button>';}h+='</div><div class="macts"><button class="btn" onclick="closeM(\'mDay\')">Done</button></div>';var md=document.getElementById('mDay');if(!md){md=document.createElement('div');md.id='mDay';md.className='mbg';md.onclick=function(e){if(e.target===md)md.classList.remove('show');};md.innerHTML='<div class="mdl"></div>';document.body.appendChild(md);}md.querySelector('.mdl').innerHTML=h;md.classList.add('show');}
+function tgDay(btn,name,st,ds){var on=btn.dataset.on==='1';var ns=on?'available':st;var k=name+'|'+ds;if(ns==='available')delete CS[k];else CS[k]=ns;btn.dataset.on=on?'0':'1';btn.className='btn'+(on?'':' p');render();writing=true;sSync('ing');google.script.run.withSuccessHandler(function(){writing=false;sSync('ok');}).withFailureHandler(function(){writing=false;msg('Error','err');sSync('bad');}).updateCrewStatus(name,ns,ds);}
+function updJ(jid,f,v){
+  var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+  if(!job)return;
+  if(f==='EndDate'&&v&&job.StartDate){var sd=String(job.StartDate).split('T')[0];if(v<sd){msg('End date ('+v+') is before start date ('+sd+')','err');return;}}
+  if(f==='StartDate'&&v&&job.EndDate){var ed=String(job.EndDate).split('T')[0];if(v>ed){msg('Start date ('+v+') is after end date ('+ed+')','err');return;}}
+  job[f]=v;render();sSync('ing');var u={};u[f]=v;
+  google.script.run.withSuccessHandler(function(){sSync('ok');msg(f+' saved','inf');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).updateJob(jid,u);
+}
+function tgWT(jid){var cbs=document.querySelectorAll('.wtcb-'+jid);var wts=[];for(var i=0;i<cbs.length;i++){if(cbs[i].checked)wts.push(cbs[i].value);}updJ(jid,'WorkType',wts.join(','));}
+
+function dzO(e){e.preventDefault();e.currentTarget.classList.add('over');}
+function dzL(e){e.currentTarget.classList.remove('over');}
+function dzD(e,jid){e.preventDefault();e.currentTarget.classList.remove('over');if(!drag)return;openAssignPicker(drag.name,jid);drag=null;}
+function reD(e,name,fj){drag={name:name,from:fj};}
+
+function asCrewDays(jid,name,dates){
+  for(var i=0;i<dates.length;i++){var dup=false;for(var ai=0;ai<D.assignments.length;ai++){var ad=D.assignments[ai].Date||D.assignments[ai].WeekOf;if(String(D.assignments[ai].JobID)===String(jid)&&D.assignments[ai].CrewName===name&&ad===dates[i]){dup=true;break;}}if(!dup)D.assignments.push({JobID:String(jid),CrewName:name,Date:dates[i]});}
+  render();msg(name+' assigning...','ok');writing=true;sSync('ing');var dStr=dates.join(',');
+  google.script.run.withSuccessHandler(function(){writing=false;sSync('ok');msg('Saved','ok');}).withFailureHandler(function(e){writing=false;msg('Error: '+(e?e.message:'unknown'),'err');sSync('bad');}).assignCrewDays(String(jid),String(name),dStr);
+}
+
+function rmCrew(jid,name,silent){
+  var dates=crewJobDays(jid,name);var n=[];for(var i=0;i<D.assignments.length;i++){var ad=D.assignments[i].Date||D.assignments[i].WeekOf;if(!(String(D.assignments[i].JobID)===String(jid)&&D.assignments[i].CrewName===name&&dates.indexOf(ad)>=0))n.push(D.assignments[i]);}
+  D.assignments=n;render();if(!silent)msg(flipName(name)+' removed','wrn');sSync('ing');var dStr=dates.join(',');
+  google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).unassignCrewDays(String(jid),String(name),dStr);
+}
+function tgCrewDay(jid,name,dateStr,adding){
+  if(adding){
+    var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+    if(!job||!jobInRange(job,dateStr))return;
+    D.assignments.push({JobID:String(jid),CrewName:name,Date:dateStr});render();
+    sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).assignCrewDays(String(jid),String(name),dateStr);
+  }else{
+    var n=[];for(var i=0;i<D.assignments.length;i++){var a=D.assignments[i];if(!(String(a.JobID)===String(jid)&&a.CrewName===name&&(a.Date||a.WeekOf)===dateStr))n.push(a);}
+    D.assignments=n;render();
+    sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).unassignCrewDays(String(jid),String(name),dateStr);
+  }
+}
+function jCol(idx){return JC[idx%JC.length];}
+var showArchived=false;
+function rCrewList(){
+  var ac=activeCrew();var arch=D.crew.filter(function(c){return c.Archived==='Yes';});
+  var h='<table class="cl-tbl"><tr><th>Name</th><th>Team</th><th>Phone</th><th style="width:140px">Actions</th></tr>';
+  for(var i=0;i<D.crew.length;i++){var c=D.crew[i];if(c.Archived==='Yes')continue;var esc=c.Name.replace(/'/g,"\\'");
+  h+='<tr id="clr-'+i+'"><td>'+flipName(c.Name)+'</td><td>'+(c.Team||'—')+'</td><td>'+(c.Phone||'—')+'</td><td><button class="btn sm" onclick="clEdit('+i+')">Edit</button> <button class="btn sm" onclick="clArchive(\''+esc+'\')">Archive</button></td></tr>';}
+  h+='</table>';if(!ac.length)h='<div style="color:var(--dim);padding:20px;text-align:center">No active crew members</div>';
+  h+='<div style="margin-top:14px;border-top:1px solid var(--brd);padding-top:10px">';
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);cursor:pointer" onclick="showArchived=!showArchived;rCrewList()">Archived ('+arch.length+') '+(showArchived?'▴':'▾')+'</div>';
+  if(showArchived&&arch.length){
+    h+='<div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">';
+    for(var ai=0;ai<arch.length;ai++){var a2=arch[ai];var esc2=a2.Name.replace(/'/g,"\\'");
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-radius:4px;background:var(--s2);border:1px solid var(--brd);cursor:pointer" onclick="showArchivedCrewHistory(\''+esc2+'\')">';
+    h+='<span style="font-size:12px;color:var(--muted)">'+flipName(a2.Name)+'</span><span style="font-size:10px;color:var(--dim)">View history ›</span></div>';}
+    h+='</div>';
+  }else if(showArchived){h+='<div style="font-size:11px;color:var(--dim);padding:8px 0">No archived crew members</div>';}
+  h+='</div>';
+  document.getElementById('crewListBody').innerHTML=h;
+}
+function clArchive(name){
+  if(!confirm('Archive '+flipName(name)+'? They will be hidden from active views. All future assignments will be removed.'))return;
+  for(var i=0;i<D.crew.length;i++){if(D.crew[i].Name===name){D.crew[i].Archived='Yes';break;}}
+  var today=fmtD(new Date());var kept=[];var byJob={};
+  for(var i=0;i<D.assignments.length;i++){
+    var a=D.assignments[i];var ad=a.Date||a.WeekOf;
+    if(a.CrewName===name&&ad>=today){var jk=String(a.JobID);if(!byJob[jk])byJob[jk]=[];byJob[jk].push(ad);}
+    else kept.push(a);
+  }
+  D.assignments=kept;
+  var removedCount=0;for(var jk in byJob)removedCount+=byJob[jk].length;
+  rCrewList();render();msg(flipName(name)+' archived — '+removedCount+' future day'+(removedCount!==1?'s':'')+' removed','wrn');
+  sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).archiveCrewMember(name,'Yes');
+  for(var jk in byJob){(function(j,d){google.script.run.withSuccessHandler(function(){}).withFailureHandler(function(){}).unassignCrewDays(j,name,d.join(','));})(jk,byJob[jk]);}
+}
+function clUnarchive(name){
+  for(var i=0;i<D.crew.length;i++){if(D.crew[i].Name===name){D.crew[i].Archived='No';break;}}
+  rCrewList();render();msg(flipName(name)+' restored to active','ok');
+  sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).archiveCrewMember(name,'No');
+}
+function showArchivedCrewHistory(name){
+  var ms=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var weekMap={};
+  for(var i=0;i<D.assignments.length;i++){
+    var a=D.assignments[i];if(a.CrewName!==name)continue;
+    var ad=a.Date||a.WeekOf;var mon=getMonday(new Date(ad+'T12:00:00'));var wk=fmtD(mon);
+    if(!weekMap[wk])weekMap[wk]=[];weekMap[wk].push(a);
+  }
+  var weeks=Object.keys(weekMap).sort().reverse();
+  var esc=name.replace(/'/g,"\\'");
+  var h='<div class="jh-back" onclick="rCrewList()" style="margin-bottom:12px">← Back to Crew List</div>';
+  h+='<div style="font-size:16px;font-weight:700;margin-bottom:4px">'+flipName(name)+'</div>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-bottom:14px">Archived crew member</div>';
+  h+='<button class="btn sm p" style="margin-bottom:16px" onclick="clUnarchive(\''+esc+'\')">Restore to Active</button>';
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Work History ('+weeks.length+' weeks)</div>';
+  if(!weeks.length){h+='<div class="jh-empty">No assignment history found</div>';}
+  else{for(var wi=0;wi<weeks.length;wi++){
+    var wk=weeks[wi];var wkA=weekMap[wk];
+    var wkMon=new Date(wk+'T12:00:00');var wkSat=new Date(wkMon);wkSat.setDate(wkSat.getDate()+5);
+    var wkLabel=ms[wkMon.getMonth()]+' '+wkMon.getDate()+' - '+ms[wkSat.getMonth()]+' '+wkSat.getDate()+', '+wkSat.getFullYear();
+    var jobDays={};for(var ai=0;ai<wkA.length;ai++){var jid=String(wkA[ai].JobID);if(!jobDays[jid])jobDays[jid]=[];jobDays[jid].push(wkA[ai].Date||wkA[ai].WeekOf);}
+    var jkeys=Object.keys(jobDays);
+    h+='<div class="jh-wk-card"><div class="jh-wk-title"><span>'+wkLabel+'</span><span>'+jkeys.length+' job'+(jkeys.length!==1?'s':'')+'</span></div><div class="jh-wk-crew">';
+    for(var ji=0;ji<jkeys.length;ji++){
+      var job=null;for(var jli=0;jli<D.jobs.length;jli++){if(String(D.jobs[jli].JobID)===jkeys[ji]){job=D.jobs[jli];break;}}
+      var jlabel=job?job.JobNum+' - '+job.JobName:'Job '+jkeys[ji];
+      var savedWk=wkStart;var dl='';
+      try{wkStart=wkMon;dl=dayLabel(jobDays[jkeys[ji]]);}finally{wkStart=savedWk;}
+      h+='<div class="jh-wk-chip">'+jlabel+' <span style="font-size:8px;color:var(--blu);margin-left:2px">'+dl+'</span></div>';
+    }
+    h+='</div></div>';
+  }}
+  document.getElementById('crewListBody').innerHTML=h;
+}
+function clEdit(idx){
+  var c=D.crew[idx];var esc=c.Name.replace(/'/g,"\\'");
+  var h='<tr id="clr-'+idx+'"><td><input class="cl-inp" id="clE-name-'+idx+'" value="'+c.Name+'"/></td><td><input class="cl-inp" id="clE-team-'+idx+'" value="'+(c.Team||'')+'"/></td><td><input class="cl-inp" id="clE-phone-'+idx+'" value="'+(c.Phone||'')+'"/></td><td><button class="btn sm p" onclick="clSave('+idx+',\''+esc+'\')">Save</button> <button class="btn sm" onclick="rCrewList()">X</button></td></tr>';
+  var row=document.getElementById('clr-'+idx);if(row)row.outerHTML=h;
+}
+function clSave(idx,oldName){
+  var n=document.getElementById('clE-name-'+idx).value.trim();
+  var t=document.getElementById('clE-team-'+idx).value.trim();
+  var p=document.getElementById('clE-phone-'+idx).value.trim();
+  if(!n){msg('Name required','err');return;}
+  var updates={Name:n,Team:t,Phone:p};
+  D.crew[idx].Name=n;D.crew[idx].Team=t;D.crew[idx].Phone=p;
+  if(n!==oldName){for(var i=0;i<D.assignments.length;i++){if(D.assignments[i].CrewName===oldName)D.assignments[i].CrewName=n;}
+  for(var i=0;i<D.crewStatus.length;i++){if(D.crewStatus[i].Name===oldName)D.crewStatus[i].Name=n;}}
+  rCrewList();render();msg(flipName(n)+' updated','ok');
+  sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error saving','err');sSync('bad');}).updateCrewMember(oldName,updates);
+}
+function clDel(name){
+  if(!confirm('Delete '+flipName(name)+' and all their assignments?'))return;
+  D.crew=D.crew.filter(function(c){return c.Name!==name;});
+  D.assignments=D.assignments.filter(function(a){return a.CrewName!==name;});
+  D.crewStatus=D.crewStatus.filter(function(s){return s.Name!==name;});
+  rCrewList();render();msg(flipName(name)+' deleted','wrn');
+  sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).deleteCrewMember(name);
+}
+function clAdd(){
+  var n=document.getElementById('clName').value.trim();
+  var t=document.getElementById('clTeam').value.trim();
+  var p=document.getElementById('clPhone').value.trim();
+  if(!n){msg('Name required','err');return;}
+  var crewData={Name:n,Team:t,Phone:p};
+  D.crew.push(crewData);rCrewList();render();
+  document.getElementById('clName').value='';document.getElementById('clTeam').value='';document.getElementById('clPhone').value='';
+  msg(flipName(n)+' added','ok');
+  sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).addCrewMember(crewData);
+}
+function openAssignPicker(name,jid){
+  var days=['Mon','Tue','Wed','Thu','Fri','Sat'];var dates=wkDates();var existing=crewJobDays(jid,name);var otherJobs=crewAllDays(name);
+  var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+  var hasStart=job&&job.StartDate&&String(job.StartDate).trim()!=='';var hasEnd=job&&job.EndDate&&String(job.EndDate).trim()!=='';
+  if(!hasStart&&!hasEnd){msg('Set Start/End dates on this job before assigning crew','err');return;}
+  var h='<h3>Assign '+name+'</h3><div style="font-size:11px;color:var(--muted);margin-bottom:12px">to <b style="color:var(--blu)">'+(job?job.JobNum+' - '+job.JobName:'Job '+jid)+'</b></div>';
+  var jobDays=[];var jStart=job&&job.StartDate?String(job.StartDate).split('T')[0]:'';var jEnd=job&&job.EndDate?String(job.EndDate).split('T')[0]:'';for(var di=0;di<6;di++){var inRange=true;if(jStart&&dates[di]<jStart)inRange=false;if(jEnd&&dates[di]>jEnd)inRange=false;if(inRange)jobDays.push(di);}var qdLbl=dayLabel(jobDays.map(function(di){return dates[di];}));h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Select days: <button class="btn sm" onclick="pickJobDays(['+jobDays.join(',')+'])">'+qdLbl+'</button></div>';
+  var jStart2=job&&job.StartDate?String(job.StartDate).split('T')[0]:'';var jEnd2=job&&job.EndDate?String(job.EndDate).split('T')[0]:'';var hasRange=!!(jStart2||jEnd2);
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">';
+  for(var i=0;i<6;i++){var on=existing.indexOf(dates[i])>=0;var other=otherJobs[dates[i]];var otherJob=other&&other.length>0;var inRange=!hasRange||((!jStart2||dates[i]>=jStart2)&&(!jEnd2||dates[i]<=jEnd2));var cls=on?'p':'';if(!inRange){h+='<button class="btn" style="min-width:48px;padding:6px 4px;display:flex;flex-direction:column;align-items:center;gap:1px;opacity:.3;cursor:not-allowed" disabled data-ds="'+dates[i]+'" data-on="0"><span>'+days[i]+'</span><span style="font-size:8px;opacity:.7">'+String(dates[i].split('-')[2])+'</span></button>';}else{h+='<button class="btn '+cls+'" style="min-width:48px;padding:6px 4px;display:flex;flex-direction:column;align-items:center;gap:1px'+(otherJob&&!on?';background:#edf5ff;border-color:var(--blu);color:var(--blu)':'')+'" onclick="tgAssignDay(this,\''+dates[i]+'\')" data-ds="'+dates[i]+'" data-on="'+(on?'1':'0')+'"><span>'+days[i]+'</span><span style="font-size:8px;opacity:.7">'+String(dates[i].split('-')[2])+'</span></button>';}}
+  h+='</div>';
+  var otherNotes=[];for(var i=0;i<dates.length;i++){if(otherJobs[dates[i]]){for(var oi=0;oi<otherJobs[dates[i]].length;oi++){var oj=otherJobs[dates[i]][oi];if(String(oj.jobId)!==String(jid)){otherNotes.push(name+' on '+(oj.job?oj.job.JobNum+'-'+oj.job.JobName:'Job '+oj.jobId)+' '+days[dates.indexOf(dates[i])]);}}}}
+  var unique={};for(var i=0;i<otherNotes.length;i++)unique[otherNotes[i]]=true;var ukeys=Object.keys(unique);
+  if(ukeys.length){h+='<div style="font-size:9px;color:var(--orn);margin-bottom:10px">';for(var i=0;i<ukeys.length;i++)h+='⚠ '+ukeys[i]+'<br>';h+='</div>';}
+  h+='<div class="macts"><button class="btn" onclick="closeM(\'mAssign\')">Cancel</button><button class="btn p" onclick="doAssignDays(\''+jid+'\',\''+name+'\')">Assign</button></div>';
+  var md=document.getElementById('mAssign');if(!md){md=document.createElement('div');md.id='mAssign';md.className='mbg';md.onclick=function(e){if(e.target===md)md.classList.remove('show');};md.innerHTML='<div class="mdl"></div>';document.body.appendChild(md);}md.querySelector('.mdl').innerHTML=h;md.classList.add('show');
+}
+
+function tgAssignDay(btn,ds){var on=btn.dataset.on==='1';btn.dataset.on=on?'0':'1';if(on){btn.className='btn';btn.style.background='';btn.style.borderColor='';btn.style.color='';}else{btn.className='btn p';btn.style.background='';btn.style.borderColor='';btn.style.color='';}}
+
+function showDayDetail(dateStr){var days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];var dt=new Date(dateStr+'T12:00:00');var dayName=days[dt.getDay()];var mo=dt.getMonth()+1;var dd=dt.getDate();var wj=wkJobs();var avail=[];var out=[];var assigned=[];var ac=activeCrew();for(var ci=0;ci<ac.length;ci++){var cn=ac[ci].Name;var st=getCSt(cn,dateStr);if(st!=='available'){out.push({name:cn,reason:st});}else{var onJob=null;for(var ji=0;ji<wj.length;ji++){var cjd=crewJobDays(wj[ji].JobID,cn);if(cjd.indexOf(dateStr)>=0){onJob=wj[ji];break;}}if(onJob)assigned.push({name:cn,job:onJob.JobNum+' - '+onJob.JobName});else avail.push(cn);}}var h='<h3>'+dayName+' '+mo+'/'+dd+'</h3>';h+='<div style="margin-top:12px"><div style="font-size:11px;font-weight:700;color:var(--grn);margin-bottom:4px">Available ('+avail.length+')</div>';if(avail.length){for(var i=0;i<avail.length;i++)h+='<div style="font-size:12px;padding:3px 0">• '+flipName(avail[i])+'</div>';}else{h+='<div style="font-size:11px;color:var(--dim);padding:3px 0">None</div>';}h+='</div>';h+='<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:var(--blu);margin-bottom:4px">Assigned ('+assigned.length+')</div>';for(var i=0;i<assigned.length;i++)h+='<div style="font-size:12px;padding:3px 0">• '+flipName(assigned[i].name)+' <span style="font-size:10px;color:var(--muted)">→ '+assigned[i].job+'</span></div>';h+='</div>';h+='<div style="margin-top:10px"><div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:4px">Out ('+out.length+')</div>';for(var i=0;i<out.length;i++)h+='<div style="font-size:12px;padding:3px 0">• '+flipName(out[i].name)+' <span style="font-size:10px;color:var(--dim)">('+out[i].reason+')</span></div>';h+='</div>';h+='<div class="macts"><button class="btn" onclick="closeM(\'mDayDetail\')">Close</button></div>';var md=document.getElementById('mDayDetail');if(!md){md=document.createElement('div');md.id='mDayDetail';md.className='mbg';md.onclick=function(e){if(e.target===md)md.classList.remove('show');};md.innerHTML='<div class="mdl"></div>';document.body.appendChild(md);}md.querySelector('.mdl').innerHTML=h;md.classList.add('show');}
+
+function pickJobDays(idxs){var md=document.getElementById('mAssign');var btns=md.querySelectorAll('[data-ds]');for(var i=0;i<btns.length;i++){if(idxs.indexOf(i)>=0){btns[i].dataset.on='1';btns[i].className='btn p';}else{btns[i].dataset.on='0';btns[i].className='btn';}btns[i].style.background='';btns[i].style.borderColor='';btns[i].style.color='';}}
+
+function doAssignDays(jid,name){
+  var md=document.getElementById('mAssign');var btns=md.querySelectorAll('[data-ds]');var existing=crewJobDays(jid,name);
+  var selected=[];for(var i=0;i<btns.length;i++){if(btns[i].dataset.on==='1')selected.push(btns[i].dataset.ds);}
+  if(!selected.length){md.classList.remove('show');msg('No days selected','wrn');return;}
+  var toAdd=[];for(var i=0;i<selected.length;i++){if(existing.indexOf(selected[i])<0)toAdd.push(selected[i]);}
+  var toRemove=[];for(var i=0;i<existing.length;i++){if(selected.indexOf(existing[i])<0)toRemove.push(existing[i]);}
+  md.classList.remove('show');
+  if(toRemove.length){var n=[];for(var i=0;i<D.assignments.length;i++){var ad=D.assignments[i].Date||D.assignments[i].WeekOf;if(!(String(D.assignments[i].JobID)===String(jid)&&D.assignments[i].CrewName===name&&toRemove.indexOf(ad)>=0))n.push(D.assignments[i]);}D.assignments=n;sSync('ing');var dStr=toRemove.join(',');google.script.run.withSuccessHandler(function(){sSync('ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).unassignCrewDays(String(jid),String(name),dStr);}
+  if(toAdd.length){asCrewDays(jid,name,toAdd);}else{render();}
+}
+function buildWTSelect(){var el=document.getElementById('fJt');var h='';for(var i=0;i<D.workTypes.length;i++){var wt=D.workTypes[i];h+='<label style="display:flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;padding:2px 6px;border-radius:3px;background:var(--surface);border:1px solid var(--brd)"><input type="checkbox" class="fJtCb" value="'+wt+'" style="width:13px;height:13px"/>'+wt+'</label>';}el.innerHTML=h;rWTList();}
+function rWTList(){var el=document.getElementById('wtList');if(!el)return;var h='';for(var i=0;i<D.workTypes.length;i++){h+='<div class="wti"><span>'+D.workTypes[i]+'</span><button onclick="doDelWT(\''+D.workTypes[i]+'\')">X</button></div>';}el.innerHTML=h;}
+function doAddWT(){var v=document.getElementById('fWt').value;if(!v)return;D.workTypes.push(v);buildWTSelect();document.getElementById('fWt').value='';sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');msg('Type added','ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).addWorkType(v);}
+function doDelWT(name){var n=[];for(var i=0;i<D.workTypes.length;i++){if(D.workTypes[i]!==name)n.push(D.workTypes[i]);}D.workTypes=n;buildWTSelect();sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');msg('Removed','wrn');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).deleteWorkType(name);}
+
+function doAddJob(){
+  var newNum=document.getElementById('fJn').value||'NEW';
+  for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobNum)===newNum){if(!confirm('Job '+newNum+' already exists ('+D.jobs[i].JobName+', Status: '+(D.jobs[i].Status||'Active')+'). Add duplicate anyway?'))return;break;}}
+  var cbs=document.querySelectorAll('.fJtCb');var wts=[];for(var i=0;i<cbs.length;i++){if(cbs[i].checked)wts.push(cbs[i].value);}
+  var jd={JobNum:document.getElementById('fJn').value||'NEW',JobName:document.getElementById('fJna').value||'Untitled',Amount:document.getElementById('fJa').value?'$'+document.getElementById('fJa').value:'',WorkType:wts.join(','),CrewNeeded:document.getElementById('fJc').value||'',Lead:document.getElementById('fJl').value,Vehicle:document.getElementById('fJv').value,Equipment:document.getElementById('fJe').value,PowerSource:document.getElementById('fJp').value,SOW:document.getElementById('fJs').value,StartDate:document.getElementById('fJsd').value,EndDate:document.getElementById('fJed').value,PrevailingWage:document.getElementById('fJpw').checked?'Yes':'No',Color:''};
+  document.getElementById('fJn').value='';document.getElementById('fJna').value='';document.getElementById('fJa').value='';document.getElementById('fJc').value='';document.getElementById('fJl').value='';document.getElementById('fJv').value='';document.getElementById('fJe').value='';document.getElementById('fJp').value='';document.getElementById('fJs').value='';document.getElementById('fJsd').value='';document.getElementById('fJed').value='';document.getElementById('fJpw').checked=false;closeM('mJob');sSync('ing');
+  D.jobs.push(jd);render();
+  google.script.run.withSuccessHandler(function(r){msg('Job added','ok');sSync('ok');refreshData();}).withFailureHandler(function(){msg('Error adding job','err');sSync('bad');refreshData();}).addJob(jd);
+}
+function doAddCrew(){var cd={Name:document.getElementById('fCn').value,Team:document.getElementById('fCt').value||'Floater',Status:'available',Phone:document.getElementById('fCp').value,Notes:''};if(!cd.Name){msg('Name required','err');return;}closeM('mCrew');document.getElementById('fCn').value='';document.getElementById('fCt').value='';document.getElementById('fCp').value='';sSync('ing');google.script.run.withSuccessHandler(function(){msg('Added','ok');refreshData();}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).addCrewMember(cd);}
+function doDelJob(jid){if(!confirm('Delete this job?'))return;var nj=[];for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)!==String(jid))nj.push(D.jobs[i]);}D.jobs=nj;var na=[];for(var i=0;i<D.assignments.length;i++){if(String(D.assignments[i].JobID)!==String(jid))na.push(D.assignments[i]);}D.assignments=na;render();sSync('ing');google.script.run.withSuccessHandler(function(){sSync('ok');msg('Deleted','wrn');}).withFailureHandler(function(){msg('Error','err');sSync('bad');refreshData();}).deleteJob(jid);}
+
+function showNotify(){var wj=wkJobs();var t='SCHEDULE - '+fmtWk()+'\n========================================\n\n';for(var i=0;i<wj.length;i++){var j=wj[i];var unames=wkAsgnUnique(j.JobID);if(!unames.length)continue;t+='JOB: '+j.JobNum+' - '+j.JobName+(isPW(j)?' [PREVAILING WAGE]':'')+'\nType: '+j.WorkType;if(j.Vehicle)t+=' | Vehicle: '+j.Vehicle;if(j.Equipment)t+=' | Equip: '+j.Equipment;if(j.PowerSource)t+=' | Power: '+j.PowerSource;t+='\nCrew: '+unames.join(', ');if(j.SOW)t+='\nScope: '+j.SOW;t+='\n\n';}var an=wkAssignedNames();var acN=activeCrew();var un=[];for(var i=0;i<acN.length;i++){if(getCSt(acN[i].Name)==='available'&&!an[acN[i].Name])un.push(acN[i].Name);}if(un.length)t+='UNASSIGNED: '+un.join(', ')+'\n';var ot=[];for(var i=0;i<acN.length;i++){var s=getCStWeek(acN[i].Name);if(s!=='available')ot.push(acN[i].Name+' ('+s+')');}if(ot.length)t+='OUT: '+ot.join(', ')+'\n';document.getElementById('nTxt').textContent=t;openM('mNot');}
+
+function tgExportMenu(){var m=document.getElementById('exportMenu');m.style.display=m.style.display==='none'?'block':'none';if(m.style.display==='block'){setTimeout(function(){document.addEventListener('click',function h(e){if(!m.contains(e.target)){m.style.display='none';document.removeEventListener('click',h);}},true);},10);}}
+
+function printWin(title,bodyHtml){
+  var w=window.open('','_blank','width=900,height=700');
+  w.document.write('<!DOCTYPE html><html><head><title>'+title+'</title><style>');
+  w.document.write('body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:24px;} table{width:100%;border-collapse:collapse;margin-top:12px;} th{background:#1c1814;color:#fff;padding:7px 10px;font-size:11px;text-align:left;} td{padding:6px 10px;border-bottom:1px solid #ddd;} tr:nth-child(even){background:#f7f5f2;} h2{font-size:16px;margin:0 0 4px;} .sub{font-size:11px;color:#666;margin-bottom:16px;} .chip{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700;margin-right:3px;background:#eee;}');
+  w.document.write('@media print{button{display:none}}');
+  w.document.write('</style></head><body>');
+  w.document.write('<button onclick="window.print()" style="margin-bottom:16px;padding:8px 20px;background:#1c1814;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Print / Save as PDF</button>');
+  w.document.write(bodyHtml);
+  w.document.write('</body></html>');
+  w.document.close();
+  document.getElementById('exportMenu').style.display='none';
+}
+
+function printWeekSchedule(){
+  var wj=wkJobs();var dates=wkDates();var days=['Mon','Tue','Wed','Thu','Fri','Sat'];
+  var b='<h2>Week Schedule</h2><div class="sub">'+fmtWk()+'</div>';
+  b+='<table><thead><tr><th>Job</th><th>Type</th>';
+  for(var i=0;i<6;i++)b+='<th>'+days[i]+' '+dates[i].split('-')[1]+'/'+dates[i].split('-')[2]+'</th>';
+  b+='</thead><tbody>';
+  for(var i=0;i<wj.length;i++){
+    var j=wj[i];var unames=wkAsgnUnique(j.JobID);if(!unames.length)continue;
+    b+='<tr><td><strong>'+j.JobNum+' - '+j.JobName+'</strong>'+(isPW(j)?' <span class="chip" style="background:#6d28d9;color:#fff">PW</span>':'')+'</td><td>'+j.WorkType+'</td>';
+    for(var di=0;di<6;di++){
+      var ds=dates[di];var dc=[];
+      for(var ai=0;ai<D.assignments.length;ai++){var a=D.assignments[ai];if(String(a.JobID)===String(j.JobID)&&(a.Date||a.WeekOf)===ds)dc.push(a.CrewName);}
+      b+='<td>'+(dc.length?dc.map(function(n){return n.split(',')[0];}).join(', '):'—')+'</td>';
+    }
+    b+='</tr>';
+  }
+  b+='</tbody></table>';
+  printWin('Week Schedule - '+fmtWk(),b);
+}
+
+function printJobList(){
+  var jobs=D.jobs.slice().sort(function(a,b){return (a.JobNum||'').localeCompare(b.JobNum||'');});
+  var b='<h2>Job List</h2><div class="sub">All jobs as of '+fmtD(new Date())+'</div>';
+  b+='<table><thead><tr><th>Job #</th><th>Name</th><th>Type</th><th>Status</th><th>Start</th><th>End</th><th>Crew Needed</th></tr></thead><tbody>';
+  for(var i=0;i<jobs.length;i++){
+    var j=jobs[i];var s=getJobStatus(j);
+    b+='<tr><td>'+j.JobNum+'</td><td>'+j.JobName+(isPW(j)?' <span class="chip" style="background:#6d28d9;color:#fff">PW</span>':'')+'</td><td>'+j.WorkType+'</td><td>'+s+'</td><td>'+(j.StartDate||'—')+'</td><td>'+(j.EndDate||'—')+'</td><td>'+(j.CrewNeeded||'—')+'</td></tr>';
+  }
+  b+='</tbody></table>';
+  printWin('Job List',b);
+}
+
+function printBillingReport(){
+  var ws=fmtD(bWkStart);var we=fmtD(bWkEnd());
+  var pending=[];
+  for(var i=0;i<D.jobs.length;i++){
+    var j=D.jobs[i];var billed=getBilledToDate(j.JobID);
+    if(j.NoBill==='Yes')continue;
+    if(j.EndDate){var je=String(j.EndDate).split('T')[0];if(je<=we&&billed<100)pending.push({job:j,type:'Complete',pct:100-billed,billed:billed});}
+    if(j.PartialBilling==='Yes'&&j.PartialBillDate&&j.BillingPaused!=='Yes'){var pbd=String(j.PartialBillDate).split('T')[0];if(pbd<=we&&billed<100)pending.push({job:j,type:'Partial',pct:parseFloat(j.PartialPercent)||0,billed:billed});}
+    if(j.BillingPaused==='Yes'&&j.PartialBilling==='Yes'&&billed<100)pending.push({job:j,type:'Partial',pct:parseFloat(j.PartialPercent)||0,billed:billed,paused:true});
+  }
+  var seen={};var dedP=[];for(var i=0;i<pending.length;i++){var k=String(pending[i].job.JobID);if(!seen[k]){seen[k]=true;dedP.push(pending[i]);}}pending=dedP;
+  var confirmed=[];
+  if(D.billingLog){for(var i=0;i<D.billingLog.length;i++){var lg=D.billingLog[i];var ld=String(lg.Date).split('T')[0];if(ld>=ws&&ld<=we){var j2=null;for(var ji=0;ji<D.jobs.length;ji++){if(String(D.jobs[ji].JobID)===String(lg.JobID)){j2=D.jobs[ji];break;}}confirmed.push({log:lg,job:j2});}}}
+  var confirmedBill=[];var confirmedNB=[];
+  for(var i=0;i<confirmed.length;i++){if(confirmed[i].job&&confirmed[i].job.NoBill==='Yes')confirmedNB.push(confirmed[i]);else confirmedBill.push(confirmed[i]);}
+  var b='<h2>Billing Report</h2><div class="sub">'+bFmtWk()+'</div>';
+  if(pending.length){
+    b+='<h3 style="margin:16px 0 6px;font-size:13px;color:#555">Pending ('+pending.length+')</h3>';
+    b+='<table><thead><tr><th>Job</th><th>Type</th><th>This Cycle</th><th>Billed</th><th>New Total</th><th>Contract</th><th>Notes</th></tr></thead><tbody>';
+    for(var i=0;i<pending.length;i++){
+      var it=pending[i];var j=it.job;var nt=Math.min(it.billed+it.pct,100);
+      b+='<tr><td><strong>'+j.JobNum+' - '+j.JobName+'</strong>'+(isPW(j)?' <span class="chip" style="background:#6d28d9;color:#fff">PW</span>':'')+(it.paused?' <span class="chip" style="background:#e65100;color:#fff">PAUSED</span>':'')+'</td>';
+      b+='<td>'+it.type+'</td><td>'+it.pct+'%</td><td>'+it.billed+'%</td><td><strong>'+nt+'%</strong></td>';
+      b+='<td>'+(j.Amount?'$'+j.Amount:'—')+'</td><td>'+(j.BillingNotes||'—')+'</td></tr>';
+    }
+    b+='</tbody></table>';
+  }
+  if(confirmedBill.length){
+    b+='<h3 style="margin:16px 0 6px;font-size:13px;color:#555">Confirmed This Week ('+confirmedBill.length+')</h3>';
+    b+='<table><thead><tr><th>Job</th><th>Type</th><th>%</th><th>Cumulative</th><th>Date</th></tr></thead><tbody>';
+    for(var i=0;i<confirmedBill.length;i++){
+      var c=confirmedBill[i];var lg=c.log;var j=c.job;
+      b+='<tr><td>'+(j?j.JobNum+' - '+j.JobName:'Job '+lg.JobID)+(j&&isPW(j)?' <span class="chip" style="background:#6d28d9;color:#fff">PW</span>':'')+'</td>';
+      b+='<td>'+lg.Type+'</td><td>'+lg.Percent+'%</td><td>'+lg.CumulativePercent+'%</td><td>'+lg.Date+'</td></tr>';
+    }
+    b+='</tbody></table>';
+  }
+  if(confirmedNB.length){
+    b+='<h3 style="margin:20px 0 6px;font-size:13px;color:#999;border-top:1px solid #ddd;padding-top:12px">No bill — confirmed ('+confirmedNB.length+')</h3>';
+    b+='<table style="opacity:0.6"><thead><tr><th>Job</th><th>Type</th><th>%</th><th>Cumulative</th><th>Date</th></tr></thead><tbody>';
+    for(var i=0;i<confirmedNB.length;i++){
+      var c=confirmedNB[i];var lg=c.log;var j=c.job;
+      b+='<tr><td>'+(j?j.JobNum+' - '+j.JobName:'Job '+lg.JobID)+' <span style="font-size:10px;background:#eee;padding:1px 5px;border-radius:3px">NO BILL</span>'+(j&&isPW(j)?' <span class="chip" style="background:#6d28d9;color:#fff">PW</span>':'')+'</td>';
+      b+='<td>'+lg.Type+'</td><td>'+lg.Percent+'%</td><td>'+lg.CumulativePercent+'%</td><td>'+lg.Date+'</td></tr>';
+    }
+    b+='</tbody></table>';
+  }
+  if(!pending.length&&!confirmedBill.length&&!confirmedNB.length)b+='<p style="color:#999;font-size:12px">No billing items this week.</p>';
+  printWin('Billing Report - '+bFmtWk(),b);
+}
+
+function printMaterialsList(){
+  var b='<h2>Materials List</h2><div class="sub">All jobs</div>';
+  b+='<table><thead><tr><th>Job</th><th>Phase</th><th>Material</th><th>Kit Size</th><th>Qty</th><th>Status</th></tr></thead><tbody>';
+  for(var i=0;i<D.materials.length;i++){
+    var m=D.materials[i];var j=null;
+    for(var ji=0;ji<D.jobs.length;ji++){if(String(D.jobs[ji].JobID)===String(m.JobID)){j=D.jobs[ji];break;}}
+    b+='<tr><td>'+(j?j.JobNum+' - '+j.JobName:m.JobID)+'</td><td>'+(m.Phase||'—')+'</td><td>'+m.Material+'</td><td>'+(m.KitSize||'—')+'</td><td>'+(m.QtyOrdered||'—')+'</td><td>'+m.MatStatus+'</td></tr>';
+  }
+  b+='</tbody></table>';
+  printWin('Materials List',b);
+}
+
+function printDailyStatus(){
+  var dates=wkDates();var days=['Mon','Tue','Wed','Thu','Fri','Sat'];var ac=activeCrew();
+  var b='<h2>Daily Crew Status</h2><div class="sub">'+fmtWk()+'</div>';
+  b+='<table><thead><tr><th>Crew</th>';
+  for(var i=0;i<6;i++)b+='<th>'+days[i]+' '+dates[i].split('-')[1]+'/'+dates[i].split('-')[2]+'</th>';
+  b+='</tr></thead><tbody>';
+  for(var ci=0;ci<ac.length;ci++){
+    var c=ac[ci];b+='<tr><td>'+flipName(c.Name)+'</td>';
+    for(var di=0;di<6;di++){
+      var st=getCSt(c.Name,dates[di]);
+      var assigned=null;for(var ji=0;ji<D.jobs.length;ji++){var cjd=crewJobDays(D.jobs[ji].JobID,c.Name);if(cjd.indexOf(dates[di])>=0){assigned=D.jobs[ji];break;}}
+      var cell=st!=='available'?'<span style="color:#c62828;font-weight:700">'+st+'</span>':assigned?assigned.JobNum:'<span style="color:#999">—</span>';
+      b+='<td>'+cell+'</td>';
+    }
+    b+='</tr>';
+  }
+  b+='</tbody></table>';
+  printWin('Daily Crew Status - '+fmtWk(),b);
+}
+
+function doExport(){var wj=wkJobs();var csv='Week: '+fmtWk()+'\nJob\tName\tType\tPW\tNeeded\tAssigned\tVehicle\tEquip\tPower\tScope\n';for(var i=0;i<wj.length;i++){var j=wj[i];var unames=wkAsgnUnique(j.JobID);csv+=j.JobNum+'\t'+j.JobName+'\t'+j.WorkType+'\t'+(isPW(j)?'YES':'')+'\t'+j.CrewNeeded+'\t'+unames.join(', ')+'\t'+(j.Vehicle||'')+'\t'+(j.Equipment||'')+'\t'+(j.PowerSource||'')+'\t'+(j.SOW||'')+'\n';}navigator.clipboard.writeText(csv).then(function(){msg('Copied','ok');}).catch(function(){msg('Failed','err');});}
+
+function openM(id){document.getElementById(id).classList.add('show');if(id==='mWT')rWTList();if(id==='mCrewList')rCrewList();}
+function closeM(id){document.getElementById(id).classList.remove('show');}
+function cpTxt(){navigator.clipboard.writeText(document.getElementById('nTxt').textContent).then(function(){msg('Copied','ok');});}
+
+var ccList=[];var ccIdx=0;var ccJobFilter=null;
+function showCrewCards(){
+  ccList=[];ccIdx=0;ccJobFilter=null;
+  var an=wkAssignedNames();var ac=activeCrew();
+  for(var i=0;i<ac.length;i++){if(an[ac[i].Name])ccList.push(ac[i]);}
+  if(!ccList.length){msg('No crew assigned this week','wrn');return;}
+  ccList.sort(function(a,b){return a.Name<b.Name?-1:1;});
+  openM('mCards');ccRender();
+}
+function ccNav(dir){ccIdx+=dir;if(ccIdx<0)ccIdx=ccList.length-1;if(ccIdx>=ccList.length)ccIdx=0;ccRender();}
+function ccRender(){
+  var c=ccList[ccIdx];var name=c.Name;
+  var ad=crewAllDays(name);var wj=wkJobs();
+  var h='<div class="cc"><div class="cc-name">'+flipName(name)+'</div>';
+  h+='<div class="cc-week">Week of '+fmtWk()+'</div>';
+  var jobMap={};for(var dk in ad){for(var ai=0;ai<ad[dk].length;ai++){var jj=ad[dk][ai];var jk=jj.jobId;if(ccJobFilter&&String(jk)!==ccJobFilter)continue;if(!jobMap[jk])jobMap[jk]={job:jj.job,dates:[]};jobMap[jk].dates.push(dk);}}
+  var jkeys=Object.keys(jobMap);
+  if(jkeys.length){
+    for(var ji=0;ji<jkeys.length;ji++){
+      var jm=jobMap[jkeys[ji]];var j=jm.job;if(!j)continue;
+      var pw=isPW(j);
+      var ddays=j.DeferredDays?String(j.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+      var regularDates=jm.dates.filter(function(d){return ddays.indexOf(d)<0;});
+      var deferredDates=jm.dates.filter(function(d){return ddays.indexOf(d)>=0;});
+      var others=wkAsgnUnique(j.JobID);var withNames=[];for(var oi=0;oi<others.length;oi++){if(others[oi]!==name)withNames.push(others[oi]);}
+      var dbDays=getDoubleBookedDays(name);var jobDates=jm.dates;var hasDb=false;for(var di=0;di<jobDates.length;di++){if(dbDays.indexOf(jobDates[di])>=0){hasDb=true;break;}}
+      h+='<div class="cc-job'+(hasDb?' db':'')+'">';
+      h+='<div class="cc-jname">'+j.JobNum+' - '+j.JobName+(pw?' <span class="cc-pw">PW</span>':'')+(hasDb?' <span class="db-tag">2X BOOKED</span>':'')+'</div>';
+      h+='<div class="cc-jdays" style="display:flex;flex-direction:column;gap:3px">';
+      if(regularDates.length)h+='<span>🟢 '+dayLabel(regularDates)+'&nbsp; → &nbsp;Shop 6:30am</span>';
+      if(deferredDates.length)h+='<span>🟡 '+dayLabel(deferredDates)+'&nbsp; → &nbsp;&#9200; '+fmt12(j.DeferredTime)+' delayed start</span>';
+      if(!deferredDates.length&&!regularDates.length)h+=dayLabel(jm.dates);
+      h+='</div>';
+      h+='<div class="cc-jmeta">';
+      if(j.WorkType)h+=wList(j.WorkType);
+      if(j.Vehicle)h+=' · '+j.Vehicle;
+      if(j.Equipment)h+=' · '+j.Equipment;
+      if(j.PowerSource)h+=' · '+j.PowerSource;
+      h+='</div>';
+      if(withNames.length)h+='<div class="cc-jwith">With: '+withNames.join(', ')+'</div>';
+      h+='</div>';
+    }
+  }else{h+='<div class="cc-none">No assignments this week</div>';}
+  h+='</div>';
+  document.getElementById('ccCards').innerHTML=h;
+  document.getElementById('ccCount').textContent=(ccIdx+1)+' of '+ccList.length;
+}
+function cpCard(){
+  var c=ccList[ccIdx];var name=c.Name;
+  var ad=crewAllDays(name);
+  var t=flipName(name)+'\nWeek of '+fmtWk()+'\n---------------------\n';
+  var jobMap={};for(var dk in ad){for(var ai=0;ai<ad[dk].length;ai++){var jj=ad[dk][ai];var jk=jj.jobId;if(ccJobFilter&&String(jk)!==ccJobFilter)continue;if(!jobMap[jk])jobMap[jk]={job:jj.job,dates:[]};jobMap[jk].dates.push(dk);}}
+  var jkeys=Object.keys(jobMap);
+  for(var ji=0;ji<jkeys.length;ji++){
+    var jm=jobMap[jkeys[ji]];var j=jm.job;if(!j)continue;
+    var pw=isPW(j);
+    var ddays2=j.DeferredDays?String(j.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+    var regularDates2=jm.dates.filter(function(d){return ddays2.indexOf(d)<0;});
+    var deferredDates2=jm.dates.filter(function(d){return ddays2.indexOf(d)>=0;});
+    var others=wkAsgnUnique(j.JobID);var withNames=[];for(var oi=0;oi<others.length;oi++){if(others[oi]!==name)withNames.push(others[oi]);}
+    t+='\n'+j.JobNum+' - '+j.JobName+(pw?' [PW]':'')+'\n';
+    if(regularDates2.length)t+='🟢 '+dayLabel(regularDates2)+': Shop 6:30am\n';
+    if(deferredDates2.length)t+='🟡 '+dayLabel(deferredDates2)+': Delayed start '+fmt12(j.DeferredTime)+'\n';
+    var dbDays=getDoubleBookedDays(name);var jobDates=jm.dates;var hasDb=false;for(var di=0;di<jobDates.length;di++){if(dbDays.indexOf(jobDates[di])>=0){hasDb=true;break;}}
+    if(hasDb)t+='⚠ DOUBLE BOOKED\n';
+    var meta=[];if(j.WorkType)meta.push(wList(j.WorkType));if(j.Vehicle)meta.push(j.Vehicle);if(j.PowerSource)meta.push(j.PowerSource);
+    if(meta.length)t+=meta.join(' · ')+'\n';
+    if(withNames.length)t+='With: '+withNames.join(', ')+'\n';
+    if(j.SOW)t+='SOW: '+j.SOW+'\n';
+  }
+  navigator.clipboard.writeText(t).then(function(){msg('Copied '+flipName(name)+'\'s schedule','ok');});
+}
+var scIdx=0;var scList=[];
+function rSchedules(){
+  var el=document.getElementById('vSC');
+  var an=wkAssignedNames();var ac=activeCrew();
+  scList=[];for(var i=0;i<ac.length;i++){if(an[ac[i].Name])scList.push(ac[i]);}
+  scList.sort(function(a,b){return a.Name<b.Name?-1:1;});
+  if(scIdx>=scList.length)scIdx=0;
+  var h='<div class="sc-wk-nav">';
+  h+='<button class="sc-wk-btn" onclick="wkNav(-1);rSchedules()">Prev Wk</button>';
+  h+='<div class="sc-wk-lbl">'+fmtWk()+'</div>';
+  h+='<button class="sc-wk-btn" onclick="wkNav(1);rSchedules()">Next Wk</button>';
+  h+='</div>';
+  if(!scList.length){h+='<div class="sc-empty">No crew assigned this week</div>';el.innerHTML=h;return;}
+  h+='<div class="sc-nav">';
+  h+='<button class="sc-nav-btn" onclick="scNav(-1)">← Prev</button>';
+  h+='<div class="sc-counter">'+(scIdx+1)+' of '+scList.length+'</div>';
+  h+='<button class="sc-nav-btn" onclick="scNav(1)">Next →</button>';
+  h+='</div>';
+  h+='<div id="scCard"></div>';
+  h+='<button class="sc-copy" onclick="scCopy()">📋 Copy This Schedule</button>';
+  el.innerHTML=h;
+  scRenderCard();
+}
+function scNav(dir){scIdx+=dir;if(scIdx<0)scIdx=scList.length-1;if(scIdx>=scList.length)scIdx=0;document.querySelector('#vSC .sc-counter').textContent=(scIdx+1)+' of '+scList.length;scRenderCard();}
+function scRenderCard(){
+  var c=scList[scIdx];var name=c.Name;
+  var ad=crewAllDays(name);
+  var jobMap={};for(var dk in ad){for(var ai=0;ai<ad[dk].length;ai++){var jj=ad[dk][ai];var jk=jj.jobId;if(!jobMap[jk])jobMap[jk]={job:jj.job,dates:[]};jobMap[jk].dates.push(dk);}}
+  var h='<div class="cc"><div class="cc-name">'+flipName(name)+'</div>';
+  h+='<div class="cc-week">Week of '+fmtWk()+'</div>';
+  var jkeys=Object.keys(jobMap);
+  if(jkeys.length){
+    for(var ji=0;ji<jkeys.length;ji++){
+      var jm=jobMap[jkeys[ji]];var j=jm.job;if(!j)continue;
+      var pw=isPW(j);
+      var ddays=j.DeferredDays?String(j.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+      var regularDates=jm.dates.filter(function(d){return ddays.indexOf(d)<0;});
+      var deferredDates=jm.dates.filter(function(d){return ddays.indexOf(d)>=0;});
+      var others=wkAsgnUnique(j.JobID);var withNames=[];for(var oi=0;oi<others.length;oi++){if(others[oi]!==name)withNames.push(others[oi]);}
+      var dbDays=getDoubleBookedDays(name);var hasDb=false;for(var di=0;di<jm.dates.length;di++){if(dbDays.indexOf(jm.dates[di])>=0){hasDb=true;break;}}
+      h+='<div class="cc-job'+(hasDb?' db':'')+'">';
+      h+='<div class="cc-jname">'+j.JobNum+' - '+j.JobName+(pw?' <span class="cc-pw">PW</span>':'')+(hasDb?' <span class="db-tag">2X BOOKED</span>':'')+'</div>';
+      h+='<div class="cc-jdays" style="display:flex;flex-direction:column;gap:3px">';
+      if(regularDates.length)h+='<span>🟢 '+dayLabel(regularDates)+'&nbsp; → &nbsp;Shop 6:30am</span>';
+      if(deferredDates.length)h+='<span>🟡 '+dayLabel(deferredDates)+'&nbsp; → &nbsp;⏰ '+fmt12(j.DeferredTime)+' delayed start</span>';
+      if(!regularDates.length&&!deferredDates.length)h+=dayLabel(jm.dates);
+      h+='</div>';
+      h+='<div class="cc-jmeta">';
+      if(j.WorkType)h+=wList(j.WorkType);
+      if(j.Vehicle)h+=' · '+j.Vehicle;
+      if(j.Equipment)h+=' · '+j.Equipment;
+      if(j.PowerSource)h+=' · '+j.PowerSource;
+      h+='</div>';
+      if(withNames.length)h+='<div class="cc-jwith">With: '+withNames.map(flipName).join(', ')+'</div>';
+      h+='</div>';
+    }
+  }else{h+='<div class="cc-none">No assignments this week</div>';}
+  h+='</div>';
+  document.getElementById('scCard').innerHTML=h;
+}
+function scCopy(){
+  if(!scList.length)return;
+  var c=scList[scIdx];var name=c.Name;
+  var ad=crewAllDays(name);
+  var t=flipName(name)+'\nWeek of '+fmtWk()+'\n---------------------\n';
+  var jobMap={};for(var dk in ad){for(var ai=0;ai<ad[dk].length;ai++){var jj=ad[dk][ai];var jk=jj.jobId;if(!jobMap[jk])jobMap[jk]={job:jj.job,dates:[]};jobMap[jk].dates.push(dk);}}
+  var jkeys=Object.keys(jobMap);
+  for(var ji=0;ji<jkeys.length;ji++){
+    var jm=jobMap[jkeys[ji]];var j=jm.job;if(!j)continue;
+    var pw=isPW(j);
+    var ddays=j.DeferredDays?String(j.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+    var regularDates=jm.dates.filter(function(d){return ddays.indexOf(d)<0;});
+    var deferredDates=jm.dates.filter(function(d){return ddays.indexOf(d)>=0;});
+    var others=wkAsgnUnique(j.JobID);var withNames=[];for(var oi=0;oi<others.length;oi++){if(others[oi]!==name)withNames.push(others[oi]);}
+    t+='\n'+j.JobNum+' - '+j.JobName+(pw?' [PW]':'')+'\n';
+    if(regularDates.length)t+='🟢 '+dayLabel(regularDates)+': Shop 6:30am\n';
+    if(deferredDates.length)t+='🟡 '+dayLabel(deferredDates)+': Delayed start '+fmt12(j.DeferredTime)+'\n';
+    if(!regularDates.length&&!deferredDates.length)t+='Days: '+dayLabel(jm.dates)+'\n';
+    var meta=[];if(j.WorkType)meta.push(wList(j.WorkType));if(j.Vehicle)meta.push(j.Vehicle);if(j.Equipment)meta.push(j.Equipment);if(j.PowerSource)meta.push(j.PowerSource);
+    if(meta.length)t+=meta.join(' · ')+'\n';
+    if(withNames.length)t+='With: '+withNames.map(flipName).join(', ')+'\n';
+    if(j.SOW)t+='SOW: '+j.SOW+'\n';
+  }
+  navigator.clipboard.writeText(t).then(function(){msg('Copied '+flipName(name)+'\'s schedule','ok');}).catch(function(){msg('Copy failed — select text manually','err');});
+}
+function tgDefer(jid){exDefer[String(jid)]=!exDefer[String(jid)];rJobs();}
+function tgDeferDay(jid,ds){
+  var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+  if(!job)return;
+  var cur=job.DeferredDays?String(job.DeferredDays).split(',').filter(function(x){return x;}):[]; 
+  var idx=cur.indexOf(ds);if(idx>=0)cur.splice(idx,1);else cur.push(ds);
+  job.DeferredDays=cur.join(',');
+  updJ(jid,'DeferredDays',job.DeferredDays);
+}
+function clrDefer(jid){
+  var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+  if(!job)return;
+  job.DeferredTime='';job.DeferredDays='';
+  updJ(jid,'DeferredTime','');updJ(jid,'DeferredDays','');
+  rJobs();
+}
+function sendJobSchedule(jid){
+  var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+  if(!job)return;
+  var names=wkAsgnUnique(jid);
+  if(!names.length){msg('No crew assigned to this job','wrn');return;}
+  ccJobFilter=String(jid);
+  ccList=[];ccIdx=0;
+  var ac=activeCrew();
+  for(var i=0;i<ac.length;i++){if(names.indexOf(ac[i].Name)>=0)ccList.push(ac[i]);}
+  ccList.sort(function(a,b){return a.Name<b.Name?-1:1;});
+  openM('mCards');ccRender();
+}
+function msg(m,t){var e=document.getElementById('tst');e.textContent=m;e.className='toast '+t+' show';setTimeout(function(){e.classList.remove('show');},2500);}
+function getJobStatus(j){var s=String(j.Status||'').trim().toLowerCase();if(s==='on hold'||s==='hold')return 'On Hold';if(s==='complete'||s==='completed'||s==='done')return 'Complete';return 'Ongoing';}
+function jobStatusCls(s){if(s==='On Hold')return 'oh';if(s==='Complete')return 'cp';return 'og';}
+
+function jWkEnd(){var d=new Date(jWkStart);d.setDate(d.getDate()+5);return d;}
+function jFmtWk(){var ms=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];var e=jWkEnd();return ms[jWkStart.getMonth()]+' '+jWkStart.getDate()+' - '+ms[e.getMonth()]+' '+e.getDate()+', '+e.getFullYear();}
+function jWkNav(dir){jWkStart=new Date(jWkStart);jWkStart.setDate(jWkStart.getDate()+(dir*7));rJobsHome();}
+function jWkNow(){jWkStart=getMonday(new Date());rJobsHome();}
+function jWkJobs(){var ws=fmtD(jWkStart);var we=fmtD(jWkEnd());var r=[];for(var i=0;i<D.jobs.length;i++){var j=D.jobs[i];if(!j.StartDate&&!j.EndDate){r.push(j);continue;}var js=j.StartDate?String(j.StartDate).split('T')[0]:'';var je=j.EndDate?String(j.EndDate).split('T')[0]:'';if(!js&&!je){r.push(j);continue;}if(!je)je='9999-12-31';if(!js)js='0000-01-01';if(js<=we&&je>=ws)r.push(j);}return r;}
+function jWkDates(){var r=[];for(var i=0;i<6;i++){var dt=new Date(jWkStart);dt.setDate(dt.getDate()+i);r.push(fmtD(dt));}return r;}
+function jWkAsgn(jid){var dates=jWkDates();var names={};for(var i=0;i<D.assignments.length;i++){var a=D.assignments[i];var ad=a.Date||a.WeekOf;if(String(a.JobID)===String(jid)&&dates.indexOf(ad)>=0)names[a.CrewName]=true;}return Object.keys(names);}
+
+function rJobsHome(){
+  var el=document.getElementById('vJ');
+  if(jhJobId){showJobHistory(jhJobId);return;}
+  var wj=jWkJobs();
+  if(jhSearch){var q=jhSearch.toLowerCase();wj=[];for(var i=0;i<D.jobs.length;i++){var j=D.jobs[i];if((j.JobNum||'').toLowerCase().indexOf(q)>=0||(j.JobName||'').toLowerCase().indexOf(q)>=0||(j.WorkType||'').toLowerCase().indexOf(q)>=0)wj.push(j);}}
+  var og=0,oh=0,cp=0;
+  var ogJobs=[],ohJobs=[],cpJobs=[];
+  for(var i=0;i<wj.length;i++){
+    var s=getJobStatus(wj[i]);
+    if(s==='On Hold'){oh++;ohJobs.push(wj[i]);}
+    else if(s==='Complete'){cp++;cpJobs.push(wj[i]);}
+    else{og++;ogJobs.push(wj[i]);}
+  }
+  var h='<div style="margin-bottom:10px"><input id="jhSrch" style="width:100%;padding:8px 12px;font-size:13px;border:1px solid var(--brdl);border-radius:5px;background:var(--surface);color:var(--txt)" placeholder="Search all jobs by name, number, or work type..." value="'+jhSearch.replace(/"/g,'&quot;')+'" oninput="jhSearch=this.value;rJobsHome();var el=document.getElementById(\'jhSrch\');if(el){var len=el.value.length;el.focus();el.setSelectionRange(len,len)}"/></div>';
+  if(!jhSearch)h+='<div class="wknav"><button class="btn" onclick="jWkNav(-1)">Prev</button><div class="wklbl">'+jFmtWk()+'</div><button class="btn" onclick="jWkNav(1)">Next</button><button class="btn" onclick="jWkNow()">This Week</button></div>';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0">';
+  h+='<div class="jh-scores" style="margin-bottom:0;flex:1">';
+  h+='<div class="jh-score og"><div class="jh-score-num">'+og+'</div><div class="jh-score-lbl">Ongoing</div></div>';
+  h+='<div class="jh-score oh"><div class="jh-score-num">'+oh+'</div><div class="jh-score-lbl">On Hold</div></div>';
+  h+='<div class="jh-score cp"><div class="jh-score-num">'+cp+'</div><div class="jh-score-lbl">Complete</div></div>';
+  h+='</div>';
+  h+='<button class="btn sm" style="margin-left:12px;color:var(--dim);font-size:11px;white-space:nowrap" onclick="openRestoreBin()" title="View deleted jobs">&#x1F5D1; Bin</button>';
+  h+='</div>';
+  h+='<div class="jh-cols">';
+  h+='<div><div class="jh-col-hdr og">Ongoing ('+og+')</div>';
+  for(var i=0;i<ogJobs.length;i++){h+=jCard(ogJobs[i]);}
+  if(!og)h+='<div class="jh-empty">No ongoing jobs this week</div>';
+  h+='</div>';
+  h+='<div><div class="jh-col-hdr oh">On Hold ('+oh+')</div>';
+  for(var i=0;i<ohJobs.length;i++){h+=jCard(ohJobs[i]);}
+  if(!oh)h+='<div class="jh-empty">None</div>';
+  h+='</div>';
+  h+='<div><div class="jh-col-hdr cp">Complete ('+cp+')</div>';
+  for(var i=0;i<cpJobs.length;i++){h+=jCard(cpJobs[i]);}
+  if(!cp)h+='<div class="jh-empty">None</div>';
+  h+='</div>';
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+function jCard(j){
+  var s=getJobStatus(j);var sc=jobStatusCls(s);var pw=isPW(j);
+  var crew=jWkAsgn(j.JobID);
+  var billed=parseFloat(j.BilledToDate)||getBilledToDate(j.JobID);
+  var hasPB=j.PartialBilling==='Yes';var isNB=j.NoBill==='Yes';
+  var h='<div class="jh-row'+(pw?' pw-row':'')+'" onclick="jhJobId=\''+j.JobID+'\';rJobsHome()" style="flex-direction:column;align-items:stretch;gap:4px;padding:10px 12px;margin-bottom:6px">';
+  h+='<div style="display:flex;align-items:center;gap:8px">';
+  h+='<div class="jh-dot '+sc+'"></div>';
+  h+='<div style="flex:1;min-width:0"><div class="jh-rname">'+j.JobNum+' - '+j.JobName+'</div></div>';
+  h+='<div class="jh-rarrow">&#x203a;</div>';
+  h+='<button class="btn sm" style="color:var(--red);border-color:var(--red);padding:2px 7px;font-size:11px;margin-left:4px" onclick="event.stopPropagation();confirmDeleteJob(\''+j.JobID+'\',\''+j.JobNum+' - '+j.JobName+'\')" title="Delete job">&#x1F5D1;</button>';
+  h+='</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:3px;margin-left:18px">';
+  h+=wTags(j.WorkType);
+  if(pw)h+='<span class="pw-tag">PW</span>';
+  if(hasPB)h+='<span class="rtb-tag">RTB</span>';
+  if(isNB)h+='<span class="nb-tag">NO BILL</span>';
+  h+='</div>';
+  if(crew.length||hasPB||billed>0){
+    h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-left:18px;font-size:10px;color:var(--muted)">';
+    if(crew.length)h+='<span>'+crew.length+' crew this week</span>';
+    if(hasPB&&billed>0)h+='<span style="color:var(--cyan);font-weight:600">'+Math.round(billed)+'% billed</span>';
+    h+='</div>';
+  }
+  h+='<select class="jh-status-sel" onclick="event.stopPropagation()" onchange="updJobStatus(\''+j.JobID+'\',this.value)" style="margin-left:18px;width:fit-content">';
+  h+='<option value="Ongoing"'+(s==='Ongoing'?' selected':'')+'>Ongoing</option>';
+  h+='<option value="On Hold"'+(s==='On Hold'?' selected':'')+'>On Hold</option>';
+  h+='<option value="Complete"'+(s==='Complete'?' selected':'')+'>Complete</option>';
+  h+='</select>';
+  h+='</div>';
+  return h;
+}
+
+function jhSetFilter(f){jhFilter=(jhFilter===f)?'all':f;jhJobId=null;rJobsHome();}
+
+function confirmDeleteJob(jid,jname){
+  var md=document.getElementById('mDelJob');
+  if(!md){md=document.createElement('div');md.id='mDelJob';md.className='mbg';md.onclick=function(e){if(e.target===md)md.classList.remove('show');};md.innerHTML='<div class="mdl"></div>';document.body.appendChild(md);}
+  var h='<h3 style="color:var(--red);margin-bottom:8px">Delete Job?</h3>';
+  h+='<div style="font-size:13px;margin-bottom:14px">'+jname+'</div>';
+  h+='<div style="font-size:12px;color:var(--muted);margin-bottom:16px">This will remove the job, all crew assignments, materials, and billing data. Recoverable within 24 hrs.</div>';
+  h+='<div class="macts">';
+  h+='<button class="btn" onclick="closeM(\'mDelJob\')">Cancel</button>';
+  h+='<button class="btn p" style="background:var(--red);border-color:var(--red)" onclick="execDeleteJob(\''+jid+'\')">Delete</button>';
+  h+='</div>';
+  md.querySelector('.mdl').innerHTML=h;md.classList.add('show');
+}
+
+function execDeleteJob(jid){
+  closeM('mDelJob');msg('Deleting...','inf');
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r&&r.success){
+        D.jobs=D.jobs.filter(function(j){return String(j.JobID)!==String(jid);});
+        D.assignments=D.assignments.filter(function(a){return String(a.JobID)!==String(jid);});
+        D.materials=D.materials.filter(function(m){return String(m.JobID)!==String(jid);});
+        D.billingLog=D.billingLog.filter(function(b){return String(b.JobID)!==String(jid);});
+        render();rJobsHome();msg('Job deleted','ok');
+      }else{msg('Delete failed','err');}
+    })
+    .withFailureHandler(function(){msg('Delete failed','err');})
+    .softDeleteJob(String(jid));
+}
+
+function openRestoreBin(){
+  msg('Loading deleted jobs...','inf');
+  google.script.run
+    .withSuccessHandler(function(data){
+      var md=document.getElementById('mRestoreBin');
+      if(!md){md=document.createElement('div');md.id='mRestoreBin';md.className='mbg';md.onclick=function(e){if(e.target===md)md.classList.remove('show');};md.innerHTML='<div class="mdl"></div>';document.body.appendChild(md);}
+      var h='<h3 style="margin-bottom:12px">Deleted Jobs (24hr bin)</h3>';
+      if(!data||!data.length){h+='<div style="font-size:12px;color:var(--dim);margin-bottom:16px">No deleted jobs in the last 24 hours.</div>';}
+      else{
+        h+='<div style="margin-bottom:14px">';
+        for(var i=0;i<data.length;i++){
+          var item=data[i];
+          var age=Math.round((Date.now()-new Date(item.deletedAt).getTime())/60000);
+          var ageStr=age<60?age+'m ago':Math.round(age/60)+'h ago';
+          h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--brd)">';
+          h+='<div style="flex:1;font-size:12px">'+item.jobName+'</div>';
+          h+='<div style="font-size:10px;color:var(--dim)">'+ageStr+'</div>';
+          h+='<button class="btn sm p" onclick="pinRestoreJob(\''+item.jobId+'\')">Restore</button>';
+          h+='</div>';
+        }
+        h+='</div>';
+      }
+      h+='<div class="macts"><button class="btn" onclick="closeM(\'mRestoreBin\')">Close</button></div>';
+      md.querySelector('.mdl').innerHTML=h;md.classList.add('show');
+    })
+    .withFailureHandler(function(){msg('Could not load bin','err');})
+    .getDeletedJobs();
+}
+
+function pinRestoreJob(jid){
+  var pin=prompt('Enter PIN to restore:');
+  if(pin!=='7777'){msg('Incorrect PIN','err');return;}
+  closeM('mRestoreBin');msg('Restoring...','inf');
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r&&r.success){refreshData();msg('Job restored','ok');}
+      else{msg(r&&r.message?r.message:'Restore failed','err');}
+    })
+    .withFailureHandler(function(){msg('Restore failed','err');})
+    .restoreJob(String(jid));
+}
+
+function showJobHistory(jid){
+  var el=document.getElementById('vJ');
+  var job=null;for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){job=D.jobs[i];break;}}
+  if(!job){el.innerHTML='<div class="jh-empty">Job not found</div>';return;}
+  var s=getJobStatus(job);var sc=jobStatusCls(s);var pw=isPW(job);
+  var h='<div class="jh-back" onclick="jhJobId=null;rJobsHome()">← Back to Jobs</div>';
+  h+='<div class="jh-hist-hdr"><input class="dinp" value="'+(job.JobNum||'')+'" style="width:80px;font-size:15px;font-weight:700;display:inline" onchange="updJ(\''+jid+'\',\'JobNum\',this.value)"/> - '+job.JobName+'</div>';
+  h+='<div class="jh-hist-meta">';
+  h+=wTags(job.WorkType);
+  if(pw)h+='<span class="pw-tag">PW</span>';
+  if(job.Vehicle)h+='<span class="tg vh">'+job.Vehicle+'</span>';
+  if(job.StartDate)h+='<span style="color:var(--muted)">Start: '+job.StartDate+'</span>';
+  if(job.EndDate)h+='<span style="color:var(--muted)">End: '+job.EndDate+'</span>';
+  if(job.Lead)h+='<span style="color:var(--blu)">Lead: '+job.Lead+'</span>';
+  h+='<select class="jh-status-sel" onchange="updJobStatus(\''+jid+'\',this.value)">';
+  h+='<option value="Ongoing"'+(s==='Ongoing'?' selected':'')+'>Ongoing</option>';
+  h+='<option value="On Hold"'+(s==='On Hold'?' selected':'')+'>On Hold</option>';
+  h+='<option value="Complete"'+(s==='Complete'?' selected':'')+'>Complete</option>';
+  h+='</select>';
+  h+='</div>';
+  if(job.SOW){h+='<div style="font-size:11px;margin-bottom:12px">Scope: ';if(job.SOW.startsWith('http')||job.SOW.startsWith('www')){h+='<a href="'+(job.SOW.startsWith('http')?job.SOW:'https://'+job.SOW)+'" target="_blank" style="color:var(--blu)">'+job.SOW+'</a>';}else{h+=job.SOW;}h+='</div>';}
+  var aa=allAsgn(jid);
+  var weekMap={};
+  for(var ai=0;ai<aa.length;ai++){var ad=aa[ai].Date||aa[ai].WeekOf;var mon=getMonday(new Date(ad+'T12:00:00'));var wk=fmtD(mon);if(!weekMap[wk])weekMap[wk]=[];weekMap[wk].push(aa[ai]);}
+  var weeks=Object.keys(weekMap).sort().reverse();
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Assignment History ('+weeks.length+' weeks)</div>';
+  if(weeks.length){
+    for(var wi=0;wi<weeks.length;wi++){
+      var wk=weeks[wi];var wkA=weekMap[wk];
+      var wkMon=new Date(wk+'T12:00:00');var wkSat=new Date(wkMon);wkSat.setDate(wkSat.getDate()+5);
+      var ms=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      var wkLabel=ms[wkMon.getMonth()]+' '+wkMon.getDate()+' - '+ms[wkSat.getMonth()]+' '+wkSat.getDate()+', '+wkSat.getFullYear();
+      var names={};for(var ai=0;ai<wkA.length;ai++){var cn=wkA[ai].CrewName;if(!names[cn])names[cn]=[];names[cn].push(wkA[ai].Date||wkA[ai].WeekOf);}
+      var nkeys=Object.keys(names);
+      h+='<div class="jh-wk-card"><div class="jh-wk-title"><span>'+wkLabel+'</span><span>'+nkeys.length+' crew</span></div>';
+      h+='<div class="jh-wk-crew">';
+      for(var ni=0;ni<nkeys.length;ni++){
+        var dts=names[nkeys[ni]];
+        var savedWk=wkStart;var dl='';try{wkStart=wkMon;dl=dayLabel(dts);}finally{wkStart=savedWk;}
+        h+='<div class="jh-wk-chip">'+nkeys[ni]+' <span style="font-size:8px;color:var(--blu);margin-left:2px">'+dl+'</span></div>';
+      }
+      h+='</div></div>';
+    }
+  }else{
+    h+='<div class="jh-empty">No assignment history yet</div>';
+  }
+  el.innerHTML=h;
+}
+
+function updJobStatus(jid,val){
+  for(var i=0;i<D.jobs.length;i++){if(String(D.jobs[i].JobID)===String(jid)){D.jobs[i].Status=val;break;}}
+  rJobsHome();
+  sSync('ing');var u={Status:val};
+  google.script.run.withSuccessHandler(function(){sSync('ok');msg('Status → '+val,'ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).updateJob(jid,u);
+}
+
+var matImp={};
+function jobMats(jid){var r=[];for(var i=0;i<D.materials.length;i++){if(String(D.materials[i].JobID)===String(jid))r.push(D.materials[i]);}return r;}
+
+var matSearch='';
+function rMaterials(){
+  var el=document.getElementById('vM');
+  var allJobs=[];for(var i=0;i<D.jobs.length;i++){var s=getJobStatus(D.jobs[i]);if(s==='Ongoing'||s==='On Hold')allJobs.push(D.jobs[i]);}
+  var jobs=[];
+  if(matSearch){var q=matSearch.toLowerCase();for(var i=0;i<allJobs.length;i++){var j=allJobs[i];if((j.JobNum||'').toLowerCase().indexOf(q)>=0||(j.JobName||'').toLowerCase().indexOf(q)>=0||(j.WorkType||'').toLowerCase().indexOf(q)>=0)jobs.push(j);}}
+  else{jobs=allJobs;}
+  var h='';
+  h+='<div style="margin-bottom:10px"><input style="width:100%;padding:8px 12px;font-size:13px;border:1px solid var(--brdl);border-radius:5px;background:var(--surface);color:var(--txt)" placeholder="Search jobs by name, number, or work type..." value="'+matSearch.replace(/"/g,'&quot;')+'" oninput="matSearch=this.value;rMaterials()"/></div>';
+  h+='<div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:0 0 6px;margin-bottom:8px;border-bottom:1px solid var(--brd)">Materials by Job ('+jobs.length+(matSearch?' found':' active')+')</div>';
+  for(var ji=0;ji<jobs.length;ji++){
+    var j=jobs[ji];var mats=jobMats(j.JobID);var pw=isPW(j);var matExp=!!matImp[j.JobID];
+    var notStk=0;for(var mi=0;mi<mats.length;mi++){var ms=mats[mi].MatStatus||'Not Ordered';if(ms!=='In Stock')notStk++;}
+    var allStk=mats.length>0&&notStk===0;
+    h+='<div class="mat-card'+(pw?' pw-row':'')+(matExp?' imp':'')+'" id="mc-'+j.JobID+'">';
+    h+='<div class="mat-card-hdr" onclick="tgMatImp(\''+j.JobID+'\')">';
+    h+='<div><div class="mat-card-name">'+j.JobNum+' - '+j.JobName+'</div>';
+    h+='<div class="mat-card-meta">'+wList(j.WorkType);
+    if(mats.length){
+      h+=' — '+mats.length+' materials';
+      var phSet={};for(var mi=0;mi<mats.length;mi++){var ph=mats[mi].Phase||'General';phSet[ph]=true;}
+      var phKeys=Object.keys(phSet);if(phKeys.length>1)h+=' · '+phKeys.join(', ');
+    }else{h+=' — no materials';}
+    h+='</div></div>';
+    h+='<div style="display:flex;align-items:center;gap:8px">';
+    if(mats.length){h+='<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#eaf7ef;color:var(--grn)">✓ SOW</span>';}
+    else{h+='<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#fde8e5;color:var(--red)">✗ SOW</span>';}
+    if(mats.length){
+      if(allStk){h+='<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#eaf7ef;color:var(--grn)">✓ In Stock</span>';}
+      else{h+='<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px;background:#fef3c7;color:var(--orn)">⚠ '+notStk+' pending</span>';}
+    }
+    h+='<div class="mat-card-acts"><button class="btn sm" onclick="event.stopPropagation();pickSOW(\''+j.JobID+'\')">Upload SOW</button>';
+    if(mats.length)h+='<button class="btn sm" onclick="event.stopPropagation();clearMats(\''+j.JobID+'\')">Clear</button>';
+    h+='</div></div></div>';
+    if(mats.length&&matExp){
+      var phases={};var pOrder=[];
+      for(var mi=0;mi<mats.length;mi++){
+        var ph=mats[mi].Phase||'General';
+        if(!phases[ph]){phases[ph]={task:mats[mi].Task||'',items:[],idxs:[]};pOrder.push(ph);}
+        phases[ph].items.push(mats[mi]);
+        phases[ph].idxs.push(mi);
+      }
+      for(var pi=0;pi<pOrder.length;pi++){var ph=pOrder[pi];var pd=phases[ph];
+      h+='<div style="padding:6px 14px;background:var(--s2);border-top:1px solid var(--brd);font-size:11px;font-weight:700;color:var(--red)">'+ph+'<span style="font-weight:400;color:var(--muted);margin-left:8px;font-size:10px">'+pd.task.substring(0,100)+(pd.task.length>100?'...':'')+'</span></div>';
+      h+='<table class="mat-tbl"><tr><th>Material</th><th>Kit Size</th><th>Qty</th><th>Coverage</th><th>Status</th><th>Arrival</th><th>Notes</th></tr>';
+      for(var mi=0;mi<pd.items.length;mi++){var m=pd.items[mi];var ordIdx=pd.idxs[mi];var ms=m.MatStatus||'Not Ordered';var msc=ms==='Ordered'?'mat-st-ord':ms==='In Stock'?'mat-st-stk':ms==='Delayed'?'mat-st-del':'mat-st-no';
+      h+='<tr><td style="font-weight:600">'+m.Material+'</td><td>'+m.KitSize+'</td><td>'+m.QtyOrdered+'</td><td>'+m.CoverageRate+'</td>';
+      h+='<td><select class="mat-st '+msc+'" onchange="this.className=\'mat-st \'+({\'Not Ordered\':\'mat-st-no\',Ordered:\'mat-st-ord\',\'In Stock\':\'mat-st-stk\',Delayed:\'mat-st-del\'}[this.value]||\'mat-st-no\');updMat(\''+j.JobID+'\','+ordIdx+',\'MatStatus\',this.value)"><option value="Not Ordered"'+(ms==='Not Ordered'?' selected':'')+'>Not Ordered</option><option value="Ordered"'+(ms==='Ordered'?' selected':'')+'>Ordered</option><option value="In Stock"'+(ms==='In Stock'?' selected':'')+'>In Stock</option><option value="Delayed"'+(ms==='Delayed'?' selected':'')+'>Delayed</option></select></td>';
+      h+='<td><input class="mat-dinp" type="date" value="'+(m.ArrivalDate||'')+'" onchange="updMat(\''+j.JobID+'\','+ordIdx+',\'ArrivalDate\',this.value)"/></td>';
+      h+='<td><input class="mat-notes" value="'+((m.Notes||'').replace(/"/g,'&quot;'))+'" onchange="updMat(\''+j.JobID+'\','+ordIdx+',\'Notes\',this.value)" placeholder="Add note..."/></td></tr>';}
+      h+='</table>';}
+    }else if(!mats.length){h+='<div class="mat-empty">No materials — click Upload SOW to add</div>';}
+    h+='</div>';
+  }
+  if(!jobs.length)h+='<div style="text-align:center;padding:40px;color:var(--dim)">No active jobs</div>';
+  el.innerHTML=h;
+}
+
+function tgMatImp(jid){matImp[jid]=!matImp[jid];rMaterials();}
+
+function doImportCSV(jid){
+  var ta=document.getElementById('csv-'+jid);if(!ta)return;
+  var csv=ta.value;if(!csv.trim()){msg('Paste CSV first','wrn');return;}
+  msg('Extracting...','inf');sSync('ing');
+  google.script.run.withSuccessHandler(function(r){
+    sSync('ok');
+    if(r.success){msg(r.count+' materials imported','ok');matImp[jid]=false;refreshData();}
+    else{msg(r.message||'No materials found','err');}
+  }).withFailureHandler(function(e){msg('Error: '+(e?e.message:'unknown'),'err');sSync('bad');}).importMaterials(String(jid),csv);
+}
+
+function pickSOW(jid){
+  var inp=document.createElement('input');
+  inp.type='file';
+  inp.accept='.xlsx,.xls,.csv';
+  inp.onchange=function(e){
+    var file=e.target.files[0];
+    if(!file)return;
+    msg('Reading '+file.name+'...','inf');
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      try{
+        var data=new Uint8Array(ev.target.result);
+        var wb=XLSX.read(data,{type:'array',cellDates:true});
+        var ws=wb.Sheets[wb.SheetNames[0]];
+        var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+        var mats=parseSOW(rows);
+        if(!mats.length){msg('No materials found in file','err');return;}
+        msg('Found '+mats.length+' materials, importing...','inf');
+        sSync('ing');
+        google.script.run.withSuccessHandler(function(r){
+          sSync('ok');
+          if(r&&r.success){msg(r.count+' materials imported','ok');refreshData();}
+          else{msg((r&&r.message)||'Import failed','err');}
+        }).withFailureHandler(function(e){
+          msg('Error: '+(e?e.message:'unknown'),'err');sSync('bad');
+        }).importSOWMaterials(String(jid),mats);
+      }catch(ex){msg('Error reading file: '+ex.message,'err');}
+    };
+    reader.readAsArrayBuffer(file);
+  };
+  inp.click();
+}
+
+function parseSOW(rows){
+  var results=[];
+  var phase='';var task='';var inMat=false;
+  for(var i=0;i<rows.length;i++){
+    var r=rows[i];
+    var c0=String(r[0]||'').trim();
+    var c1=String(r[1]||'').trim();
+    var c2=String(r[2]||'').trim();
+    if(c0.match(/^Day\s*\d/i)||c0==='Daily Average Required'){
+      phase=c0;task=c2;inMat=false;continue;
+    }
+    if(c1==='SOW'||c1==='Task'){
+      if(c1==='SOW')task=c2;
+      continue;
+    }
+    if(c0==='Material'&&(c2==='Kit Size'||c2.toLowerCase().indexOf('kit')>=0)){
+      inMat=true;continue;
+    }
+    if(c0==='Crew Count'||c0.indexOf('WTC')===0){
+      inMat=false;continue;
+    }
+    if(inMat&&c0&&c0!=='None'&&c0!=='undefined'){
+      results.push({
+        Phase:phase||'General',
+        Task:(task||'').substring(0,200),
+        Material:c0,
+        KitSize:c2||'',
+        QtyOrdered:String(r[3]||''),
+        Mils:String(r[4]||''),
+        CoverageRate:String(r[5]||''),
+        MixTime:String(r[6]||''),
+        MixSpeed:String(r[7]||''),
+        MatStatus:'Not Ordered',
+        ArrivalDate:'',
+        Notes:''
+      });
+    }
+  }
+  return results;
+}
+
+function clearMats(jid){
+  if(!confirm('Clear all materials for this job?'))return;
+  sSync('ing');
+  google.script.run.withSuccessHandler(function(){
+    var nm=[];for(var i=0;i<D.materials.length;i++){if(String(D.materials[i].JobID)!==String(jid))nm.push(D.materials[i]);}D.materials=nm;
+    sSync('ok');msg('Materials cleared','wrn');rMaterials();
+  }).withFailureHandler(function(){msg('Error','err');sSync('bad');}).deleteMaterials(String(jid));
+}
+
+function updMat(jid,ordIdx,field,value){
+  var mats=jobMats(jid);
+  if(mats[ordIdx])mats[ordIdx][field]=value;
+  if(field==='MatStatus')rMaterials();
+  sSync('ing');
+  google.script.run.withSuccessHandler(function(){sSync('ok');msg(field+' updated','ok');}).withFailureHandler(function(){msg('Error','err');sSync('bad');}).updateMaterial(String(jid),ordIdx,field,value);
+}
+
+function rDaily(){
+  var el=document.getElementById('vD');var wj=wkJobs();var days=['Mon','Tue','Wed','Thu','Fri','Sat'];
+  var dates=[];for(var i=0;i<6;i++){var dt=new Date(wkStart);dt.setDate(dt.getDate()+i);dates.push({d:dt,s:fmtD(dt),label:days[i]+' '+String(dt.getMonth()+1)+'/'+String(dt.getDate())});}
+  var today=fmtD(new Date());
+  var h='<div class="wknav"><button class="btn" onclick="wkNav(-1)">Prev</button><div class="wklbl">'+fmtWk()+'</div><button class="btn" onclick="wkNav(1)">Next</button><button class="btn" onclick="wkNow()">This Week</button></div>';
+  h+='<div class="dly-hdr"><div class="dly-hdr-name"></div>';for(var di=0;di<6;di++){h+='<div class="dly-hdr-day'+(dates[di].s===today?' dly-today':'')+'">'+dates[di].label+'</div>';}h+='</div>';
+  for(var ji=0;ji<wj.length;ji++){
+    var j=wj[ji];var unames=wkAsgnUnique(j.JobID);if(!unames.length)continue;
+    var nd=parseInt(j.CrewNeeded)||0;var hasGap=false;
+    var gapRow='<div class="dly-row dly-gap-row"><div class="dly-cell-name" style="font-size:9px;color:var(--red);font-weight:600">⚠ Gaps</div>';
+    for(var di=0;di<6;di++){var dc=0;for(var ui=0;ui<unames.length;ui++){var onJob=crewJobDays(j.JobID,unames[ui]).indexOf(dates[di].s)>=0;if(onJob){var st=getCSt(unames[ui],dates[di].s);if(st==='available')dc++;}}if(nd>0&&dc<nd){hasGap=true;gapRow+='<div class="dly-cell"><div class="dly-d dly-alert">'+dc+'/'+nd+'</div></div>';}else{gapRow+='<div class="dly-cell"></div>';}}gapRow+='</div>';
+    var pw=isPW(j);
+    h+='<div class="dly-card'+(hasGap?' dly-card-gap':'')+'"'+(pw?' style="border-left-color:var(--pw);background:linear-gradient(90deg,#f3e8ff,var(--surface) 30%)"':'')+'>';
+    h+='<div class="dly-card-hdr"><div class="dly-card-info"><span class="dly-card-name">'+j.JobNum+' - '+j.JobName+'</span>';
+    h+=wTags(j.WorkType);
+    if(j.Vehicle)h+='<span class="tg vh">'+j.Vehicle+'</span>';
+    if(pw)h+='<span class="pw-tag">PW</span>';
+    h+='</div><div class="dly-card-badge" style="color:'+(hasGap?'var(--red)':'var(--grn)')+'">'+unames.length+'/'+nd+'</div></div>';
+    for(var ai=0;ai<unames.length;ai++){var cn=unames[ai];var isLead=j.Lead&&cn.toLowerCase().indexOf(j.Lead.toLowerCase())>=0;var dbDays=getDoubleBookedDays(cn);var crewDb=dbDays.length>0;h+='<div class="dly-row"'+(crewDb?' style="background:rgba(57,255,20,.06)"':'')+'><div class="dly-cell-name'+(isLead?' dly-lead':'')+'"><span class="dly-dot-nm" style="background:'+(crewDb?'var(--neon)':isLead?'var(--blu)':'var(--grn)')+'"></span>'+cn+(isLead?' ★':'')+(crewDb?' <span class="db-tag">2X</span>':'')+'</div>';var cjdays=crewJobDays(j.JobID,cn);for(var di=0;di<6;di++){var onJob=cjdays.indexOf(dates[di].s)>=0;var st=getCSt(cn,dates[di].s);var dayDb=dbDays.indexOf(dates[di].s)>=0;if(!onJob)h+='<div class="dly-cell"><div class="dly-d" style="background:var(--s2);color:var(--dim);border-color:var(--brd)">—</div></div>';else if(st==='sick')h+='<div class="dly-cell"><div class="dly-d dly-sick">S</div></div>';else if(st==='off')h+='<div class="dly-cell"><div class="dly-d dly-call">C</div></div>';else if(st==='noshow')h+='<div class="dly-cell"><div class="dly-d dly-noshow">N</div></div>';else if(dayDb)h+='<div class="dly-cell"><div class="dly-d" style="background:var(--neon);color:#000;border-color:#2be012;font-weight:700">2X</div></div>';else h+='<div class="dly-cell"><div class="dly-d dly-on">✓</div></div>';}h+='</div>';}
+    if(hasGap)h+=gapRow;h+='</div>';
+  }
+  var noCrewJobs=[];for(var ji=0;ji<wj.length;ji++){if(wkAsgnUnique(wj[ji].JobID).length===0)noCrewJobs.push(wj[ji]);}
+  if(noCrewJobs.length){h+='<div class="dly-section">Unassigned Jobs</div>';for(var ni=0;ni<noCrewJobs.length;ni++){h+='<div class="dly-card dly-card-gap"><div class="dly-card-hdr"><div class="dly-card-info"><span class="dly-card-name">'+noCrewJobs[ni].JobNum+' - '+noCrewJobs[ni].JobName+'</span>'+wTags(noCrewJobs[ni].WorkType)+(isPW(noCrewJobs[ni])?'<span class="pw-tag">PW</span>':'')+'</div><div class="dly-card-badge" style="color:var(--red)">0/'+(noCrewJobs[ni].CrewNeeded||'?')+'</div></div></div>';}}
+  var sickList=[],callList=[],nsList=[],availList=[];var an=wkAssignedNames();
+  for(var ci=0;ci<D.crew.length;ci++){var cn=D.crew[ci].Name;var hasSick=false,hasCall=false,hasNS=false,isAssigned=!!an[cn];for(var di=0;di<6;di++){var st=getCSt(cn,dates[di].s);if(st==='sick')hasSick=true;if(st==='off')hasCall=true;if(st==='noshow')hasNS=true;}if(hasSick)sickList.push(cn);if(hasCall)callList.push(cn);if(hasNS)nsList.push(cn);if(!isAssigned&&!hasSick&&!hasCall&&!hasNS)availList.push(cn);}
+  function statusCard(title,dotColor,list,stKey){if(!list.length)return '';var s='<div class="dly-status"><div class="dly-status-hdr"><span class="dly-status-dot" style="background:'+dotColor+'"></span>'+title+'</div>';s+='<div class="dly-hdr dly-hdr-sm"><div class="dly-hdr-name"></div>';for(var di=0;di<6;di++){s+='<div class="dly-hdr-day'+(dates[di].s===today?' dly-today':'')+'">'+days[di]+'</div>';}s+='</div>';for(var li=0;li<list.length;li++){s+='<div class="dly-row"><div class="dly-cell-name">'+list[li]+'</div>';for(var di=0;di<6;di++){var st=getCSt(list[li],dates[di].s);if(st===stKey)s+='<div class="dly-cell"><div class="dly-d dly-'+(stKey==='sick'?'sick':stKey==='off'?'call':'noshow')+'">'+(stKey==='sick'?'S':stKey==='off'?'C':'N')+'</div></div>';else s+='<div class="dly-cell"><div class="dly-d dly-empty">—</div></div>';}s+='</div>';}s+='</div>';return s;}
+  h+=statusCard('Sick','var(--red)',sickList,'sick');h+=statusCard('Call In','var(--orn)',callList,'off');h+=statusCard('No Show','var(--orn)',nsList,'noshow');
+  if(availList.length){h+='<div class="dly-status"><div class="dly-status-hdr"><span class="dly-status-dot" style="background:var(--grn)"></span>Available (Unassigned)</div>';h+='<div class="dly-hdr dly-hdr-sm"><div class="dly-hdr-name"></div>';for(var di=0;di<6;di++){h+='<div class="dly-hdr-day'+(dates[di].s===today?' dly-today':'')+'">'+days[di]+'</div>';}h+='</div>';for(var li=0;li<availList.length;li++){h+='<div class="dly-row"><div class="dly-cell-name">'+availList[li]+'</div>';for(var di=0;di<6;di++){h+='<div class="dly-cell"><div class="dly-d dly-on">✓</div></div>';}h+='</div>';}h+='</div>';}
+  h+='<div class="dly-legend"><div class="dly-leg"><div class="dly-d dly-on" style="width:20px;height:14px;font-size:7px">✓</div> On job</div><div class="dly-leg"><div class="dly-d dly-sick" style="width:20px;height:14px;font-size:7px">S</div> Sick</div><div class="dly-leg"><div class="dly-d dly-call" style="width:20px;height:14px;font-size:7px">C</div> Call-in</div><div class="dly-leg"><div class="dly-d dly-noshow" style="width:20px;height:14px;font-size:7px">N</div> No show</div><div class="dly-leg"><div class="dly-d dly-empty" style="width:20px;height:14px;font-size:7px">—</div> Off</div><div class="dly-leg"><span style="color:var(--red);font-weight:700;font-size:10px">⚠ 2/3</span> Gap</div></div>';
+  el.innerHTML=h;
+}
+</script>
+</body>
+</html>

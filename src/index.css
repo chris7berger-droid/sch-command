@@ -13,6 +13,17 @@
   --bg-card: #c9bfb1;
   --danger: #c0392b;
   --warning: #e67e22;
+  --pw: #6d28d9;
+  --grn: #2e7d32;
+  --cyan: #0891b2;
+  --orn: #e65100;
+  --ylw: #c8a415;
+  --blu: #1565c0;
+  --red: #c62828;
+  --dim: #8a7f73;
+  --muted: #8a7f73;
+  --brd: rgba(28, 24, 20, 0.2);
+  --neon: #5BBD3F;
 
   --font-heading: 'Barlow Condensed', sans-serif;
   --font-body: 'Barlow', sans-serif;
