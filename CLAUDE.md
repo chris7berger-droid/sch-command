@@ -1,7 +1,7 @@
-# Schedule Commander v2
+# Schedule Command
 
 ## What This Is
-Schedule Commander is a React + Supabase web app for YES, a construction subcontracting company (epoxy flooring, caulking, demo work). It replaces a live Google Apps Script version that the team uses daily. The v2 build runs in parallel — the Apps Script version stays live until v2 reaches feature parity.
+Schedule Command is a React + Supabase web app for YES, a construction subcontracting company (epoxy flooring, caulking, demo work). Part of the Command Suite alongside Sales Command (scmybiz.com). It replaces a live Google Apps Script version that the team uses daily. The v2 build runs in parallel — the Apps Script version stays live until v2 reaches feature parity.
 
 ## Team
 - **Chris** — developer and primary user
@@ -15,15 +15,16 @@ Schedule Commander is a React + Supabase web app for YES, a construction subcont
 - **GitHub** — version control (repo: chris7berger-droid/sch-command)
 - **Vercel** — hosting (not yet set up)
 
-## Supabase Project
-- **Project ID:** tzwhgspgpyzhhwwjzugb
-- **URL:** https://tzwhgspgpyzhhwwjzugb.supabase.co
-- **Anon key:** in .env.local (use legacy anon key, NOT the new publishable key)
+## Supabase Project (shared with Sales Command)
+- **Project ID:** pbgvgjjuhnpsumnowuym
+- **URL:** https://pbgvgjjuhnpsumnowuym.supabase.co
+- **Anon key:** in .env.local
+- **Shared DB:** Both Schedule Command and Sales Command use the same Supabase project
 
 ## Environment Variables (.env.local)
 ```
-VITE_SUPABASE_URL=https://tzwhgspgpyzhhwwjzugb.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJ... (legacy anon key)
+VITE_SUPABASE_URL=https://pbgvgjjuhnpsumnowuym.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_...
 ```
 
 ## Supabase Client
@@ -38,12 +39,31 @@ VITE_SUPABASE_ANON_KEY=eyJ... (legacy anon key)
 - **materials** — job_id, ordinal, name, status, arrival_date, notes
 - **billing_log** — job_id, date, percent, cumulative_percent, type, notes, invoiced, invoiced_date
 
-## Design System
-- Background: sand/linen palette (#b5a896)
-- Dark header: #1c1814
-- Command Green accent: #5BBD3F
-- 2px borders, crosshatch texture overlay
-- Fonts: Barlow Condensed (headers), Barlow (body), JetBrains Mono (numbers)
+## Design System (Command Suite)
+Must match the visual design of Sales Command (scmybiz.com).
+
+### Colors
+- Background: warm linen tones — `#b5a896` (base), `#c8bcaa` (cards), `#a89b88` (deep) — NO white backgrounds
+- Dark header/nav: `#1c1814`
+- Header accent: teal `#30cfac` (header brand only)
+- Content accent: Command Green `#5BBD3F` (buttons, tags, status indicators in content areas)
+- Text: `#1c1814` (headings), `#2d2720` (body), `#6b6358` (light), `#887c6e` (faint/labels)
+
+### Typography
+- Display/headings: Barlow Condensed — bold, uppercase, letter-spacing 0.04-0.08em
+- Body: Barlow — normal weight
+- Numbers/mono: JetBrains Mono
+
+### Components
+- Cards: linen card background with `1px solid rgba(28,24,20,0.18)` borders, `border-radius: 10px`, `box-shadow: 0 2px 8px rgba(28,24,20,0.07)`
+- Buttons: green accent for content, teal for header brand only
+- Inputs: linen deep background, never white
+- Pills/badges: colored border-left or background based on status
+
+### General Rules
+- Warm, muted, professional — NO bright whites, NO harsh borders
+- Everything feels like linen/parchment with dark accents
+- 1px borders, 8-10px border-radius, subtle box shadows
 - Philosophy: "3 clicks through simple obvious screens beats 1 click on a complicated screen"
 
 ## Views To Build (in order)

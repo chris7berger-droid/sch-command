@@ -3,8 +3,8 @@ import { readFileSync } from 'fs'
 import { parse } from 'csv-parse/sync'
 
 const supabase = createClient(
-  'https://tzwhgspgpyzhhwwjzugb.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR6d2hnc3BncHl6aGh3d2p6dWdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQwMzE1MzEsImV4cCI6MjA4OTYwNzUzMX0.IH8BYfiAplZfhZ9TkFkFFYFd0QjQzLhvDgsSi1sm8qc'
+  'https://pbgvgjjuhnpsumnowuym.supabase.co',
+  'sb_publishable_v7XktVvkAlX7y5f6xoFjng_AaLaWKoK'
 )
 
 function readCSV(filename) {
@@ -15,25 +15,38 @@ function readCSV(filename) {
 const DIR = '/Users/chrisberger/Desktop/sch-command/'
 
 async function clearTable(name) {
-  // Use a broad filter to delete all rows
-  const { error } = await supabase.from(name).delete().neq('id', '00000000-0000-0000-0000-000000000000')
-  if (error) {
-    // Some tables use integer ids
-    const { error: e2 } = await supabase.from(name).delete().gte('id', 0)
-    if (e2) console.log(`  Warning clearing ${name}:`, e2.message)
+  // Try different PK columns depending on the table
+  if (name === 'jobs') {
+    const { error } = await supabase.from(name).delete().gte('job_id', 0)
+    if (error) console.log(`  Warning clearing ${name}:`, error.message)
+    return
   }
+  if (name === 'crew') {
+    const { error } = await supabase.from(name).delete().neq('name', '')
+    if (error) console.log(`  Warning clearing ${name}:`, error.message)
+    return
+  }
+  // Tables with serial id PK
+  const { error } = await supabase.from(name).delete().gte('id', 0)
+  if (error) console.log(`  Warning clearing ${name}:`, error.message)
 }
 
 async function migrateJobs() {
   const rows = readCSV(DIR + 'YES Schedule v2 - Jobs.csv')
   console.log(`Jobs: ${rows.length} rows`)
+  // Clear FK children before jobs
+  await clearTable('billing_log')
+  await clearTable('materials')
+  await clearTable('assignments')
+  await clearTable('crew_status')
+  await clearTable('crew')
   await clearTable('jobs')
 
   const jobs = rows.map(r => ({
     job_id: r.JobID,
     job_num: r.JobNum,
     job_name: r.JobName,
-    amount: r.Amount || null,
+    amount: r.Amount ? parseFloat(r.Amount.replace(/[$,]/g, '')) || null : null,
     work_type: r.WorkType || null,
     crew_needed: parseInt(r.CrewNeeded) || null,
     lead: r.Lead || null,
@@ -73,11 +86,13 @@ async function migrateAssignments() {
   console.log(`Assignments: ${rows.length} rows`)
   await clearTable('assignments')
 
-  const assignments = rows.map(r => ({
-    job_id: r.JobID,
-    crew_name: r.CrewName,
-    date: r.Date,
-  }))
+  const assignments = rows
+    .filter(r => r.JobID && r.CrewName && r.Date && r.JobID !== 'undefined' && r.CrewName !== 'undefined' && r.Date !== 'undefined')
+    .map(r => ({
+      job_id: parseInt(r.JobID),
+      crew_name: r.CrewName,
+      date: r.Date,
+    }))
 
   for (let i = 0; i < assignments.length; i += 100) {
     const batch = assignments.slice(i, i + 100)
@@ -90,6 +105,9 @@ async function migrateAssignments() {
 async function migrateCrew() {
   const aRows = readCSV(DIR + 'YES Schedule v2 - Assignments.csv')
   const sRows = readCSV(DIR + 'YES Schedule v2 - CrewStatus.csv')
+  // Clear FK children first, then crew
+  await clearTable('assignments')
+  await clearTable('crew_status')
   await clearTable('crew')
 
   const names = new Set()
@@ -173,10 +191,11 @@ async function migrateBillingLog() {
 
 console.log('Starting migration...\n')
 await migrateJobs()
-await migrateAssignments()
 await migrateCrew()
+await migrateAssignments()
 await migrateCrewStatus()
-await migrateWorkTypes()
+// Skip work_types — sales-command already has this table with its own data
+// await migrateWorkTypes()
 await migrateMaterials()
 await migrateBillingLog()
 console.log('\nDone!')

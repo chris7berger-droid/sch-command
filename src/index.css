@@ -1,16 +1,17 @@
 :root {
   --sand: #b5a896;
-  --sand-light: #c9bfb1;
+  --sand-light: #bfb3a1;
   --sand-dark: #9a8d7d;
   --header-dark: #1c1814;
   --command-green: #5BBD3F;
   --text-primary: #1c1814;
-  --text-secondary: #5a5249;
-  --text-light: #8a7f73;
+  --text-secondary: #2d2720;
+  --text-light: #6b6358;
   --white: #fff;
   --border: #1c1814;
-  --bg: #d4cbbf;
-  --bg-card: #c9bfb1;
+  --bg: #b5a896;
+  --bg-card: #c8bcaa;
+  --bg-deep: #a89b88;
   --danger: #c0392b;
   --warning: #e67e22;
   --pw: #6d28d9;
@@ -42,6 +43,23 @@ body {
   color: var(--text-primary);
   background: var(--bg);
   min-height: 100vh;
+}
+
+/* Scrollbar styling to match sales-command */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb { background: #1a8a72; border-radius: 3px; }
+
+input:not([type="checkbox"]),
+button, select, textarea {
+  font-family: inherit;
+  -webkit-appearance: none;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--bg-deep) inset;
+  -webkit-text-fill-color: var(--text-primary);
 }
 
 #root {

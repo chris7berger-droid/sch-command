@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import FieldSowModal from '../components/FieldSowModal'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -186,10 +187,15 @@ export default function Jobs() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [pctInput, setPctInput] = useState('')
   const [saving, setSaving] = useState(false)
+  const [amountInput, setAmountInput] = useState('')
+  const [savingAmount, setSavingAmount] = useState(false)
 
   // restore bin
   const [showBin, setShowBin] = useState(false)
   const [deletedJobs, setDeletedJobs] = useState([])
+
+  // field sow modal
+  const [sowJob, setSowJob] = useState(null)
 
   const today = useMemo(() => new Date(), [])
 
@@ -328,6 +334,7 @@ export default function Jobs() {
     }
     setExpandedId(job.job_id)
     setPctInput('')
+    setAmountInput(job.amount != null && job.amount !== '' ? String(job.amount) : '')
     setLoadingHistory(true)
     const { data, error: err } = await supabase
       .from('assignments')
@@ -392,6 +399,21 @@ export default function Jobs() {
     setPctInput('')
     setSaving(false)
   }, [pctInput, billingLog])
+
+  /* ── save contract amount ──────────────────────────────────── */
+
+  const saveAmount = useCallback(async (jobId) => {
+    const val = amountInput.trim() === '' ? null : parseFloat(amountInput)
+    if (amountInput.trim() !== '' && (isNaN(val) || val < 0)) {
+      alert('Enter a valid dollar amount')
+      return
+    }
+    setSavingAmount(true)
+    const { error: err } = await supabase.from('jobs').update({ amount: val }).eq('job_id', jobId)
+    if (err) { console.error(err); setSavingAmount(false); return }
+    setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, amount: val } : j))
+    setSavingAmount(false)
+  }, [amountInput])
 
   /* ── work type tags renderer ────────────────────────────────── */
 
@@ -586,7 +608,23 @@ export default function Jobs() {
                     </div>
                     <div className="jh-detail-item">
                       <span className="jh-detail-label">Contract</span>
-                      <span className="jh-detail-value">{fmtMoney(j.amount)}</span>
+                      <div className="jh-amount-edit" onClick={e => e.stopPropagation()}>
+                        <span className="jh-amount-dollar">$</span>
+                        <input
+                          type="number"
+                          className="jh-amount-input"
+                          placeholder="0"
+                          value={amountInput}
+                          onChange={e => setAmountInput(e.target.value)}
+                        />
+                        <button
+                          className="jh-amount-save"
+                          disabled={savingAmount}
+                          onClick={() => saveAmount(j.job_id)}
+                        >
+                          {savingAmount ? '...' : 'Save'}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -597,9 +635,20 @@ export default function Jobs() {
                     </div>
                   )}
 
-                  {j.sow && (
-                    <a className="jh-sow-link" href={j.sow} target="_blank" rel="noopener noreferrer">SOW Link</a>
-                  )}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                    {j.sow && (
+                      <a className="jh-sow-link" href={j.sow} target="_blank" rel="noopener noreferrer" style={{ marginBottom: 0 }}>SOW Link</a>
+                    )}
+                    {j.field_sow && j.field_sow.length > 0 && (
+                      <button
+                        className="jh-sow-link"
+                        style={{ marginBottom: 0 }}
+                        onClick={e => { e.stopPropagation(); setSowJob(j) }}
+                      >
+                        Field SOW
+                      </button>
+                    )}
+                  </div>
 
                   {/* status + actions */}
                   <div className="jh-detail-actions">
@@ -675,6 +724,9 @@ export default function Jobs() {
           )
         })}
       </div>
+
+      {/* Field SOW Modal */}
+      {sowJob && <FieldSowModal job={sowJob} onClose={() => setSowJob(null)} />}
 
       {/* Restore Bin Modal */}
       {showBin && (

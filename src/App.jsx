@@ -2,6 +2,7 @@ import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import './App.css'
 import { supabase } from './lib/supabase'
+import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from './lib/auth'
 import { useSync } from './lib/sync'
 import { useToast } from './lib/toast'
 import { printWeekSchedule, printJobList, printBillingReport, printMaterialsList, printDailyStatus } from './lib/exports'
@@ -13,6 +14,8 @@ import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
 import StatsBar from './components/StatsBar'
+import Login from './views/Login'
+import { ScheduleCommandMark } from './components/Logo'
 
 const NAV_ITEMS = [
   { path: '/jobs', label: 'Jobs' },
@@ -31,9 +34,43 @@ function flipName(n) {
 }
 
 export default function App() {
+  const [session, setSession] = useState(undefined)
+  const [teamMember, setTeamMember] = useState(null)
+
+  useEffect(() => {
+    getSession().then(s => setSession(s ?? null))
+    const sub = onAuthStateChange(async (event, s) => {
+      if (event === 'PASSWORD_RECOVERY') { setSession(null); return }
+      setSession(s ?? null)
+      if (s) {
+        const member = await getCurrentTeamMember()
+        setTeamMember(member)
+      } else {
+        setTeamMember(null)
+      }
+    })
+    return () => sub.unsubscribe()
+  }, [])
+
+  // Loading state
+  if (session === undefined) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-light)', letterSpacing: '0.1em' }}>
+        LOADING…
+      </div>
+    )
+  }
+
+  // Not logged in
+  if (!session) return <Login />
+
+  return <AppShell session={session} teamMember={teamMember} />
+}
+
+function AppShell({ session, teamMember }) {
   const { syncState, setSync } = useSync()
   const toast = useToast()
-  const [modal, setModal] = useState(null) // 'job' | 'crew' | 'workTypes' | 'crewList' | 'export'
+  const [modal, setModal] = useState(null)
   const [workTypes, setWorkTypes] = useState([])
   const [crewList, setCrewList] = useState([])
   const [showArchived, setShowArchived] = useState(false)
@@ -197,7 +234,8 @@ export default function App() {
       <header className="app-header">
         <div className="app-header-top">
           <div className="app-title">
-            Schedule <span className="green">Commander</span>
+            <ScheduleCommandMark size={42} />
+            <span>Schedule <span className="green">Command</span></span>
             <span className={`sync-dot sync-${syncState}`} />
           </div>
           <div className="app-actions">
@@ -210,6 +248,7 @@ export default function App() {
               <button className="app-act-btn" onClick={() => { setModal('crewList') }}>Crew List</button>
               <button className="app-act-btn" onClick={() => { setModal('sendSchedules') }}>Send Schedules</button>
               <button className="app-act-btn app-act-primary" onClick={() => { setModal('export') }}>Export</button>
+              <button className="app-act-btn" onClick={() => signOut()} style={{ opacity: 0.6 }}>Sign Out</button>
             </div>
           </div>
         </div>
