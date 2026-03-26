@@ -3,67 +3,41 @@ import { supabase } from '../lib/supabase'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
+function fmtD(d) {
+  const dt = d instanceof Date ? d : new Date(d)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
 function getMonday(d) {
   const dt = new Date(d)
   const day = dt.getDay()
-  const diff = (day === 0 ? -6 : 1) - day
-  dt.setDate(dt.getDate() + diff)
+  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))
   dt.setHours(0, 0, 0, 0)
   return dt
 }
 
-function fmtD(d) {
-  const dt = d instanceof Date ? d : new Date(d)
-  const y = dt.getFullYear()
-  const m = String(dt.getMonth() + 1).padStart(2, '0')
-  const day = String(dt.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+function getQuarterStart(d) {
+  const dt = new Date(d)
+  const q = Math.floor(dt.getMonth() / 3) * 3
+  return new Date(dt.getFullYear(), q, 1)
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function fmtWk(monday) {
-  const mon = monday instanceof Date ? monday : new Date(monday + 'T00:00:00')
-  const fri = new Date(mon)
-  fri.setDate(mon.getDate() + 4)
-  const mStr = `${MONTHS[mon.getMonth()]} ${mon.getDate()}`
-  const fStr = `${MONTHS[fri.getMonth()]} ${fri.getDate()}`
-  return `${mStr} \u2013 ${fStr}, ${fri.getFullYear()}`
-}
-
-function flipName(n) {
-  if (!n) return ''
-  const p = n.split(',')
-  return p.length === 2 ? p[1].trim() + ' ' + p[0].trim() : n
+function getQuarterEnd(d) {
+  const dt = new Date(d)
+  const q = Math.floor(dt.getMonth() / 3) * 3 + 2
+  return new Date(dt.getFullYear(), q + 1, 0)
 }
 
 function isPW(j) {
   return j && (j.prevailing_wage === 'Yes' || j.prevailing_wage === true)
 }
 
-const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-const WEEKDAY_ORDER = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
-
-function dayLabel(dates, mondayOfWeek) {
-  if (!dates || dates.length === 0) return ''
-  const mon = mondayOfWeek instanceof Date ? mondayOfWeek : new Date(mondayOfWeek + 'T00:00:00')
-  const labels = dates.map(ds => {
-    const d = new Date(ds + 'T00:00:00')
-    return DAY_NAMES[d.getDay()]
-  })
-  const unique = [...new Set(labels)]
-  const sorted = unique.sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
-
-  // Check if consecutive weekdays
-  if (sorted.length >= 2) {
-    const indices = sorted.map(s => WEEKDAY_ORDER.indexOf(s))
-    let consecutive = true
-    for (let i = 1; i < indices.length; i++) {
-      if (indices[i] !== indices[i - 1] + 1) { consecutive = false; break }
-    }
-    if (consecutive) return `${sorted[0]}-${sorted[sorted.length - 1]}`
-  }
-  return sorted.join(',')
+function getJobStatus(j) {
+  if (!j || !j.status) return 'Ongoing'
+  const s = j.status.toLowerCase().trim()
+  if (s === 'on hold' || s === 'hold') return 'On Hold'
+  if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
+  return 'Ongoing'
 }
 
 function gTagClass(t) {
@@ -78,18 +52,115 @@ function gTagClass(t) {
   return 'tg-default'
 }
 
-function getJobStatus(j) {
-  if (!j || !j.status) return 'Ongoing'
-  const s = j.status.toLowerCase().trim()
-  if (s === 'on hold' || s === 'hold') return 'On Hold'
-  if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
-  return 'Ongoing'
+function getBilledTotal(billingLog, jobId) {
+  if (!billingLog || !billingLog.length) return 0
+  return billingLog
+    .filter(b => b.job_id === jobId)
+    .reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
 }
 
-function getBilledToDate(billingLog, jobId) {
-  if (!billingLog || !billingLog.length) return 0
-  const entries = billingLog.filter(b => b.job_id === jobId)
-  return entries.reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
+function daysBetween(dateStr, refDate) {
+  if (!dateStr) return null
+  const d = new Date(dateStr + 'T00:00:00')
+  const r = new Date(refDate)
+  r.setHours(0, 0, 0, 0)
+  return Math.ceil((d - r) / (1000 * 60 * 60 * 24))
+}
+
+function fmtMoney(n) {
+  if (n == null || n === '' || isNaN(n)) return '-'
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
+
+function flipName(n) {
+  if (!n) return ''
+  const p = n.split(',')
+  return p.length === 2 ? p[1].trim() + ' ' + p[0].trim() : n
+}
+
+const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
+const WEEKDAY_ORDER = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function fmtWk(monday) {
+  const mon = monday instanceof Date ? monday : new Date(monday + 'T00:00:00')
+  const fri = new Date(mon)
+  fri.setDate(mon.getDate() + 4)
+  return `${MONTHS[mon.getMonth()]} ${mon.getDate()} \u2013 ${MONTHS[fri.getMonth()]} ${fri.getDate()}, ${fri.getFullYear()}`
+}
+
+function dayLabel(dates, mondayOfWeek) {
+  if (!dates || dates.length === 0) return ''
+  const labels = dates.map(ds => DAY_NAMES[new Date(ds + 'T00:00:00').getDay()])
+  const unique = [...new Set(labels)]
+  const sorted = unique.sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
+  if (sorted.length >= 2) {
+    const indices = sorted.map(s => WEEKDAY_ORDER.indexOf(s))
+    let consecutive = true
+    for (let i = 1; i < indices.length; i++) {
+      if (indices[i] !== indices[i - 1] + 1) { consecutive = false; break }
+    }
+    if (consecutive) return `${sorted[0]}-${sorted[sorted.length - 1]}`
+  }
+  return sorted.join(',')
+}
+
+/* ── flags ───────────────────────────────────────────────────────── */
+
+function getJobFlags(job, billingLog, today) {
+  const flags = []
+  const status = getJobStatus(job)
+
+  // Overdue: ongoing job past end_date
+  if (status === 'Ongoing' && job.end_date) {
+    const daysLeft = daysBetween(job.end_date, today)
+    if (daysLeft !== null && daysLeft < 0) flags.push('OVERDUE')
+  }
+
+  // Unbilled: has amount, no billing log entries, not no_bill
+  if (status !== 'Complete' && job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
+    const billed = getBilledTotal(billingLog, job.job_id)
+    if (billed === 0) flags.push('UNBILLED')
+  }
+
+  // Ready to Invoice: partial billing, not paused, has amount
+  if (job.partial_billing === 'Yes' && job.billing_paused !== 'Yes' && job.amount && parseFloat(job.amount) > 0) {
+    const billed = getBilledTotal(billingLog, job.job_id)
+    if (billed < 100) flags.push('READY TO INVOICE')
+  }
+
+  return flags
+}
+
+/* ── urgency score (lower = more urgent) ─────────────────────────── */
+
+function urgencyScore(job, billingLog, today) {
+  const status = getJobStatus(job)
+  let score = 0
+
+  // Status weight: Ongoing first, On Hold next, Complete last
+  if (status === 'Ongoing') score = 0
+  else if (status === 'On Hold') score = 10000
+  else score = 20000
+
+  // Days until end date: overdue jobs float to top
+  if (job.end_date) {
+    const daysLeft = daysBetween(job.end_date, today)
+    if (daysLeft !== null) {
+      if (daysLeft < 0) score -= 1000 + Math.abs(daysLeft) // overdue = highest urgency
+      else score += daysLeft
+    }
+  } else {
+    score += 5000 // no end date = low urgency
+  }
+
+  // Unbilled flag adds urgency
+  if (job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
+    const billed = getBilledTotal(billingLog, job.job_id)
+    if (billed === 0) score -= 500
+  }
+
+  return score
 }
 
 /* ── main component ──────────────────────────────────────────────── */
@@ -104,17 +175,23 @@ export default function Jobs() {
   // search
   const [search, setSearch] = useState('')
 
-  // week nav
-  const [weekOffset, setWeekOffset] = useState(0)
+  // date filter
+  const [dateFilter, setDateFilter] = useState('week')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
 
-  // drill-down
-  const [selectedJob, setSelectedJob] = useState(null)
+  // expanded job
+  const [expandedId, setExpandedId] = useState(null)
   const [jobAssignments, setJobAssignments] = useState([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [pctInput, setPctInput] = useState('')
+  const [saving, setSaving] = useState(false)
 
   // restore bin
   const [showBin, setShowBin] = useState(false)
   const [deletedJobs, setDeletedJobs] = useState([])
+
+  const today = useMemo(() => new Date(), [])
 
   /* ── data fetch ─────────────────────────────────────────────── */
 
@@ -134,44 +211,51 @@ export default function Jobs() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  /* ── week nav ───────────────────────────────────────────────── */
+  /* ── date range from filter ────────────────────────────────── */
 
-  const currentMonday = useMemo(() => {
-    const m = getMonday(new Date())
-    m.setDate(m.getDate() + weekOffset * 7)
-    return m
-  }, [weekOffset])
-
-  const currentFriday = useMemo(() => {
-    const f = new Date(currentMonday)
-    f.setDate(f.getDate() + 4)
-    return f
-  }, [currentMonday])
-
-  const weekLabel = useMemo(() => fmtWk(currentMonday), [currentMonday])
-
-  /* ── crew count for a job this week ─────────────────────────── */
-
-  const weekCrewCounts = useMemo(() => {
-    const monStr = fmtD(currentMonday)
-    const friStr = fmtD(currentFriday)
-    const map = {}
-    for (const a of assignments) {
-      if (a.date >= monStr && a.date <= friStr) {
-        if (!map[a.job_id]) map[a.job_id] = new Set()
-        map[a.job_id].add(a.crew_name)
+  const dateRange = useMemo(() => {
+    const now = new Date()
+    switch (dateFilter) {
+      case 'week': {
+        const mon = getMonday(now)
+        const fri = new Date(mon)
+        fri.setDate(fri.getDate() + 4)
+        return { from: fmtD(mon), to: fmtD(fri) }
       }
+      case 'month': {
+        const first = new Date(now.getFullYear(), now.getMonth(), 1)
+        const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+        return { from: fmtD(first), to: fmtD(last) }
+      }
+      case 'quarter': {
+        return { from: fmtD(getQuarterStart(now)), to: fmtD(getQuarterEnd(now)) }
+      }
+      case 'all':
+        return null
+      case 'custom':
+        if (customFrom && customTo) return { from: customFrom, to: customTo }
+        return null
+      default:
+        return null
     }
-    const counts = {}
-    for (const [id, set] of Object.entries(map)) counts[id] = set.size
-    return counts
-  }, [assignments, currentMonday, currentFriday])
+  }, [dateFilter, customFrom, customTo])
 
   /* ── filter jobs ────────────────────────────────────────────── */
 
   const filteredJobs = useMemo(() => {
     let list = jobs
 
+    // date range filter
+    if (dateRange) {
+      list = list.filter(j => {
+        if (!j.start_date && !j.end_date) return true
+        const start = j.start_date || '1900-01-01'
+        const end = j.end_date || '2999-12-31'
+        return start <= dateRange.to && end >= dateRange.from
+      })
+    }
+
+    // search filter
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       list = list.filter(j => {
@@ -180,22 +264,15 @@ export default function Jobs() {
         const wt = (j.work_type || '').toLowerCase()
         return num.includes(q) || name.includes(q) || wt.includes(q)
       })
-    } else {
-      // week filter: include jobs that overlap the current week or have no dates
-      const monStr = fmtD(currentMonday)
-      const friStr = fmtD(currentFriday)
-      list = list.filter(j => {
-        if (!j.start_date && !j.end_date) return true
-        const start = j.start_date || '1900-01-01'
-        const end = j.end_date || '2999-12-31'
-        return start <= friStr && end >= monStr
-      })
     }
 
-    return list
-  }, [jobs, search, currentMonday, currentFriday])
+    // sort by urgency
+    list = [...list].sort((a, b) => urgencyScore(a, billingLog, today) - urgencyScore(b, billingLog, today))
 
-  /* ── buckets ────────────────────────────────────────────────── */
+    return list
+  }, [jobs, search, dateRange, billingLog, today])
+
+  /* ── buckets (counts for scoreboards) ──────────────────────── */
 
   const ongoing = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Ongoing'), [filteredJobs])
   const onHold = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold'), [filteredJobs])
@@ -207,10 +284,7 @@ export default function Jobs() {
     const { error: err } = await supabase.from('jobs').update({ status: newStatus }).eq('job_id', jobId)
     if (err) { console.error(err); return }
     setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, status: newStatus } : j))
-    if (selectedJob && selectedJob.job_id === jobId) {
-      setSelectedJob(prev => ({ ...prev, status: newStatus }))
-    }
-  }, [selectedJob])
+  }, [])
 
   /* ── soft delete ────────────────────────────────────────────── */
 
@@ -220,8 +294,8 @@ export default function Jobs() {
     const { error: err } = await supabase.from('jobs').update({ deleted: 'Yes', deleted_at: now }).eq('job_id', jobId)
     if (err) { console.error(err); return }
     setJobs(prev => prev.filter(j => j.job_id !== jobId))
-    if (selectedJob && selectedJob.job_id === jobId) setSelectedJob(null)
-  }, [selectedJob])
+    if (expandedId === jobId) setExpandedId(null)
+  }, [expandedId])
 
   /* ── restore bin ────────────────────────────────────────────── */
 
@@ -245,20 +319,25 @@ export default function Jobs() {
     await loadData()
   }, [loadData])
 
-  /* ── drill-down ─────────────────────────────────────────────── */
+  /* ── expand / collapse ──────────────────────────────────────── */
 
-  const openJob = useCallback(async (job) => {
-    setSelectedJob(job)
+  const toggleExpand = useCallback(async (job) => {
+    if (expandedId === job.job_id) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(job.job_id)
+    setPctInput('')
     setLoadingHistory(true)
     const { data, error: err } = await supabase
       .from('assignments')
       .select('crew_name, date')
       .eq('job_id', job.job_id)
       .order('date', { ascending: false })
-    if (err) { console.error(err); setJobAssignments([]); }
+    if (err) { console.error(err); setJobAssignments([]) }
     else { setJobAssignments(data || []) }
     setLoadingHistory(false)
-  }, [])
+  }, [expandedId])
 
   /* ── assignment history grouped by week ─────────────────────── */
 
@@ -287,6 +366,33 @@ export default function Jobs() {
     })
   }, [jobAssignments])
 
+  /* ── add to bill list ───────────────────────────────────────── */
+
+  const addToBillList = useCallback(async (job) => {
+    const pct = parseFloat(pctInput)
+    if (isNaN(pct) || pct <= 0 || pct > 100) {
+      alert('Enter a valid percent (1-100)')
+      return
+    }
+    setSaving(true)
+    const existing = getBilledTotal(billingLog, job.job_id)
+    const { error: err } = await supabase.from('billing_log').insert({
+      job_id: job.job_id,
+      date: fmtD(new Date()),
+      percent: pct,
+      cumulative_percent: existing + pct,
+      type: 'partial',
+      notes: '',
+      invoiced: 'No',
+    })
+    if (err) { console.error(err); setSaving(false); return }
+    // refresh billing log
+    const { data } = await supabase.from('billing_log').select('*')
+    if (data) setBillingLog(data)
+    setPctInput('')
+    setSaving(false)
+  }, [pctInput, billingLog])
+
   /* ── work type tags renderer ────────────────────────────────── */
 
   function renderTags(workType) {
@@ -301,72 +407,13 @@ export default function Jobs() {
   if (loading) return <div className="jh-empty">Loading jobs...</div>
   if (error) return <div className="jh-empty">Error: {error}</div>
 
-  /* ── drill-down view ────────────────────────────────────────── */
-
-  if (selectedJob) {
-    const j = selectedJob
-    return (
-      <div className="jh-wrap">
-        <button className="jh-back" onClick={() => setSelectedJob(null)}>{'\u2190'} Back to Jobs</button>
-
-        <div className="jh-hist-hdr">
-          <div className="jh-hist-title">
-            <span className="jh-hist-num">{j.job_num}</span>
-            <span className="jh-hist-name">{j.job_name}</span>
-          </div>
-          <div className="jh-hist-tags">
-            {renderTags(j.work_type)}
-            {isPW(j) && <span className="pw-tag">PW</span>}
-          </div>
-          <div className="jh-hist-meta">
-            {j.vehicle && <span>Vehicle: {j.vehicle}</span>}
-            {j.start_date && <span>Start: {j.start_date}</span>}
-            {j.end_date && <span>End: {j.end_date}</span>}
-            {j.lead && <span>Lead: {j.lead}</span>}
-          </div>
-          <div className="jh-hist-actions">
-            <select
-              className="jh-status-sel"
-              value={getJobStatus(j)}
-              onChange={e => updateStatus(j.job_id, e.target.value)}
-            >
-              <option value="Ongoing">Ongoing</option>
-              <option value="On Hold">On Hold</option>
-              <option value="Complete">Complete</option>
-            </select>
-            {j.sow && (
-              <a className="jh-sow-link" href={j.sow} target="_blank" rel="noopener noreferrer">SOW Link</a>
-            )}
-          </div>
-        </div>
-
-        <div className="jh-hist-section-title">Assignment History</div>
-
-        {loadingHistory ? (
-          <div className="jh-empty">Loading history...</div>
-        ) : weekGroups.length === 0 ? (
-          <div className="jh-empty">No crew assignments yet</div>
-        ) : (
-          <div className="jh-wk-list">
-            {weekGroups.map(wk => (
-              <div key={wk.monday} className="jh-wk-card">
-                <div className="jh-wk-title">{wk.label}</div>
-                <div className="jh-wk-crew">
-                  {wk.crew.map(c => (
-                    <span key={c.name} className="jh-wk-chip">
-                      {flipName(c.name)} <span className="jh-wk-days">{c.days}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  /* ── main list view ─────────────────────────────────────────── */
+  const FILTER_OPTIONS = [
+    { key: 'week', label: 'This Week' },
+    { key: 'month', label: 'This Month' },
+    { key: 'quarter', label: 'This Quarter' },
+    { key: 'all', label: 'All Time' },
+    { key: 'custom', label: 'Custom' },
+  ]
 
   return (
     <div className="jh-wrap">
@@ -375,21 +422,43 @@ export default function Jobs() {
         <input
           className="jh-search"
           type="text"
-          placeholder="Search all jobs by name, number, or work type..."
+          placeholder="Search jobs by name, number, or work type..."
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
       </div>
 
-      {/* week nav — hidden when searching */}
-      {!search.trim() && (
-        <div className="jh-week-nav">
-          <button className="jh-wk-btn" onClick={() => setWeekOffset(o => o - 1)}>Prev</button>
-          <div className="jh-wk-label">{weekLabel}</div>
-          <button className="jh-wk-btn" onClick={() => setWeekOffset(o => o + 1)}>Next</button>
-          <button className="jh-wk-btn" onClick={() => setWeekOffset(0)}>This Week</button>
+      {/* date filter */}
+      <div className="jh-filter-bar">
+        <div className="jh-filter-pills">
+          {FILTER_OPTIONS.map(f => (
+            <button
+              key={f.key}
+              className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
+              onClick={() => setDateFilter(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
-      )}
+        {dateFilter === 'custom' && (
+          <div className="jh-custom-range">
+            <input
+              type="date"
+              className="jh-date-input"
+              value={customFrom}
+              onChange={e => setCustomFrom(e.target.value)}
+            />
+            <span className="jh-range-sep">to</span>
+            <input
+              type="date"
+              className="jh-date-input"
+              value={customTo}
+              onChange={e => setCustomTo(e.target.value)}
+            />
+          </div>
+        )}
+      </div>
 
       {/* scoreboard + bin */}
       <div className="jh-scores-row">
@@ -410,64 +479,201 @@ export default function Jobs() {
         <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'\uD83D\uDDD1'} Bin</button>
       </div>
 
-      {/* 3-column layout */}
-      <div className="jh-cols">
-        {/* Ongoing */}
-        <div className="jh-col">
-          <div className="jh-col-hdr og">Ongoing ({ongoing.length})</div>
-          {ongoing.length === 0 && <div className="jh-empty">No ongoing jobs this week</div>}
-          {ongoing.map(j => (
-            <JobCard
-              key={j.job_id}
-              job={j}
-              status="og"
-              crewCount={weekCrewCounts[j.job_id] || 0}
-              billingLog={billingLog}
-              onOpen={() => openJob(j)}
-              onStatusChange={updateStatus}
-              onDelete={softDelete}
-              renderTags={renderTags}
-            />
-          ))}
-        </div>
+      {/* single job list */}
+      <div className="jh-list">
+        {filteredJobs.length === 0 && <div className="jh-empty">No jobs match this filter</div>}
+        {filteredJobs.map(j => {
+          const status = getJobStatus(j)
+          const statusClass = status === 'Ongoing' ? 'og' : status === 'On Hold' ? 'oh' : 'cp'
+          const billedPct = getBilledTotal(billingLog, j.job_id)
+          const amount = j.amount ? parseFloat(j.amount) : 0
+          const billedAmt = amount > 0 ? Math.round(amount * billedPct / 100) : 0
+          const daysLeft = daysBetween(j.end_date, today)
+          const flags = getJobFlags(j, billingLog, today)
+          const isExpanded = expandedId === j.job_id
 
-        {/* On Hold */}
-        <div className="jh-col">
-          <div className="jh-col-hdr oh">On Hold ({onHold.length})</div>
-          {onHold.length === 0 && <div className="jh-empty">None</div>}
-          {onHold.map(j => (
-            <JobCard
-              key={j.job_id}
-              job={j}
-              status="oh"
-              crewCount={weekCrewCounts[j.job_id] || 0}
-              billingLog={billingLog}
-              onOpen={() => openJob(j)}
-              onStatusChange={updateStatus}
-              onDelete={softDelete}
-              renderTags={renderTags}
-            />
-          ))}
-        </div>
+          return (
+            <div key={j.job_id} className={`jh-card${isPW(j) ? ' pw-row' : ''}${isExpanded ? ' expanded' : ''}`}>
+              {/* card header — always visible */}
+              <div className="jh-card-hdr" onClick={() => toggleExpand(j)}>
+                <div className="jh-card-left">
+                  <span className={`jh-status-badge ${statusClass}`}>{status}</span>
+                  <div className="jh-card-title">
+                    <span className="jh-card-num">{j.job_num}</span>
+                    <span className="jh-card-name">{j.job_name}</span>
+                  </div>
+                </div>
+                <div className="jh-card-right">
+                  {/* days until end */}
+                  {daysLeft !== null && status !== 'Complete' && (
+                    <span className={`jh-days${daysLeft < 0 ? ' overdue' : daysLeft <= 7 ? ' soon' : ''}`}>
+                      {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
+                    </span>
+                  )}
+                  <span className="jh-expand-arrow">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                </div>
+              </div>
 
-        {/* Complete */}
-        <div className="jh-col">
-          <div className="jh-col-hdr cp">Complete ({complete.length})</div>
-          {complete.length === 0 && <div className="jh-empty">None</div>}
-          {complete.map(j => (
-            <JobCard
-              key={j.job_id}
-              job={j}
-              status="cp"
-              crewCount={weekCrewCounts[j.job_id] || 0}
-              billingLog={billingLog}
-              onOpen={() => openJob(j)}
-              onStatusChange={updateStatus}
-              onDelete={softDelete}
-              renderTags={renderTags}
-            />
-          ))}
-        </div>
+              {/* card body — always visible */}
+              <div className="jh-card-body" onClick={() => toggleExpand(j)}>
+                <div className="jh-card-tags">
+                  {renderTags(j.work_type)}
+                  {isPW(j) && <span className="pw-tag">PW</span>}
+                  {j.no_bill === 'Yes' && <span className="nb-tag">NO BILL</span>}
+                </div>
+
+                {/* progress bar */}
+                {amount > 0 && j.no_bill !== 'Yes' && (
+                  <div className="jh-progress-row">
+                    <div className="jh-progress-bar">
+                      <div
+                        className={`jh-progress-fill${billedPct >= 100 ? ' done' : ''}`}
+                        style={{ width: `${Math.min(billedPct, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`jh-progress-lbl${billedPct >= 100 ? ' done' : ''}`}>
+                      {Math.round(billedPct)}%
+                    </span>
+                  </div>
+                )}
+
+                {/* money + flags */}
+                <div className="jh-card-meta">
+                  {amount > 0 && (
+                    <span className="jh-money">
+                      {fmtMoney(billedAmt)} / {fmtMoney(amount)}
+                    </span>
+                  )}
+                  {flags.map(f => (
+                    <span key={f} className={`jh-flag ${f === 'OVERDUE' ? 'flag-red' : f === 'UNBILLED' ? 'flag-orange' : 'flag-cyan'}`}>
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* expanded detail */}
+              {isExpanded && (
+                <div className="jh-card-detail">
+                  <div className="jh-detail-grid">
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Start</span>
+                      <span className="jh-detail-value">{j.start_date || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">End</span>
+                      <span className="jh-detail-value">{j.end_date || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Lead</span>
+                      <span className="jh-detail-value">{j.lead || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Crew Needed</span>
+                      <span className="jh-detail-value">{j.crew_needed || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Vehicle</span>
+                      <span className="jh-detail-value">{j.vehicle || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Equipment</span>
+                      <span className="jh-detail-value">{j.equipment || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Power Source</span>
+                      <span className="jh-detail-value">{j.power_source || '-'}</span>
+                    </div>
+                    <div className="jh-detail-item">
+                      <span className="jh-detail-label">Contract</span>
+                      <span className="jh-detail-value">{fmtMoney(j.amount)}</span>
+                    </div>
+                  </div>
+
+                  {j.notes && (
+                    <div className="jh-detail-notes">
+                      <span className="jh-detail-label">Notes</span>
+                      <p>{j.notes}</p>
+                    </div>
+                  )}
+
+                  {j.sow && (
+                    <a className="jh-sow-link" href={j.sow} target="_blank" rel="noopener noreferrer">SOW Link</a>
+                  )}
+
+                  {/* status + actions */}
+                  <div className="jh-detail-actions">
+                    <select
+                      className="jh-status-sel"
+                      value={status}
+                      onChange={e => updateStatus(j.job_id, e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <option value="Ongoing">Ongoing</option>
+                      <option value="On Hold">On Hold</option>
+                      <option value="Complete">Complete</option>
+                    </select>
+
+                    {/* % complete + add to bill list */}
+                    {amount > 0 && j.no_bill !== 'Yes' && (
+                      <div className="jh-bill-action">
+                        <input
+                          type="number"
+                          className="jh-pct-input"
+                          placeholder="% to bill"
+                          min="1"
+                          max="100"
+                          value={pctInput}
+                          onChange={e => setPctInput(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                        />
+                        <button
+                          className="jh-bill-btn"
+                          disabled={saving}
+                          onClick={e => { e.stopPropagation(); addToBillList(j) }}
+                        >
+                          {saving ? 'Saving...' : 'Add to Bill List'}
+                        </button>
+                      </div>
+                    )}
+
+                    <button
+                      className="jh-del-btn"
+                      onClick={e => { e.stopPropagation(); softDelete(j.job_id, `${j.job_num} - ${j.job_name}`) }}
+                    >
+                      {'\uD83D\uDDD1'} Delete
+                    </button>
+                  </div>
+
+                  {/* assignment history */}
+                  <div className="jh-hist-section">
+                    <div className="jh-hist-section-title">Assignment History</div>
+                    {loadingHistory ? (
+                      <div className="jh-empty">Loading...</div>
+                    ) : weekGroups.length === 0 ? (
+                      <div className="jh-empty">No crew assignments yet</div>
+                    ) : (
+                      <div className="jh-wk-list">
+                        {weekGroups.map(wk => (
+                          <div key={wk.monday} className="jh-wk-card">
+                            <div className="jh-wk-title">{wk.label}</div>
+                            <div className="jh-wk-crew">
+                              {wk.crew.map(c => (
+                                <span key={c.name} className="jh-wk-chip">
+                                  {flipName(c.name)} <span className="jh-wk-days">{c.days}</span>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* Restore Bin Modal */}
@@ -493,53 +699,6 @@ export default function Jobs() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-/* ── JobCard sub-component ───────────────────────────────────────── */
-
-function JobCard({ job, status, crewCount, billingLog, onOpen, onStatusChange, onDelete, renderTags }) {
-  const j = job
-  const billedPct = j.partial_billing === 'Yes' ? getBilledToDate(billingLog, j.job_id) : null
-
-  return (
-    <div className={`jh-row${isPW(j) ? ' pw-row' : ''}`} onClick={onOpen}>
-      <div className="jh-row-top">
-        <span className={`jh-dot ${status}`} />
-        <div className="jh-rinfo">
-          <div className="jh-rname">{j.job_num} - {j.job_name}</div>
-        </div>
-        <span className="jh-rarrow">{'\u203A'}</span>
-        <button
-          className="jh-del-btn"
-          title="Delete job"
-          onClick={e => { e.stopPropagation(); onDelete(j.job_id, `${j.job_num} - ${j.job_name}`) }}
-        >{'\uD83D\uDDD1'}</button>
-      </div>
-      <div className="jh-rmeta" style={{ marginLeft: 18 }}>
-        {renderTags(j.work_type)}
-        {isPW(j) && <span className="pw-tag">PW</span>}
-        {j.partial_billing === 'Yes' && <span className="rtb-tag">RTB</span>}
-        {j.no_bill === 'Yes' && <span className="nb-tag">NO BILL</span>}
-      </div>
-      {(crewCount > 0 || billedPct !== null) && (
-        <div className="jh-rmeta-line" style={{ marginLeft: 18 }}>
-          {crewCount > 0 && <span>{crewCount} crew this week</span>}
-          {billedPct !== null && billedPct > 0 && <span style={{ color: '#0891b2', fontWeight: 600 }}>{Math.round(billedPct)}% billed</span>}
-        </div>
-      )}
-      <div style={{ marginLeft: 18, marginTop: 4 }} onClick={e => e.stopPropagation()}>
-        <select
-          className="jh-status-sel"
-          value={getJobStatus(j)}
-          onChange={e => onStatusChange(j.job_id, e.target.value)}
-        >
-          <option value="Ongoing">Ongoing</option>
-          <option value="On Hold">On Hold</option>
-          <option value="Complete">Complete</option>
-        </select>
-      </div>
     </div>
   )
 }

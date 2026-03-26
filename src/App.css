@@ -2144,11 +2144,11 @@
 }
 
 /* ═══════════════════════════════════════
-   Jobs View (jh-)
+   Jobs View (jh-) — Health Dashboard
    ═══════════════════════════════════════ */
 
 .jh-wrap {
-  max-width: 1100px;
+  max-width: 900px;
   margin: 0 auto;
   padding: 16px 24px;
 }
@@ -2160,32 +2160,12 @@
   font-size: 14px;
 }
 
-.jh-back {
-  font-family: var(--font-heading);
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 6px 14px;
-  border: 2px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  cursor: default;
-  margin-bottom: 14px;
-  display: inline-block;
-}
-
-.jh-back:hover {
-  border-color: var(--command-green);
-}
-
 /* Toolbar */
 .jh-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .jh-search {
@@ -2199,64 +2179,75 @@
   color: var(--text-primary);
 }
 
-.jh-search::placeholder {
-  color: var(--text-light);
-}
+.jh-search::placeholder { color: var(--text-light); }
+.jh-search:focus { outline: none; border-color: var(--command-green); }
 
-.jh-search:focus {
-  outline: none;
-  border-color: var(--command-green);
-}
-
-/* Week navigation */
-.jh-week-nav {
+/* Date filter bar */
+.jh-filter-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  background: var(--bg-card);
-  border-radius: 4px;
-  border: 2px solid rgba(28, 24, 20, 0.22);
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
-.jh-wk-btn {
+.jh-filter-pills {
+  display: flex;
+  gap: 0;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.jh-filter-pill {
   font-family: var(--font-heading);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 6px 14px;
+  padding: 7px 14px;
+  border: none;
+  border-right: 1px solid rgba(28, 24, 20, 0.15);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: default;
+  transition: background 0.12s, color 0.12s;
+}
+
+.jh-filter-pill:last-child { border-right: none; }
+
+.jh-filter-pill:hover {
+  background: var(--sand-light);
+}
+
+.jh-filter-pill.active {
+  background: var(--header-dark);
+  color: var(--command-green);
+}
+
+.jh-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jh-date-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 8px;
   border: 2px solid var(--border);
   border-radius: 4px;
   background: var(--bg-card);
   color: var(--text-primary);
-  cursor: default;
 }
 
-.jh-wk-btn:hover {
-  border-color: var(--command-green);
-}
+.jh-date-input:focus { outline: none; border-color: var(--command-green); }
 
-.jh-wk-this {
-  background: var(--command-green);
-  color: var(--header-dark);
-  border-color: var(--command-green);
-}
-
-.jh-wk-this:hover {
-  background: #4aa832;
-}
-
-.jh-wk-label {
+.jh-range-sep {
   font-family: var(--font-heading);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 11px;
+  color: var(--text-light);
   text-transform: uppercase;
-  letter-spacing: 1px;
-  flex: 1;
-  text-align: center;
-  color: var(--text-primary);
 }
 
 /* Scoreboard */
@@ -2275,7 +2266,7 @@
 
 .jh-score {
   flex: 1;
-  min-width: 120px;
+  min-width: 100px;
   padding: 14px 16px;
   background: var(--bg-card);
   border: 2px solid rgba(28, 24, 20, 0.22);
@@ -2290,13 +2281,8 @@
   color: var(--command-green);
 }
 
-.jh-score.oh .jh-score-num {
-  color: #e65100;
-}
-
-.jh-score.cp .jh-score-num {
-  color: var(--sand-dark);
-}
+.jh-score.oh .jh-score-num { color: #e65100; }
+.jh-score.cp .jh-score-num { color: var(--sand-dark); }
 
 .jh-score-lbl {
   font-family: var(--font-heading);
@@ -2320,89 +2306,64 @@
   white-space: nowrap;
 }
 
-.jh-bin-btn:hover {
-  border-color: var(--sand-dark);
-}
+.jh-bin-btn:hover { border-color: var(--sand-dark); }
 
-/* 3-column layout */
-.jh-cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 12px;
-  align-items: start;
-}
-
-.jh-col {
+/* Single job list */
+.jh-list {
   display: flex;
   flex-direction: column;
-  gap: 0;
-}
-
-.jh-col-hdr {
-  font-family: var(--font-heading);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--sand-dark);
-  padding: 0 0 8px;
-  margin-bottom: 8px;
-  border-bottom: 2px solid var(--command-green);
-}
-
-.jh-col-hdr.oh {
-  border-bottom-color: #e65100;
-}
-
-.jh-col-hdr.cp {
-  border-bottom-color: var(--sand-dark);
-}
-
-/* Job card row */
-.jh-row {
-  background: var(--bg-card);
-  border: 2px solid rgba(28, 24, 20, 0.22);
-  border-radius: 4px;
-  padding: 10px 12px;
-  margin-bottom: 6px;
-  position: relative;
-  transition: background 0.12s;
-}
-
-.jh-row:hover {
-  background: var(--sand-light);
-}
-
-.jh-row.pw-row {
-  border-left: 4px solid var(--pw);
-}
-
-.jh-row-top {
-  display: flex;
-  align-items: flex-start;
   gap: 8px;
 }
 
-.jh-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 5px;
+/* Job card */
+.jh-card {
+  background: var(--bg-card);
+  border: 2px solid rgba(28, 24, 20, 0.22);
+  border-radius: 4px;
+  overflow: hidden;
+  transition: border-color 0.15s;
 }
 
-.jh-dot.og { background: var(--command-green); }
-.jh-dot.oh { background: var(--warning); }
-.jh-dot.cp { background: var(--sand-dark); }
+.jh-card:hover { border-color: rgba(28, 24, 20, 0.4); }
+.jh-card.expanded { border-color: var(--command-green); }
+.jh-card.pw-row { border-left: 4px solid var(--pw); }
 
-.jh-rinfo {
+/* Card header */
+.jh-card-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 0;
+  cursor: default;
+  gap: 10px;
+}
+
+.jh-card-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   flex: 1;
+}
+
+.jh-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   min-width: 0;
 }
 
-.jh-rname {
+.jh-card-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--command-green);
+  flex-shrink: 0;
+}
+
+.jh-card-name {
   font-family: var(--font-heading);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -2411,34 +2372,123 @@
   text-overflow: ellipsis;
 }
 
-.jh-rmeta {
+.jh-card-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Status badge */
+.jh-status-badge {
+  font-family: var(--font-heading);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.jh-status-badge.og { background: var(--command-green); color: var(--header-dark); }
+.jh-status-badge.oh { background: var(--orn); color: #fff; }
+.jh-status-badge.cp { background: var(--sand-dark); color: #fff; }
+
+/* Days left */
+.jh-days {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.jh-days.overdue { color: var(--danger); }
+.jh-days.soon { color: var(--warning); }
+
+.jh-expand-arrow {
+  font-size: 10px;
+  color: var(--sand-dark);
+}
+
+/* Card body */
+.jh-card-body {
+  padding: 6px 14px 10px;
+  cursor: default;
+}
+
+.jh-card-tags {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
-  margin-top: 3px;
+  margin-bottom: 6px;
 }
 
-.jh-rmeta-line {
+/* Progress bar */
+.jh-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.jh-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(28, 24, 20, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.jh-progress-fill {
+  height: 100%;
+  background: var(--cyan);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.jh-progress-fill.done { background: var(--command-green); }
+
+.jh-progress-lbl {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+
+.jh-progress-lbl.done { color: var(--command-green); }
+
+/* Card meta: money + flags */
+.jh-card-meta {
   display: flex;
   gap: 8px;
-  margin-top: 3px;
-  font-size: 11px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.jh-money {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
-.jh-crew-ct {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--command-green);
-  font-weight: 600;
+.jh-flag {
+  font-family: var(--font-heading);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 3px;
 }
 
-.jh-bill-pct {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--cyan);
-  font-weight: 600;
-}
+.jh-flag.flag-red { background: var(--danger); color: #fff; }
+.jh-flag.flag-orange { background: var(--warning); color: #fff; }
+.jh-flag.flag-cyan { background: var(--cyan); color: #fff; }
 
 /* Tags shared across Jobs/Billing */
 .pw-tag {
@@ -2477,7 +2527,7 @@
   letter-spacing: 0.5px;
 }
 
-/* Work type tag colors (Jobs view variants) */
+/* Work type tag colors */
 .tg-flake { background: #d1fae5; color: #059669; }
 .tg-epoxy { background: #f0e6ff; color: #7c3aed; }
 .tg-caulk { background: #fef3c7; color: #b45309; }
@@ -2486,110 +2536,51 @@
 .tg-plenum { background: #dbeafe; color: #2563eb; }
 .tg-default { background: rgba(28, 24, 20, 0.08); color: var(--text-secondary); }
 
-/* Job row bottom actions */
-.jh-row-bottom {
+/* ── Expanded card detail ─────────────────────── */
+
+.jh-card-detail {
+  border-top: 1px solid rgba(28, 24, 20, 0.12);
+  padding: 14px;
+  background: rgba(28, 24, 20, 0.03);
+}
+
+.jh-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.jh-detail-item {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid rgba(28, 24, 20, 0.1);
+  flex-direction: column;
+  gap: 2px;
 }
 
-.jh-status-sel {
+.jh-detail-label {
   font-family: var(--font-heading);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border: 2px solid rgba(28, 24, 20, 0.2);
-  border-radius: 3px;
-  background: var(--bg-card);
-  color: var(--text-primary);
-  cursor: default;
-  text-transform: uppercase;
-}
-
-.jh-status-sel:focus {
-  outline: none;
-  border-color: var(--command-green);
-}
-
-.jh-del-btn {
-  font-size: 14px;
-  padding: 2px 7px;
-  border: 1px solid var(--danger);
-  border-radius: 3px;
-  background: none;
-  color: var(--danger);
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.jh-del-btn:hover {
-  background: var(--danger);
-  color: #fff;
-  border-color: var(--danger);
-}
-
-.jh-rarrow {
-  font-size: 18px;
-  flex-shrink: 0;
-  color: var(--sand-dark);
-  font-weight: 300;
-}
-
-/* Job history drill-down */
-.jh-hist-hdr {
-  background: var(--header-dark);
-  color: var(--white);
-  border: 2px solid var(--border);
-  border-radius: 4px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-}
-
-.jh-hist-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-
-.jh-hist-num {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--command-green);
-}
-
-.jh-hist-name {
-  font-family: var(--font-heading);
-  font-size: 20px;
+  font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  color: var(--sand-dark);
 }
 
-.jh-hist-tags {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
+.jh-detail-value {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-primary);
 }
 
-.jh-hist-meta {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--sand-light);
-  margin-bottom: 8px;
+.jh-detail-notes {
+  margin-bottom: 10px;
 }
 
-.jh-hist-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+.jh-detail-notes p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .jh-sow-link {
@@ -2605,57 +2596,139 @@
   color: var(--header-dark);
   text-decoration: none;
   cursor: default;
+  display: inline-block;
+  margin-bottom: 10px;
 }
 
-.jh-sow-link:hover {
-  background: #4aa832;
-  border-color: #4aa832;
+.jh-sow-link:hover { background: #4aa832; border-color: #4aa832; }
+
+/* Detail actions row */
+.jh-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid rgba(28, 24, 20, 0.1);
+  border-bottom: 1px solid rgba(28, 24, 20, 0.1);
+  margin-bottom: 12px;
+}
+
+.jh-status-sel {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border: 2px solid rgba(28, 24, 20, 0.2);
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  cursor: default;
+  text-transform: uppercase;
+}
+
+.jh-status-sel:focus { outline: none; border-color: var(--command-green); }
+
+.jh-bill-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.jh-pct-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 80px;
+  padding: 5px 8px;
+  border: 2px solid rgba(28, 24, 20, 0.2);
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.jh-pct-input:focus { outline: none; border-color: var(--command-green); }
+
+.jh-bill-btn {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 5px 12px;
+  border: 2px solid var(--cyan);
+  border-radius: 4px;
+  background: var(--cyan);
+  color: #fff;
+  cursor: default;
+}
+
+.jh-bill-btn:hover { background: #0780a0; border-color: #0780a0; }
+.jh-bill-btn:disabled { opacity: 0.5; }
+
+.jh-del-btn {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border: 2px solid rgba(192, 57, 43, 0.3);
+  border-radius: 3px;
+  background: none;
+  color: var(--danger);
+  cursor: default;
+  margin-left: auto;
+}
+
+.jh-del-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+/* Assignment history inside expanded card */
+.jh-hist-section {
+  margin-top: 4px;
 }
 
 .jh-hist-section-title {
   font-family: var(--font-heading);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--text-secondary);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .jh-wk-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .jh-wk-card {
   background: var(--bg-card);
-  border: 2px solid var(--border);
+  border: 2px solid rgba(28, 24, 20, 0.15);
   border-radius: 4px;
-  padding: 10px 14px;
+  padding: 8px 12px;
 }
 
 .jh-wk-title {
   font-family: var(--font-heading);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .jh-wk-crew {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
 }
 
 .jh-wk-chip {
   font-family: var(--font-heading);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: 3px;
   background: var(--header-dark);
   color: var(--white);
@@ -2666,7 +2739,7 @@
 
 .jh-wk-days {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9px;
   color: var(--command-green);
   font-weight: 700;
 }
@@ -2689,10 +2762,7 @@
   background: rgba(28, 24, 20, 0.04);
 }
 
-.jh-bin-name {
-  font-size: 13px;
-  font-weight: 600;
-}
+.jh-bin-name { font-size: 13px; font-weight: 600; }
 
 .jh-bin-restore {
   font-family: var(--font-heading);
@@ -2708,10 +2778,7 @@
   cursor: default;
 }
 
-.jh-bin-restore:hover {
-  background: #4aa832;
-  border-color: #4aa832;
-}
+.jh-bin-restore:hover { background: #4aa832; border-color: #4aa832; }
 
 /* ═══════════════════════════════════════
    Billing View (rtb-)
