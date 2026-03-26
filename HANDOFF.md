@@ -91,14 +91,16 @@ Three Postgres triggers created on the shared DB:
 - `src/components/FieldSowModal.jsx` — field SOW print modal
 
 ## What's Next
-1. **Vercel deploy** — import repo, set env vars, deploy
-   - Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-   - Set up custom domain (e.g., schedule.scmybiz.com)
-2. **Delete old Supabase project** (`tzwhgspgpyzhhwwjzugb`) — no longer needed
-3. **Test the Sold trigger** — mark a proposal as Sold in Sales Command, verify job appears in Schedule Command
-4. **Finish Send Schedules** — replace alert placeholder with actual SMS/text flow
-5. **Polish pass** — consistent error toasts, mobile responsiveness
-6. **Add Supabase redirect URL** — add the Vercel domain to Supabase auth allowed redirect URLs (for password reset)
+1. **DONE — Vercel deploy** — live at schmybiz.com and sch-command.vercel.app
+2. **TODO — Add Supabase redirect URLs** — Go to Supabase dashboard → Authentication → URL Configuration → add these to Redirect URLs:
+   - `https://www.schmybiz.com`
+   - `https://www.schmybiz.com/**`
+   - `https://sch-command.vercel.app`
+   - `https://sch-command.vercel.app/**`
+3. **Delete old Supabase project** (`tzwhgspgpyzhhwwjzugb`) — no longer needed
+4. **Test the Sold trigger** — mark a proposal as Sold in Sales Command, verify job appears in Schedule Command
+5. **Finish Send Schedules** — replace alert placeholder with actual SMS/text flow
+6. **Polish pass** — consistent error toasts, mobile responsiveness
 
 ## Database Triggers (on shared Supabase)
 - `create_job_on_sold()` — fires on `proposals` UPDATE of status
