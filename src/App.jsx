@@ -61,8 +61,9 @@ export default function App() {
     )
   }
 
-  // Not logged in
-  if (!session) return <Login />
+  // Not logged in — skip login on localhost for dev
+  const isDev = window.location.hostname === 'localhost'
+  if (!session && !isDev) return <Login />
 
   return <AppShell session={session} teamMember={teamMember} />
 }

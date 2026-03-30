@@ -1537,6 +1537,96 @@
   border-color: var(--danger);
 }
 
+.sch-wt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.sch-wt-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sch-wt-tag {
+  font-size: 10px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: #1c1814;
+  color: #5BBD3F;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.sch-wt-btn {
+  padding: 8px 12px;
+  white-space: nowrap;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid rgba(28, 24, 20, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.sch-wt-btn:hover {
+  background: rgba(28, 24, 20, 0.08);
+}
+
+.sch-wt-select {
+  width: 100%;
+  max-height: 140px;
+  overflow-y: auto;
+  font-family: var(--font-body);
+  font-size: 11px;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  border: 1px solid rgba(28, 24, 20, 0.2);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 8px;
+}
+
+.sch-wt-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sch-wt-option:hover {
+  background: rgba(28, 24, 20, 0.08);
+}
+
+.sch-wt-option-on {
+  background: rgba(91, 189, 63, 0.15);
+}
+
+.sch-wt-option-on:hover {
+  background: rgba(91, 189, 63, 0.25);
+}
+
+.sch-wt-check {
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* SOW link button */
 .sch-sow-link {
   font-size: 16px;
@@ -3406,8 +3496,11 @@
   color: var(--text-primary);
 }
 
-.login-title span {
+.login-title .login-title-cmd {
   color: #30cfac;
+  background: #1c1814;
+  padding: 2px 10px;
+  border-radius: 6px;
 }
 
 .login-sub {
@@ -3436,6 +3529,25 @@
   background: rgba(239, 68, 68, 0.08);
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: var(--danger);
+}
+
+.login-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.login-remember input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #30cfac;
+  cursor: pointer;
 }
 
 .login-form {

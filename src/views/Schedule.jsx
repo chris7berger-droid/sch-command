@@ -106,6 +106,7 @@ export default function Schedule() {
   const [expandedJobs, setExpandedJobs] = useState({})
   const [expandedDefer, setExpandedDefer] = useState({})
   const [workTypes, setWorkTypes] = useState([])
+  const [wtOpen, setWtOpen] = useState({})
 
   const monday = useMemo(() => {
     const m = getMonday(new Date())
@@ -698,24 +699,38 @@ export default function Schedule() {
             )}
 
             {/* Work Types */}
-            <div className="sch-det-section-label" style={{ marginBottom: 3 }}>Work Types</div>
-            <div className="sch-wt-wrap">
-              {workTypes.map(wt => {
-                const curTypes = (j.work_type || '').split(',').map(t => t.trim())
-                const isOn = curTypes.includes(wt)
-                return (
-                  <label key={wt} className={`sch-wt-chip${isOn ? ' sch-wt-on' : ''}`}>
-                    <input type="checkbox" checked={isOn} onChange={() => {
-                      const updated = isOn
-                        ? curTypes.filter(t => t && t !== wt).join(',')
-                        : [...curTypes.filter(Boolean), wt].join(',')
-                      handleUpdateJob(j.job_id, 'work_type', updated)
-                    }} style={{ width: 12, height: 12 }} />
-                    {wt}
-                  </label>
+            <div className="sch-wt-row">
+              <button className="sch-wt-btn" onClick={() => setWtOpen(p => ({ ...p, [j.job_id]: !p[j.job_id] }))}>
+                Work Types {wtOpen[j.job_id] ? '\u25B4' : '\u25BE'}
+              </button>
+              {(() => {
+                const sel = (j.work_type || '').split(',').map(t => t.trim()).filter(Boolean)
+                return sel.length > 0 && (
+                  <div className="sch-wt-tags">
+                    {sel.map(t => <span key={t} className="sch-wt-tag">{t}</span>)}
+                  </div>
                 )
-              })}
+              })()}
             </div>
+            {wtOpen[j.job_id] && (
+              <div className="sch-wt-select">
+                {workTypes.map(wt => {
+                  const curTypes = (j.work_type || '').split(',').map(t => t.trim()).filter(Boolean)
+                  const isOn = curTypes.includes(wt)
+                  return (
+                    <div key={wt} className={`sch-wt-option${isOn ? ' sch-wt-option-on' : ''}`} onClick={() => {
+                      const updated = isOn
+                        ? curTypes.filter(t => t !== wt).join(',')
+                        : [...curTypes, wt].join(',')
+                      handleUpdateJob(j.job_id, 'work_type', updated)
+                    }}>
+                      <span className="sch-wt-check">{isOn ? '\u2611' : '\u2610'}</span>
+                      {wt}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Crew drop zone with day toggles */}
             <div className="sch-det-section-label">

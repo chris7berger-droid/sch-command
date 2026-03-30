@@ -1,112 +1,85 @@
 # Handoff — Schedule Command
 
-**Date:** 2026-03-26
-**Last commit:** Shared DB, auth, branding, design system overhaul
+**Date:** 2026-03-30
+**Last commit:** Login fixes, work type dropdown, data migration, Resend domains
 
-## What Was Done This Session
+## What Was Done This Session (v2)
 
-### 1. Shared Database (Sales Command + Schedule Command)
-- **Migrated all 6 scheduling tables** (jobs, crew, assignments, crew_status, materials, billing_log) into the Sales Command Supabase project (`pbgvgjjuhnpsumnowuym`)
-- **Old Supabase project** (`tzwhgspgpyzhhwwjzugb`) is now unused — safe to delete
-- Both apps point to the same database
-- `.env.local` and `migrate.mjs` updated to use shared project credentials
-- **51 jobs, 23 crew, 519 assignments, 31 crew statuses, 21 materials, 23 billing log entries** migrated from CSV
+### 1. Login Page Fixes
+- SCH crosshair icon now has black (#1c1814) background fill
+- "Command" text in "Schedule Command" has black pill background with teal text
+- Added "Remember Me" checkbox between password and Sign In button
 
-### 2. Sales-to-Schedule Sync (Database Triggers)
-Three Postgres triggers created on the shared DB:
+### 2. Resend Domain Setup
+- Added `scmybiz.com` and `schmybiz.com` as sending domains in Resend
+- DNS records (DKIM TXT + SPF TXT) added on Namecheap for both
+- Both domains pending verification (DNS propagating)
+- Once verified, forgot password and auth emails will work from proper domains
 
-- **`trg_create_job_on_sold`** — When a proposal status changes to "Sold", auto-creates a job in the `jobs` table with:
-  - job_num, job_name from call_log
-  - amount from proposals.total
-  - work_type names from proposal_wtc → work_types
-  - prevailing_wage, start_date, end_date from proposal_wtc
-  - field_sow (jsonb) combined from all WTCs
-  - Materials auto-populated into the materials table
-  - call_log_id FK linking back to sales-command
-  - Skips if job already exists for that call_log (no duplicates)
+### 3. Supabase Auth URL Configuration
+- Added redirect URLs to shared Supabase project:
+  - `http://localhost:5174/**`
+  - `https://www.schmybiz.com/**`
+  - `https://sch-command.vercel.app/**`
 
-- **`trg_sync_job_amount`** — When proposals.total changes on a Sold proposal, updates jobs.amount automatically
+### 4. Data Migration (Fresh from Google Sheets)
+- Imported live production data from Google Sheets CSVs:
+  - 62 jobs, 23 crew, 722 assignments, 42 crew statuses, 21 materials, 26 billing entries, 16 work types
+- Used service role key to bypass RLS for import
+- Old stale migration data was cleared first
 
-### 3. Schema Changes
-- Added `field_sow JSONB` column to jobs table
-- Added `call_log_id BIGINT REFERENCES call_log(id)` to jobs table
-- Added index on `jobs.call_log_id`
+### 5. RLS Policies for Anon Access (Dev/Temp)
+- Added `anon_all_*` policies on all 7 scheduling tables via SQL Editor
+- Allows unauthenticated reads/writes for dev — **must be tightened before prod**
 
-### 4. Authentication
-- **Supabase auth wired up** — same team_members + auth system as Sales Command
-- `src/lib/auth.js` — getSession, onAuthStateChange, signIn, signOut, getCurrentTeamMember
-- `src/views/Login.jsx` — branded login page with forgot/reset password flows
-- App.jsx gates all content behind login
-- Sign Out button in header actions row
-- Same credentials work for both Sales Command and Schedule Command
+### 6. Work Type Picker Redesign (Crew Schedule)
+- Replaced checkbox chip grid with collapsible dropdown
+- "Work Types" is now a button that toggles open/closed (saves screen space)
+- Clickable list items with checkbox icons (no Cmd-click needed)
+- Selected work types display as dark pills with green text next to the button
 
-### 5. Row Level Security
-- RLS enabled on all 6 scheduling tables
-- Policy: authenticated users can do everything (SELECT, INSERT, UPDATE, DELETE)
-- Unauthenticated requests get nothing
-- Database triggers still work (run as service role)
+### 7. Dev Environment
+- Repo cloned to `~/sch-command`
+- `.env.local` created with shared Supabase credentials
+- Localhost dev bypass: skips login on `localhost` (App.jsx)
+- Vite dev server: `http://localhost:5174/`
 
-### 6. Branding — "Schedule Command"
-- Renamed from "Schedule Commander" to "Schedule Command"
-- **SCH crosshair icon** (SVG, matches Sales Command's SC icon)
-- Header uses teal `#30cfac` accent (matching Sales Command brand)
-- Content areas keep green `#5BBD3F` for buttons, tags, status indicators
-- Favicon updated to SCH crosshair
-- `src/components/Logo.jsx` — ScheduleCommandMark + AppWordmark components
-
-### 7. Design System Overhaul
-- **Linen background** updated to match Sales Command (`#b5a896` base, `#c8bcaa` cards)
-- **Borders softened**: `2px solid` → `1px solid` with lower opacity throughout
-- **Border radius**: `4px` → `8-10px` (rounder, softer cards)
-- **Box shadows added**: `0 2px 8px rgba(28,24,20,0.07)` on cards, search, scoreboards
-- **Scrollbar** styled to match (teal thumb)
-- CLAUDE.md updated with full design system reference
-
-### 8. Contract Amount Editor
-- Jobs expanded detail: Contract field is now an editable input with Save button
-- Saves directly to Supabase `jobs.amount`
-- Progress bar appears once a job has a contract amount
-
-### 9. Field SOW Modal
-- `src/components/FieldSowModal.jsx` — renders field_sow jsonb as printable PDF
-- Day-by-day view: tasks (with checkboxes), materials per day, crew count, hours
-- Branded header (SCH, dark/teal)
-- Print button opens new window with print dialog
-- "Field SOW" button appears on expanded job cards that have field_sow data
-
-## Files Changed
-- `CLAUDE.md` — updated name, shared DB, design system reference
-- `index.html` — title updated
-- `migrate.mjs` — points to shared DB, fixes for amount parsing, FK ordering
-- `public/favicon.svg` — SCH crosshair icon
-- `src/App.css` — design system overhaul (borders, radius, shadows, login styles)
-- `src/App.jsx` — auth gate, sign out, branding, Logo import
-- `src/index.css` — color variables updated, scrollbar, autofill styles
-- `src/views/Jobs.jsx` — contract amount editor, Field SOW button, FieldSowModal import
-
-## New Files
-- `src/lib/auth.js` — auth helpers
-- `src/views/Login.jsx` — login page
-- `src/components/Logo.jsx` — SCH icon + wordmark
-- `src/components/FieldSowModal.jsx` — field SOW print modal
-
-## What's Next
-1. **DONE — Vercel deploy** — live at schmybiz.com and sch-command.vercel.app
-2. **TODO — Add Supabase redirect URLs** — Go to Supabase dashboard → Authentication → URL Configuration → add these to Redirect URLs:
-   - `https://www.schmybiz.com`
-   - `https://www.schmybiz.com/**`
-   - `https://sch-command.vercel.app`
-   - `https://sch-command.vercel.app/**`
-3. **Delete old Supabase project** (`tzwhgspgpyzhhwwjzugb`) — no longer needed
-4. **Test the Sold trigger** — mark a proposal as Sold in Sales Command, verify job appears in Schedule Command
-5. **Finish Send Schedules** — replace alert placeholder with actual SMS/text flow
-6. **Polish pass** — consistent error toasts, mobile responsiveness
-
-## Database Triggers (on shared Supabase)
-- `create_job_on_sold()` — fires on `proposals` UPDATE of status
-- `sync_job_amount()` — fires on `proposals` UPDATE of total
+## Files Changed (this session)
+- `src/App.css` — login styles, remember me, work type dropdown/button/tags CSS
+- `src/App.jsx` — localhost login bypass for dev
+- `src/components/Logo.jsx` — black fill on SCH icon
+- `src/views/Login.jsx` — "Command" pill class, remember me checkbox
+- `src/views/Schedule.jsx` — work type collapsible dropdown with tags
+- `src/lib/supabase.js` — no change (service role approach reverted)
 
 ## Known Issues
-- None blocking deployment
-- Send Schedules is still a placeholder alert
-- Some views have minor inline style inconsistencies
+- **Forgot password not working** — Resend domains (scmybiz.com, schmybiz.com) pending DNS verification
+- **RLS wide open** — anon_all policies on scheduling tables need to be replaced with authenticated-only policies
+- **Login bypass** — localhost skips auth, uses anon key; data loads because of anon RLS policies
+- Send Schedules is still a placeholder
+
+## What's Next
+1. **Verify Resend domains** — check scmybiz.com and schmybiz.com status, test forgot password
+2. **Tighten RLS** — replace anon_all policies with authenticated-only
+3. **Remove localhost login bypass** once auth is working
+4. **Continue bug hunt** — go through all 7 views
+5. **Send Schedules** — build crew card flipper for SMS/text
+6. **Rename Supabase project** — from "sales-command" to "command-suite" (display name only)
+
+## Architecture Notes
+- **Separate repos, shared DB** — correct pattern for the Command Suite
+- Repos: `sales-command` (scmybiz.com), `sch-command` (schmybiz.com), landing page in sales-command (sccmybiz.com)
+- Shared Supabase project: `pbgvgjjuhnpsumnowuym`
+- Each app can be sold independently; shared DB enables cross-app data sync
+- DB triggers sync Sales → Schedule (proposal sold → job created)
+
+## Domain Reference
+- **scmybiz.com** — Sales Command
+- **schmybiz.com** — Schedule Command
+- **sccmybiz.com** — Sub Con Command (landing page)
+
+## All v1 Items Remain Current
+Everything from the previous handoff is still accurate:
+- Shared DB migration, auth, RLS, branding, design system
+- Contract amount editor, Field SOW modal
+- DB triggers (create_job_on_sold, sync_job_amount)

@@ -2,7 +2,7 @@ export function ScheduleCommandMark({ size = 34 }) {
   const teal = "#30cfac"
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="20" cy="20" r="17" stroke={teal} strokeWidth="1.5" fill="none"/>
+      <circle cx="20" cy="20" r="17" stroke={teal} strokeWidth="1.5" fill="#1c1814"/>
       <circle cx="20" cy="20" r="11" stroke={teal} strokeWidth="1" fill="rgba(48,207,172,0.06)"/>
       <line x1="20" y1="3"  x2="20" y2="8"  stroke={teal} strokeWidth="1.5" strokeLinecap="round"/>
       <line x1="20" y1="32" x2="20" y2="37" stroke={teal} strokeWidth="1.5" strokeLinecap="round"/>

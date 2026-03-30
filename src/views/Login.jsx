@@ -11,6 +11,7 @@ export default function Login() {
   const [mode, setMode] = useState('login')
   const [message, setMessage] = useState(null)
   const [newPassword, setNewPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -72,7 +73,7 @@ export default function Login() {
         <div className="login-brand">
           <ScheduleCommandMark size={48} />
           <div className="login-title">
-            Schedule <span>Command</span>
+            Schedule <span className="login-title-cmd">Command</span>
           </div>
           <div className="login-sub">Command Suite</div>
         </div>
@@ -90,6 +91,10 @@ export default function Login() {
               <label>Password</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} required />
             </div>
+            <label className="login-remember">
+              <input type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} />
+              Remember me
+            </label>
             <button type="submit" className="login-btn" disabled={loading}>
               {loading ? 'Signing in...' : 'Sign In'}
             </button>
