@@ -35,18 +35,24 @@ function flipName(n) {
 
 export default function App() {
   const [session, setSession] = useState(undefined)
-  const [teamMember, setTeamMember] = useState(null)
+  const [teamMember, setTeamMember] = useState(undefined)
 
   useEffect(() => {
-    getSession().then(s => setSession(s ?? null))
+    getSession().then(async s => {
+      setSession(s ?? null)
+      if (s) {
+        const member = await getCurrentTeamMember()
+        setTeamMember(member ?? false)
+      }
+    })
     const sub = onAuthStateChange(async (event, s) => {
       if (event === 'PASSWORD_RECOVERY') { setSession(null); return }
       setSession(s ?? null)
       if (s) {
         const member = await getCurrentTeamMember()
-        setTeamMember(member)
+        setTeamMember(member ?? false)
       } else {
-        setTeamMember(null)
+        setTeamMember(undefined)
       }
     })
     return () => sub.unsubscribe()
@@ -63,6 +69,34 @@ export default function App() {
 
   // Not logged in
   if (!session) return <Login />
+
+  // Waiting for team member data
+  if (session && teamMember === undefined) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-light)', letterSpacing: '0.1em' }}>
+        LOADING…
+      </div>
+    )
+  }
+
+  // Access gate — must have "schedule" in apps array
+  const hasAccess = teamMember?.apps && Array.isArray(teamMember.apps) && teamMember.apps.includes('schedule')
+  if (!hasAccess) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid rgba(28,24,20,0.18)', borderRadius: 10, padding: '40px 36px', maxWidth: 420, textAlign: 'center' }}>
+          <ScheduleCommandMark size={48} />
+          <h2 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text)', marginTop: 16 }}>ACCESS DENIED</h2>
+          <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, color: 'var(--text-light)', margin: '12px 0 24px' }}>
+            Your account does not have access to Schedule Command. Contact your administrator to request access.
+          </p>
+          <button onClick={() => signOut()} style={{ background: 'var(--command-green)', color: '#1c1814', border: 'none', borderRadius: 6, padding: '10px 28px', fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 13, letterSpacing: '0.06em', cursor: 'pointer' }}>
+            SIGN OUT
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return <AppShell session={session} teamMember={teamMember} />
 }
