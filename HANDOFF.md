@@ -1,85 +1,97 @@
 # Handoff — Schedule Command
 
-**Date:** 2026-03-30
-**Last commit:** Login fixes, work type dropdown, data migration, Resend domains
+**Date:** 2026-04-01
+**Last commit:** App access gate for schedule permission
 
-## What Was Done This Session (v2)
+## What Was Done This Session (v3)
 
-### 1. Login Page Fixes
-- SCH crosshair icon now has black (#1c1814) background fill
-- "Command" text in "Schedule Command" has black pill background with teal text
-- Added "Remember Me" checkbox between password and Sign In button
+### 1. Homebrew + GitHub CLI Installed
+- Homebrew installed at /opt/homebrew/bin/brew
+- GitHub CLI (`gh`) installed and authenticated as chris7berger-droid
+- Note: `brew` and `gh` require full path (`/opt/homebrew/bin/`) unless
+  PATH is updated in shell profile
 
-### 2. Resend Domain Setup
-- Added `scmybiz.com` and `schmybiz.com` as sending domains in Resend
-- DNS records (DKIM TXT + SPF TXT) added on Namecheap for both
-- Both domains pending verification (DNS propagating)
-- Once verified, forgot password and auth emails will work from proper domains
+### 2. Resend Domains Verified
+- All three domains confirmed Verified in Resend dashboard:
+  scmybiz.com, schmybiz.com, hdspnv.com
+- DNS records (DKIM TXT + SPF TXT) fully propagated
 
-### 3. Supabase Auth URL Configuration
-- Added redirect URLs to shared Supabase project:
-  - `http://localhost:5174/**`
-  - `https://www.schmybiz.com/**`
-  - `https://sch-command.vercel.app/**`
+### 3. SMTP API Key — Still Missing
+- Supabase SMTP Settings password field is empty
+- This means forgot-password emails won't send (Supabase can't auth with Resend)
+- Invites work fine (they use edge functions + Resend API directly)
+- Fix: paste a Resend API key into Supabase → Auth → Email → SMTP Settings → Password
 
-### 4. Data Migration (Fresh from Google Sheets)
-- Imported live production data from Google Sheets CSVs:
-  - 62 jobs, 23 crew, 722 assignments, 42 crew statuses, 21 materials, 26 billing entries, 16 work types
-- Used service role key to bypass RLS for import
-- Old stale migration data was cleared first
+### 4. RLS Tightened — All 7 Tables
+- Replaced wide-open `anon_all_*` policies with `authenticated`-only policies
+- Tables: jobs, crew, assignments, crew_status, work_types, materials, billing_log
+- Each table has SELECT, INSERT, UPDATE, DELETE policies for authenticated role
+- SQL saved in `rls_tighten.sql` for reference
 
-### 5. RLS Policies for Anon Access (Dev/Temp)
-- Added `anon_all_*` policies on all 7 scheduling tables via SQL Editor
-- Allows unauthenticated reads/writes for dev — **must be tightened before prod**
+### 5. Localhost Login Bypass Removed
+- App.jsx no longer skips login on localhost
+- Login required on all environments (dev + prod)
 
-### 6. Work Type Picker Redesign (Crew Schedule)
-- Replaced checkbox chip grid with collapsible dropdown
-- "Work Types" is now a button that toggles open/closed (saves screen space)
-- Clickable list items with checkbox icons (no Cmd-click needed)
-- Selected work types display as dark pills with green text next to the button
+### 6. Vercel SPA Routing Fixed
+- Added `vercel.json` with rewrites so client-side routes work on refresh
+- Without this, direct navigation to /jobs, /schedule, etc. returned Vercel 404
 
-### 7. Dev Environment
-- Repo cloned to `~/sch-command`
-- `.env.local` created with shared Supabase credentials
-- Localhost dev bypass: skips login on `localhost` (App.jsx)
-- Vite dev server: `http://localhost:5174/`
+### 7. App Access Gate
+- `getCurrentTeamMember()` now fetches `apps` column from team_members
+- After login, checks if `team_members.apps` includes `"schedule"`
+- Shows styled "Access Denied" screen with Sign Out button if not authorized
+- Three-state teamMember: `undefined` (loading), `false` (not found), object (ok)
+- Works with the multi-app architecture built in Sales Command v43
+
+### 8. Chris's auth_id Linked
+- team_members row for chris@hdspnv.com now has auth_id linked to
+  chris7berger@gmail.com Supabase auth user (c5539eac-4518-4f64-8183-362ffcbded76)
+- apps set to `["sales", "schedule"]`
 
 ## Files Changed (this session)
-- `src/App.css` — login styles, remember me, work type dropdown/button/tags CSS
-- `src/App.jsx` — localhost login bypass for dev
-- `src/components/Logo.jsx` — black fill on SCH icon
-- `src/views/Login.jsx` — "Command" pill class, remember me checkbox
-- `src/views/Schedule.jsx` — work type collapsible dropdown with tags
-- `src/lib/supabase.js` — no change (service role approach reverted)
+- `vercel.json` — new, SPA rewrites for Vercel
+- `rls_tighten.sql` — new, RLS policy migration script
+- `src/App.jsx` — removed dev bypass, added access gate + loading states
+- `src/lib/auth.js` — added `apps` to team_members select
+
+## Commits This Session (oldest to newest)
+- f979c4f  feat: tighten RLS — replace anon_all policies with authenticated-only
+- ac5a785  fix: add vercel.json rewrites for SPA client-side routing
+- faa2ee6  feat: app access gate — only members with "schedule" in apps can log in
+
+All pushed to main, deployed via Vercel.
 
 ## Known Issues
-- **Forgot password not working** — Resend domains (scmybiz.com, schmybiz.com) pending DNS verification
-- **RLS wide open** — anon_all policies on scheduling tables need to be replaced with authenticated-only policies
-- **Login bypass** — localhost skips auth, uses anon key; data loads because of anon RLS policies
-- Send Schedules is still a placeholder
+- **SMTP password empty** — forgot-password emails won't send until Resend API key
+  is pasted into Supabase SMTP settings
+- **406 console error** — team_members query uses `.single()`, returns 406 when no
+  row matches; harmless but noisy (could switch to `.maybeSingle()`)
+- **Vercel DNS Change Recommended** — Vercel suggests switching schmybiz.com from
+  CNAME to A record; not blocking, cosmetic warning
 
 ## What's Next
-1. **Verify Resend domains** — check scmybiz.com and schmybiz.com status, test forgot password
-2. **Tighten RLS** — replace anon_all policies with authenticated-only
-3. **Remove localhost login bypass** once auth is working
-4. **Continue bug hunt** — go through all 7 views
-5. **Send Schedules** — build crew card flipper for SMS/text
-6. **Rename Supabase project** — from "sales-command" to "command-suite" (display name only)
+1. **SMTP API key** — paste Resend key into Supabase SMTP password (30 seconds)
+2. **Bug hunt** — go through all 7 views and fix issues
+3. **Send Schedules** — build crew card flipper for SMS/text
+4. **Rename Supabase project** — display name from "sales-command" to "command-suite"
+5. **Share Team page / invite flow** with Schedule Command (from SC v43)
 
 ## Architecture Notes
 - **Separate repos, shared DB** — correct pattern for the Command Suite
-- Repos: `sales-command` (scmybiz.com), `sch-command` (schmybiz.com), landing page in sales-command (sccmybiz.com)
+- Repos: `sales-command` (scmybiz.com), `sch-command` (schmybiz.com)
 - Shared Supabase project: `pbgvgjjuhnpsumnowuym`
-- Each app can be sold independently; shared DB enables cross-app data sync
-- DB triggers sync Sales → Schedule (proposal sold → job created)
+- Auth: Supabase Auth, single user pool across all apps
+- Multi-app access: `tenant_config.apps` (tenant subscription),
+  `team_members.apps` (per-member access). Apps: sales, schedule, field, ar
+- RLS: authenticated-only on all 7 scheduling tables (no tenant_id filter yet)
+- Deploy: Vercel auto-deploy on push to main
 
 ## Domain Reference
 - **scmybiz.com** — Sales Command
 - **schmybiz.com** — Schedule Command
 - **sccmybiz.com** — Sub Con Command (landing page)
 
-## All v1 Items Remain Current
-Everything from the previous handoff is still accurate:
-- Shared DB migration, auth, RLS, branding, design system
-- Contract amount editor, Field SOW modal
-- DB triggers (create_job_on_sold, sync_job_amount)
+## Session Prompt for Next Claude Code Session
+Continue building Schedule Command. Read HANDOFF.md for context.
+RLS is locked down, app access gate is live. Next: paste Resend API key
+into Supabase SMTP, then bug hunt across all 7 views.
