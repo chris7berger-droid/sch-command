@@ -1,97 +1,84 @@
 # Handoff — Schedule Command
 
-**Date:** 2026-04-01
-**Last commit:** App access gate for schedule permission
+**Date:** 2026-04-09
+**Last commit:** Sales Command → Schedule Command integration (Send to Schedule)
 
-## What Was Done This Session (v3)
+## What Was Done This Session (v4)
 
-### 1. Homebrew + GitHub CLI Installed
-- Homebrew installed at /opt/homebrew/bin/brew
-- GitHub CLI (`gh`) installed and authenticated as chris7berger-droid
-- Note: `brew` and `gh` require full path (`/opt/homebrew/bin/`) unless
-  PATH is updated in shell profile
+### 1. "Send to Schedule" Button — Sales Command
+- Added button on ProposalDetail that appears when a proposal is Sold
+- Gathers data from `call_log`, `proposal_wtc`, and `work_types`
+- INSERTs a row into the shared `jobs` table with:
+  - `job_num`, `job_name`, `amount` (numeric), `work_type`
+  - `field_sow` (JSONB — day-by-day tasks, materials, crew, hours)
+  - `sow` (sales_sow text), `start_date`, `end_date`, `prevailing_wage`
+  - `size`, `size_unit` (from WTC)
+  - `source_proposal_id`, `source_call_log_id` (dedup + linking)
+- Duplicate-safe via unique index on `source_proposal_id`
+- Button states: "Send to Schedule" → "Sending..." → "Sent to Schedule"
+- On load, checks if already sent and shows correct state
 
-### 2. Resend Domains Verified
-- All three domains confirmed Verified in Resend dashboard:
-  scmybiz.com, schmybiz.com, hdspnv.com
-- DNS records (DKIM TXT + SPF TXT) fully propagated
+### 2. Invoice Guard
+- Blocks "Send to Schedule" if any invoice exists for the proposal
+- Prevents scheduling work that's already been billed
+- Go Backs (re-scheduling invoiced work) tagged for future session
 
-### 3. SMTP API Key — Still Missing
-- Supabase SMTP Settings password field is empty
-- This means forgot-password emails won't send (Supabase can't auth with Resend)
-- Invites work fine (they use edge functions + Resend API directly)
-- Fix: paste a Resend API key into Supabase → Auth → Email → SMTP Settings → Password
+### 3. QB Test Guard
+- Any job with "test" in the name skips all QuickBooks API calls
+- Covers: `qb-create-job` (ProposalDetail + PublicSigningPage),
+  `qb-sync-invoice`, `qb-record-payment`, `qb-void-invoice` (Invoices)
 
-### 4. RLS Tightened — All 7 Tables
-- Replaced wide-open `anon_all_*` policies with `authenticated`-only policies
-- Tables: jobs, crew, assignments, crew_status, work_types, materials, billing_log
-- Each table has SELECT, INSERT, UPDATE, DELETE policies for authenticated role
-- SQL saved in `rls_tighten.sql` for reference
+### 4. Database Migrations (run in Supabase SQL Editor)
+- `source_proposal_id` (text) + `source_call_log_id` (int8) on `jobs`
+- Unique index on `source_proposal_id`
+- `size` (numeric) + `size_unit` (varchar) on `jobs`
 
-### 5. Localhost Login Bypass Removed
-- App.jsx no longer skips login on localhost
-- Login required on all environments (dev + prod)
+### 5. Field SOW Modal — Styled + Editable
+- Added inline CSS so modal matches the print PDF layout
+- Linen background (#c8bcaa) instead of white on day bodies
+- Teal (#30cfac) on dark (#1c1814) pills for Expected Production %
+- Added "Expected Production" column header for task percentages
+- Added Size field to info bar (Work Type | Size | Lead | Start | End)
+- Full material columns: Product, Kit Size, Qty, Mils, Mix Time, Mix Spd, Cure, Coverage
+- Alternating row shading on materials for crew readability
+- **Edit mode**: inline editing for all fields — tasks, materials, crew count, hours, day labels
+- Add/remove tasks, materials, and entire days
+- Save writes back to `jobs.field_sow` JSONB
+- "Create Field SOW" button for jobs that don't have one yet
 
-### 6. Vercel SPA Routing Fixed
-- Added `vercel.json` with rewrites so client-side routes work on refresh
-- Without this, direct navigation to /jobs, /schedule, etc. returned Vercel 404
+## Files Changed
 
-### 7. App Access Gate
-- `getCurrentTeamMember()` now fetches `apps` column from team_members
-- After login, checks if `team_members.apps` includes `"schedule"`
-- Shows styled "Access Denied" screen with Sign Out button if not authorized
-- Three-state teamMember: `undefined` (loading), `false` (not found), object (ok)
-- Works with the multi-app architecture built in Sales Command v43
+### Sales Command (`sales-command`)
+- `src/components/ProposalDetail.jsx` — Send to Schedule button, invoice guard, QB test guard
+- `src/pages/Invoices.jsx` — QB test guard on sync, payment, edit, void
+- `src/pages/PublicSigningPage.jsx` — QB test guard on customer signature
 
-### 8. Chris's auth_id Linked
-- team_members row for chris@hdspnv.com now has auth_id linked to
-  chris7berger@gmail.com Supabase auth user (c5539eac-4518-4f64-8183-362ffcbded76)
-- apps set to `["sales", "schedule"]`
-
-## Files Changed (this session)
-- `vercel.json` — new, SPA rewrites for Vercel
-- `rls_tighten.sql` — new, RLS policy migration script
-- `src/App.jsx` — removed dev bypass, added access gate + loading states
-- `src/lib/auth.js` — added `apps` to team_members select
-
-## Commits This Session (oldest to newest)
-- f979c4f  feat: tighten RLS — replace anon_all policies with authenticated-only
-- ac5a785  fix: add vercel.json rewrites for SPA client-side routing
-- faa2ee6  feat: app access gate — only members with "schedule" in apps can log in
-
-All pushed to main, deployed via Vercel.
+### Schedule Command (`sch-command`)
+- `src/components/FieldSowModal.jsx` — full restyle + edit mode
+- `src/views/Jobs.jsx` — pass `onUpdated` to FieldSowModal
+- `add_source_columns.sql` — migration script (already run)
 
 ## Known Issues
-- **SMTP password empty** — forgot-password emails won't send until Resend API key
-  is pasted into Supabase SMTP settings
-- **406 console error** — team_members query uses `.single()`, returns 406 when no
-  row matches; harmless but noisy (could switch to `.maybeSingle()`)
-- **Vercel DNS Change Recommended** — Vercel suggests switching schmybiz.com from
-  CNAME to A record; not blocking, cosmetic warning
+- **SMTP password still empty** — forgot-password emails won't send
+- **406 console error** — `.single()` → `.maybeSingle()` on team_members
+- Test job (job_id 79) still in DB — delete when done testing
+- Size field won't show on existing test job (sent before size columns added)
 
 ## What's Next
-1. **SMTP API key** — paste Resend key into Supabase SMTP password (30 seconds)
-2. **Bug hunt** — go through all 7 views and fix issues
-3. **Send Schedules** — build crew card flipper for SMS/text
-4. **Rename Supabase project** — display name from "sales-command" to "command-suite"
-5. **Share Team page / invite flow** with Schedule Command (from SC v43)
+1. **Mobilizations** — replace direct crew-schedule entry with Jobs → Mobilization → Schedule flow
+2. **Go Backs** — allow re-scheduling invoiced work with a Go Back flag
+3. **Bug hunt** — go through all 7 views and fix issues
+4. **Send Schedules** — crew card flipper for SMS/text
+5. **SMTP API key** — paste Resend key into Supabase SMTP password
 
 ## Architecture Notes
-- **Separate repos, shared DB** — correct pattern for the Command Suite
-- Repos: `sales-command` (scmybiz.com), `sch-command` (schmybiz.com)
-- Shared Supabase project: `pbgvgjjuhnpsumnowuym`
-- Auth: Supabase Auth, single user pool across all apps
-- Multi-app access: `tenant_config.apps` (tenant subscription),
-  `team_members.apps` (per-member access). Apps: sales, schedule, field, ar
-- RLS: authenticated-only on all 7 scheduling tables (no tenant_id filter yet)
-- Deploy: Vercel auto-deploy on push to main
-
-## Domain Reference
-- **scmybiz.com** — Sales Command
-- **schmybiz.com** — Schedule Command
-- **sccmybiz.com** — Sub Con Command (landing page)
+- **Shared Supabase DB** — Sales Command writes to `jobs` table directly (same project)
+- **No webhooks/edge functions needed** for the integration
+- `source_proposal_id` links Schedule jobs back to Sales proposals
+- `field_sow` is JSONB on `jobs` — editable in Schedule Command after initial send
+- QB test guard is client-side only (job name contains "test") — quick/dirty, not permanent
 
 ## Session Prompt for Next Claude Code Session
 Continue building Schedule Command. Read HANDOFF.md for context.
-RLS is locked down, app access gate is live. Next: paste Resend API key
-into Supabase SMTP, then bug hunt across all 7 views.
+Key items: Mobilizations architecture (Jobs → Mobilization → Crew Schedule),
+Go Backs for invoiced work, and bug hunt across all 7 views.

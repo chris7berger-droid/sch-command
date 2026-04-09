@@ -726,7 +726,7 @@ export default function Jobs() {
       </div>
 
       {/* Field SOW Modal */}
-      {sowJob && <FieldSowModal job={sowJob} onClose={() => setSowJob(null)} />}
+      {sowJob && <FieldSowModal job={sowJob} onClose={() => setSowJob(null)} onUpdated={() => { loadData(); setSowJob(null) }} />}
 
       {/* Restore Bin Modal */}
       {showBin && (
