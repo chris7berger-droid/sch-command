@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadJobs } from '../lib/queries'
 
 /* ---------- helpers ---------- */
 
@@ -229,12 +230,9 @@ export default function Calendar() {
     async function load() {
       setLoading(true)
 
-      // Get jobs that have start_date and are not deleted
-      const { data: jobData, error: jobErr } = await supabase
-        .from('jobs')
-        .select('job_id, job_num, job_name, start_date, end_date, status, work_type, prevailing_wage, color, deleted')
-        .or('deleted.is.null,deleted.eq.No')
-        .not('start_date', 'is', null)
+      // Get jobs that have dates and are not deleted
+      const { data: allJobs, error: jobErr } = await loadJobs()
+      const jobData = (allJobs || []).filter(j => j.scheduled_start || j.start_date)
 
       if (jobErr) {
         console.error('jobs fetch error', jobErr)
@@ -296,8 +294,8 @@ export default function Calendar() {
   function jobsForDate(d) {
     const ds = fmtD(d)
     return jobs.filter(j => {
-      const s = j.start_date
-      const e = j.end_date || j.start_date
+      const s = j.scheduled_start || j.start_date
+      const e = j.scheduled_end || j.end_date || s
       return ds >= s && ds <= e
     })
   }

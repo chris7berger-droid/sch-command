@@ -13,6 +13,7 @@ import Materials from './views/Materials'
 import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
+import JobDetail from './views/JobDetail'
 import StatsBar from './components/StatsBar'
 import Login from './views/Login'
 import { ScheduleCommandMark } from './components/Logo'
@@ -300,6 +301,7 @@ function AppShell({ session, teamMember }) {
         <Routes>
           <Route path="/" element={<Navigate to="/jobs" replace />} />
           <Route path="/jobs" element={<Jobs />} />
+          <Route path="/jobs/:jobId" element={<JobDetail />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/materials" element={<Materials />} />

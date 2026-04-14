@@ -2388,6 +2388,7 @@
   color: var(--command-green);
 }
 
+.jh-score.pk .jh-score-num { color: #d4a017; }
 .jh-score.oh .jh-score-num { color: #e65100; }
 .jh-score.cp .jh-score-num { color: var(--sand-dark); }
 
@@ -2499,6 +2500,7 @@
   flex-shrink: 0;
 }
 
+.jh-status-badge.pk { background: #d4a017; color: var(--header-dark); }
 .jh-status-badge.og { background: var(--command-green); color: var(--header-dark); }
 .jh-status-badge.oh { background: var(--orn); color: #fff; }
 .jh-status-badge.cp { background: var(--sand-dark); color: #fff; }
@@ -2835,6 +2837,22 @@
 
 .jh-del-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 
+.jh-view-btn {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border: 2px solid rgba(28, 24, 20, 0.2);
+  border-radius: 3px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.jh-view-btn:hover { background: var(--command-green); color: var(--header-dark); border-color: var(--command-green); }
+
 /* Field Crew Assignment */
 .jh-field-crew {
   margin-bottom: 12px;
@@ -2931,6 +2949,60 @@
   background: var(--bg-deep);
   color: var(--text-primary);
   cursor: pointer;
+}
+
+/* Parked / Incoming Jobs section */
+.jh-parked-section {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  background: var(--header-dark);
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(28, 24, 20, 0.2);
+}
+
+.jh-parked-header {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #d4a017;
+  margin-bottom: 12px;
+}
+
+.jh-card.parked {
+  border-left: 3px solid #d4a017;
+}
+
+.jh-parked-dates {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.jh-parked-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.jh-confirm-btn {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--command-green);
+  color: var(--header-dark);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.jh-confirm-btn:hover {
+  opacity: 0.9;
 }
 
 /* Assignment history inside expanded card */
@@ -3724,4 +3796,408 @@
   font-size: 13px;
   color: var(--text-light);
   margin-bottom: 4px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Job Detail View
+   ═══════════════════════════════════════════════════════════════════ */
+
+.jd-wrap {
+  padding: 20px 24px 40px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* Header card */
+.jd-header {
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+.jd-back {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  color: var(--sand-dark);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.jd-back:hover { color: var(--command-green); }
+
+.jd-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.jd-num {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.jd-name {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+/* Tabs */
+.jd-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
+  padding: 4px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.jd-tab {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 16px;
+  cursor: pointer;
+  color: var(--sand-dark);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.jd-tab:hover { color: var(--text-primary); background: rgba(28, 24, 20, 0.05); }
+
+.jd-tab.active {
+  background: var(--header-dark);
+  color: var(--command-green);
+}
+
+/* Content card */
+.jd-content {
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
+  padding: 20px;
+  min-height: 200px;
+}
+
+.jd-section {
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Grid for overview fields */
+.jd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px 24px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.1);
+}
+
+.jd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jd-label {
+  font-family: var(--font-heading);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sand-dark);
+}
+
+.jd-value {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.jd-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.jd-address {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--bg-deep);
+  border-radius: 8px;
+}
+
+.jd-address .jd-value {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.jd-crew-section {
+  margin-bottom: 16px;
+}
+
+.jd-crew-section .jd-label {
+  margin-bottom: 6px;
+}
+
+.jd-notes {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--bg-deep);
+  border-radius: 8px;
+}
+
+.jd-notes p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+/* Tables */
+.jd-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  background: var(--bg-deep);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.jd-table th {
+  font-family: var(--font-heading);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sand-dark);
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+}
+
+.jd-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.06);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.jd-table tr:last-child td { border-bottom: none; }
+
+.jd-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Billing summary */
+.jd-billing-summary {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: var(--bg-deep);
+  border-radius: 8px;
+}
+
+.jd-billing-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* Field SOW */
+.jd-sow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jd-sow-card {
+  background: var(--bg-deep);
+  border: 1px solid rgba(28, 24, 20, 0.12);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.jd-sow-day {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.1);
+}
+
+.jd-sow-task {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 3px 0;
+  line-height: 1.4;
+}
+
+.jd-sow-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--sand-dark);
+  margin-top: 6px;
+}
+
+.jd-sales-sow {
+  margin-top: 20px;
+}
+
+.jd-sow-text {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  background: var(--bg-deep);
+  border: 1px solid rgba(28, 24, 20, 0.1);
+  border-radius: 8px;
+  padding: 14px;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+/* Timeline (history) */
+.jd-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-left: 20px;
+  border-left: 2px solid rgba(28, 24, 20, 0.1);
+}
+
+.jd-timeline-item {
+  display: flex;
+  gap: 14px;
+  padding: 12px 0;
+  position: relative;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.06);
+}
+
+.jd-timeline-item:last-child { border-bottom: none; }
+
+.jd-timeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--command-green);
+  border: 2px solid var(--bg-card);
+  flex-shrink: 0;
+  margin-top: 4px;
+  margin-left: -26px;
+}
+
+.jd-timeline-content {
+  flex: 1;
+}
+
+.jd-timeline-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--sand-dark);
+  margin-bottom: 4px;
+}
+
+.jd-timeline-date {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.jd-timeline-who {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.jd-timeline-source {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+.jd-timeline-change {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background: var(--bg-deep);
+  border-radius: 6px;
+}
+
+.jd-timeline-field {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: rgba(28, 24, 20, 0.08);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.jd-timeline-old {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--sand-dark);
+  text-decoration: line-through;
+}
+
+.jd-timeline-arrow {
+  color: var(--sand-dark);
+  font-size: 12px;
+}
+
+.jd-timeline-new {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--command-green);
+  font-weight: 700;
 }

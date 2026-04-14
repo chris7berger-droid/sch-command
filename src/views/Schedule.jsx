@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadJobs, updateJobField } from '../lib/queries'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -41,9 +42,12 @@ function wkEnd(monday) {
   return fmtD(d)
 }
 
+function effStart(j) { return j.scheduled_start || j.start_date || null }
+function effEnd(j) { return j.scheduled_end || j.end_date || null }
+
 function jobOverlapsWeek(j, wsStr, weStr) {
-  const js = j.start_date ? String(j.start_date).split('T')[0] : ''
-  const je = j.end_date ? String(j.end_date).split('T')[0] : ''
+  const js = effStart(j) ? String(effStart(j)).split('T')[0] : ''
+  const je = effEnd(j) ? String(effEnd(j)).split('T')[0] : ''
   if (!js && !je) return true
   const start = js || '0000-01-01'
   const end = je || '9999-12-31'
@@ -51,8 +55,8 @@ function jobOverlapsWeek(j, wsStr, weStr) {
 }
 
 function jobInRange(j, ds) {
-  const js = j.start_date ? String(j.start_date).split('T')[0] : ''
-  const je = j.end_date ? String(j.end_date).split('T')[0] : ''
+  const js = effStart(j) ? String(effStart(j)).split('T')[0] : ''
+  const je = effEnd(j) ? String(effEnd(j)).split('T')[0] : ''
   if (!js && !je) return false
   if (js && ds < js) return false
   if (je && ds > je) return false
@@ -123,7 +127,7 @@ export default function Schedule() {
   useEffect(() => {
     async function loadStatic() {
       const [jobRes, crewRes, wtRes] = await Promise.all([
-        supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
+        loadJobs(),
         supabase.from('crew').select('*'),
         supabase.from('work_types').select('*'),
       ])
@@ -230,7 +234,7 @@ export default function Schedule() {
   // Week jobs: active jobs overlapping current week
   const weekJobs = useMemo(() => {
     return jobs.filter(j =>
-      (j.status === 'Ongoing' || j.status === 'On Hold') && jobOverlapsWeek(j, wsStr, weStr)
+      (j.status === 'Ongoing' || j.status === 'Scheduled' || j.status === 'In Progress' || j.status === 'On Hold') && jobOverlapsWeek(j, wsStr, weStr)
     )
   }, [jobs, wsStr, weStr])
 
@@ -300,7 +304,7 @@ export default function Schedule() {
   function handleAssignCrew(name, jobId) {
     const job = jobs.find(j => String(j.job_id) === String(jobId))
     if (!job) return
-    const hasRange = !!(job.start_date || job.end_date)
+    const hasRange = !!(effStart(job) || effEnd(job))
     if (!hasRange) return
     const existing = crewJobDays(jobId, name)
     const inRange = dates.filter(d => jobInRange(job, d))
@@ -369,9 +373,10 @@ export default function Schedule() {
   }
 
   async function handleUpdateJob(jobId, field, value) {
-    const { error: err } = await supabase.from('jobs').update({ [field]: value }).eq('job_id', jobId)
-    if (err) { console.error(err); return }
+    // Optimistic: update local state immediately so UI reacts without waiting for DB
     setJobs(prev => prev.map(j => String(j.job_id) === String(jobId) ? { ...j, [field]: value } : j))
+    const { error: err } = await updateJobField(jobId, field, value, 'schedule_user')
+    if (err) { console.error(err) }
   }
 
   async function handleSetCrewStatus(name, status, dateStr) {
@@ -411,7 +416,8 @@ export default function Schedule() {
   }
 
   async function handleClearDefer(jobId) {
-    await supabase.from('jobs').update({ deferred_time: null, deferred_days: null }).eq('job_id', jobId)
+    await updateJobField(jobId, 'deferred_time', null, 'schedule_user')
+    await updateJobField(jobId, 'deferred_days', null, 'schedule_user')
     setJobs(prev => prev.map(j => String(j.job_id) === String(jobId) ? { ...j, deferred_time: null, deferred_days: null } : j))
   }
 
@@ -587,11 +593,11 @@ export default function Schedule() {
             <div className="sch-det-grid">
               <div>
                 <label>Start</label>
-                <input className="sch-dinp" type="date" defaultValue={j.start_date || ''} onBlur={e => handleUpdateJob(j.job_id, 'start_date', e.target.value)} />
+                <input className="sch-dinp" type="date" defaultValue={effStart(j) || ''} onBlur={e => handleUpdateJob(j.job_id, 'scheduled_start', e.target.value)} />
               </div>
               <div>
                 <label>End</label>
-                <input className="sch-dinp" type="date" defaultValue={j.end_date || ''} onBlur={e => handleUpdateJob(j.job_id, 'end_date', e.target.value)} />
+                <input className="sch-dinp" type="date" defaultValue={effEnd(j) || ''} onBlur={e => handleUpdateJob(j.job_id, 'scheduled_end', e.target.value)} />
               </div>
               <div>
                 <label>Scope / SOW</label>
@@ -734,7 +740,7 @@ export default function Schedule() {
 
             {/* Crew drop zone with day toggles */}
             <div className="sch-det-section-label">
-              {(j.start_date || j.end_date)
+              {(effStart(j) || effEnd(j))
                 ? 'Scheduled Days Available'
                 : <span style={{ color: 'var(--danger)' }}>{'\u26A0'} Set Start/End dates to enable crew assignment</span>
               }
@@ -746,7 +752,7 @@ export default function Schedule() {
               onDrop={e => {
                 e.preventDefault()
                 e.currentTarget.classList.remove('sch-dzone-over')
-                if (dragName && (j.start_date || j.end_date)) handleAssignCrew(dragName, j.job_id)
+                if (dragName && (effStart(j) || effEnd(j))) handleAssignCrew(dragName, j.job_id)
               }}
             >
               {unames.length > 0 ? (

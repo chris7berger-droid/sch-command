@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadJobs, updateJobField as auditUpdateJobField, updateJobFields } from '../lib/queries'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -84,7 +85,7 @@ export default function Billing() {
   const loadData = useCallback(async () => {
     setLoading(true)
     const [jRes, blRes] = await Promise.all([
-      supabase.from('jobs').select('*').neq('deleted', 'Yes'),
+      loadJobs(),
       supabase.from('billing_log').select('*'),
     ])
     if (jRes.data) setJobs(jRes.data)
@@ -124,16 +125,18 @@ export default function Billing() {
 
     // No-bill jobs: collect separately
     if (j.no_bill === 'Yes') {
-      if (j.end_date) {
-        const je = String(j.end_date).split('T')[0]
+      const ed = j.scheduled_end || j.end_date
+      if (ed) {
+        const je = String(ed).split('T')[0]
         if (je <= we) noBillJobs.push(j)
       }
       continue
     }
 
     // Complete: end_date within week and not fully billed
-    if (j.end_date) {
-      const je = String(j.end_date).split('T')[0]
+    const endDate = j.scheduled_end || j.end_date
+    if (endDate) {
+      const je = String(endDate).split('T')[0]
       if (je <= we && billed < 100) {
         pendingRaw.push({
           job: j,
@@ -249,29 +252,29 @@ export default function Billing() {
       updates.partial_bill_date = null
       updates.partial_percent = null
     }
-    await supabase.from('jobs').update(updates).eq('job_id', jobId)
+    await updateJobFields(jobId, updates, 'schedule_user')
     await loadData()
   }
 
   async function pauseBill(jobId) {
-    await supabase.from('jobs').update({ billing_paused: 'Yes' }).eq('job_id', jobId)
+    await auditUpdateJobField(jobId, 'billing_paused', 'Yes', 'schedule_user')
     await loadData()
   }
 
   async function unpauseBill(jobId) {
-    await supabase.from('jobs').update({ billing_paused: 'No' }).eq('job_id', jobId)
+    await auditUpdateJobField(jobId, 'billing_paused', 'No', 'schedule_user')
     await loadData()
   }
 
   async function rescheduleBill(jobId) {
     const nd = prompt('New billing date (YYYY-MM-DD):')
     if (!nd) return
-    await supabase.from('jobs').update({ partial_bill_date: nd, billing_paused: 'No' }).eq('job_id', jobId)
+    await updateJobFields(jobId, { partial_bill_date: nd, billing_paused: 'No' }, 'schedule_user')
     await loadData()
   }
 
-  async function updateJobField(jobId, field, value) {
-    await supabase.from('jobs').update({ [field]: value }).eq('job_id', jobId)
+  async function handleUpdateBillingField(jobId, field, value) {
+    await auditUpdateJobField(jobId, field, value, 'schedule_user')
     await loadData()
   }
 
@@ -321,7 +324,7 @@ export default function Billing() {
       for (const lg of remainingLogs) newBilled += parseFloat(lg.percent) || 0
     }
     newBilled = Math.min(newBilled, 100)
-    await supabase.from('jobs').update({ billed_to_date: String(newBilled) }).eq('job_id', jobId)
+    await auditUpdateJobField(jobId, 'billed_to_date', String(newBilled), 'schedule_user')
     await loadData()
   }
 
@@ -376,7 +379,7 @@ export default function Billing() {
                   className="dinp"
                   type="date"
                   value={j.partial_bill_date || ''}
-                  onChange={e => updateJobField(j.job_id, 'partial_bill_date', e.target.value)}
+                  onChange={e => handleUpdateBillingField(j.job_id, 'partial_bill_date', e.target.value)}
                 />
               </div>
               <div>
@@ -387,7 +390,7 @@ export default function Billing() {
                   min="1"
                   max="100"
                   value={j.partial_percent || ''}
-                  onChange={e => updateJobField(j.job_id, 'partial_percent', e.target.value)}
+                  onChange={e => handleUpdateBillingField(j.job_id, 'partial_percent', e.target.value)}
                 />
               </div>
               <div>
@@ -395,7 +398,7 @@ export default function Billing() {
                 <input
                   className="dinp"
                   value={j.billing_notes || ''}
-                  onChange={e => updateJobField(j.job_id, 'billing_notes', e.target.value)}
+                  onChange={e => handleUpdateBillingField(j.job_id, 'billing_notes', e.target.value)}
                   placeholder="Notes"
                 />
               </div>

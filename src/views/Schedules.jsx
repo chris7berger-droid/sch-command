@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadJobs } from '../lib/queries'
 
 /* ── constants ────────────────────────────────────────────────────── */
 
@@ -124,12 +125,20 @@ export default function Schedules() {
     const satStr = dates[dates.length - 1]
 
     const [jobsRes, crewRes, asgnRes] = await Promise.all([
-      supabase
-        .from('jobs')
-        .select('*')
-        .or(`deleted.is.null,deleted.eq.false`)
-        .or(`end_date.is.null,end_date.gte.${monStr}`)
-        .or(`start_date.is.null,start_date.lte.${satStr}`),
+      loadJobs().then(res => {
+        const all = res.data || []
+        // Filter to jobs overlapping this week
+        return {
+          data: all.filter(j => {
+            const ed = j.scheduled_end || j.end_date
+            const sd = j.scheduled_start || j.start_date
+            const endOk = !ed || ed >= monStr
+            const startOk = !sd || sd <= satStr
+            return endOk && startOk
+          }),
+          error: res.error,
+        }
+      }),
       supabase
         .from('crew')
         .select('*')

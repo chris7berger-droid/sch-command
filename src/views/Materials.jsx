@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadJobs } from '../lib/queries'
 import * as XLSX from 'xlsx'
 
 /* ── helpers ── */
@@ -116,12 +117,12 @@ export default function Materials() {
 
   const fetchData = useCallback(async () => {
     const [jobsRes, matsRes] = await Promise.all([
-      supabase
-        .from('jobs')
-        .select('job_id, job_num, job_name, work_type, prevailing_wage, status, deleted')
-        .or('deleted.is.null,deleted.eq.No')
-        .in('status', ['Ongoing', 'On Hold'])
-        .order('job_num', { ascending: true }),
+      loadJobs().then(res => ({
+        data: (res.data || [])
+          .filter(j => ['Ongoing', 'Scheduled', 'In Progress', 'On Hold'].includes(j.status))
+          .sort((a, b) => (a.job_num || '').localeCompare(b.job_num || '')),
+        error: res.error,
+      })),
       supabase
         .from('materials')
         .select('*')

@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { loadJobs } from '../lib/queries'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -85,7 +86,10 @@ export default function Daily() {
     setLoading(true)
     const ds = dates
     const [jRes, cRes, aRes, sRes] = await Promise.all([
-      supabase.from('jobs').select('*').in('status', ['Ongoing', 'On Hold']).or('deleted.is.null,deleted.neq.true'),
+      loadJobs().then(res => {
+        const filtered = (res.data || []).filter(j => ['Ongoing', 'Scheduled', 'In Progress', 'On Hold'].includes(j.status))
+        return { data: filtered, error: res.error }
+      }),
       supabase.from('crew').select('*'),
       supabase.from('assignments').select('*').in('date', ds),
       supabase.from('crew_status').select('*').in('date', ds),

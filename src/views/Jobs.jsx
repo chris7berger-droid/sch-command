@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { loadJobs, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
 import FieldSowModal from '../components/FieldSowModal'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -36,10 +38,17 @@ function isPW(j) {
 function getJobStatus(j) {
   if (!j || !j.status) return 'Ongoing'
   const s = j.status.toLowerCase().trim()
+  if (s === 'parked') return 'Parked'
+  if (s === 'scheduled') return 'Scheduled'
+  if (s === 'in progress') return 'In Progress'
   if (s === 'on hold' || s === 'hold') return 'On Hold'
   if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
   return 'Ongoing'
 }
+
+// Effective start/end: prefer scheduled dates, fall back to legacy
+function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
+function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
 
 function gTagClass(t) {
   if (!t) return ''
@@ -112,9 +121,10 @@ function getJobFlags(job, billingLog, today) {
   const flags = []
   const status = getJobStatus(job)
 
-  // Overdue: ongoing job past end_date
-  if (status === 'Ongoing' && job.end_date) {
-    const daysLeft = daysBetween(job.end_date, today)
+  // Overdue: active job past end_date
+  const endDate = effectiveEnd(job)
+  if ((status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress') && endDate) {
+    const daysLeft = daysBetween(endDate, today)
     if (daysLeft !== null && daysLeft < 0) flags.push('OVERDUE')
   }
 
@@ -139,14 +149,16 @@ function urgencyScore(job, billingLog, today) {
   const status = getJobStatus(job)
   let score = 0
 
-  // Status weight: Ongoing first, On Hold next, Complete last
-  if (status === 'Ongoing') score = 0
+  // Status weight: Parked first, then active, On Hold, Complete last
+  if (status === 'Parked') score = -5000
+  else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') score = 0
   else if (status === 'On Hold') score = 10000
   else score = 20000
 
   // Days until end date: overdue jobs float to top
-  if (job.end_date) {
-    const daysLeft = daysBetween(job.end_date, today)
+  const endDate = effectiveEnd(job)
+  if (endDate) {
+    const daysLeft = daysBetween(endDate, today)
     if (daysLeft !== null) {
       if (daysLeft < 0) score -= 1000 + Math.abs(daysLeft) // overdue = highest urgency
       else score += daysLeft
@@ -167,6 +179,7 @@ function urgencyScore(job, billingLog, today) {
 /* ── main component ──────────────────────────────────────────────── */
 
 export default function Jobs() {
+  const navigate = useNavigate()
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
@@ -209,7 +222,7 @@ export default function Jobs() {
   const loadData = useCallback(async () => {
     setLoading(true)
     const [jobsRes, assignRes, billRes, tmRes] = await Promise.all([
-      supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
+      loadJobs(),
       supabase.from('assignments').select('*'),
       supabase.from('billing_log').select('*'),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
@@ -258,13 +271,15 @@ export default function Jobs() {
   const filteredJobs = useMemo(() => {
     let list = jobs
 
-    // date range filter
+    // date range filter (using scheduled dates, falling back to legacy)
+    // Parked jobs always pass — they're incoming work that needs attention
     if (dateRange) {
       list = list.filter(j => {
-        if (!j.start_date && !j.end_date) return true
-        const start = j.start_date || '1900-01-01'
-        const end = j.end_date || '2999-12-31'
-        return start <= dateRange.to && end >= dateRange.from
+        if (getJobStatus(j) === 'Parked') return true
+        const start = effectiveStart(j)
+        const end = effectiveEnd(j)
+        if (!start && !end) return true
+        return (start || '1900-01-01') <= dateRange.to && (end || '2999-12-31') >= dateRange.from
       })
     }
 
@@ -287,24 +302,39 @@ export default function Jobs() {
 
   /* ── buckets (counts for scoreboards) ──────────────────────── */
 
-  const ongoing = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Ongoing'), [filteredJobs])
+  const parked = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Parked'), [filteredJobs])
+  const activeJobs = useMemo(() => filteredJobs.filter(j => {
+    const s = getJobStatus(j)
+    return s === 'Ongoing' || s === 'Scheduled' || s === 'In Progress'
+  }), [filteredJobs])
   const onHold = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold'), [filteredJobs])
   const complete = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Complete'), [filteredJobs])
+  // Main list excludes parked (they get their own section)
+  const mainList = useMemo(() => filteredJobs.filter(j => getJobStatus(j) !== 'Parked'), [filteredJobs])
 
   /* ── status update ──────────────────────────────────────────── */
 
   const updateStatus = useCallback(async (jobId, newStatus) => {
-    const { error: err } = await supabase.from('jobs').update({ status: newStatus }).eq('job_id', jobId)
+    const job = jobs.find(j => j.job_id === jobId)
+    const changedBy = 'schedule_user' // TODO: replace with actual user name from auth context
+    const { error: err } = await updateJobField(jobId, 'status', newStatus, changedBy)
     if (err) { console.error(err); return }
+    // sync call_log.stage for linked jobs
+    if (job?.call_log_id) {
+      const stageMap = { 'Scheduled': 'Scheduled', 'In Progress': 'In Progress', 'Complete': 'Complete' }
+      if (stageMap[newStatus]) {
+        await updateCallLogStage(job.call_log_id, stageMap[newStatus], changedBy)
+      }
+    }
     setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, status: newStatus } : j))
-  }, [])
+  }, [jobs])
 
   /* ── soft delete ────────────────────────────────────────────── */
 
   const softDelete = useCallback(async (jobId, jobName) => {
     if (!window.confirm(`Delete "${jobName}"? It can be restored within 24 hours.`)) return
     const now = new Date().toISOString()
-    const { error: err } = await supabase.from('jobs').update({ deleted: 'Yes', deleted_at: now }).eq('job_id', jobId)
+    const { error: err } = await updateJobFields(jobId, { deleted: 'Yes', deleted_at: now }, 'schedule_user')
     if (err) { console.error(err); return }
     setJobs(prev => prev.filter(j => j.job_id !== jobId))
     if (expandedId === jobId) setExpandedId(null)
@@ -453,7 +483,7 @@ export default function Jobs() {
       return
     }
     setSavingAmount(true)
-    const { error: err } = await supabase.from('jobs').update({ amount: val }).eq('job_id', jobId)
+    const { error: err } = await updateJobField(jobId, 'amount', val, 'schedule_user')
     if (err) { console.error(err); setSavingAmount(false); return }
     setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, amount: val } : j))
     setSavingAmount(false)
@@ -529,9 +559,15 @@ export default function Jobs() {
       {/* scoreboard + bin */}
       <div className="jh-scores-row">
         <div className="jh-scores">
+          {parked.length > 0 && (
+            <div className="jh-score pk">
+              <div className="jh-score-num">{parked.length}</div>
+              <div className="jh-score-lbl">Parked</div>
+            </div>
+          )}
           <div className="jh-score og">
-            <div className="jh-score-num">{ongoing.length}</div>
-            <div className="jh-score-lbl">Ongoing</div>
+            <div className="jh-score-num">{activeJobs.length}</div>
+            <div className="jh-score-lbl">Active</div>
           </div>
           <div className="jh-score oh">
             <div className="jh-score-num">{onHold.length}</div>
@@ -545,16 +581,171 @@ export default function Jobs() {
         <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'\uD83D\uDDD1'} Bin</button>
       </div>
 
-      {/* single job list */}
+      {/* parked / incoming jobs section */}
+      {parked.length > 0 && (
+        <div className="jh-parked-section">
+          <div className="jh-parked-header">INCOMING JOBS</div>
+          <div className="jh-list">
+            {parked.map(j => {
+              const isExpanded = expandedId === j.job_id
+              return (
+                <div key={j.job_id} className={`jh-card parked${isExpanded ? ' expanded' : ''}`}>
+                  <div className="jh-card-hdr" onClick={() => toggleExpand(j)}>
+                    <div className="jh-card-left">
+                      <span className="jh-status-badge pk">Parked</span>
+                      <div className="jh-card-title">
+                        <span className="jh-card-num">{j.job_num}</span>
+                        <span className="jh-card-name">{j.job_name}</span>
+                      </div>
+                    </div>
+                    <div className="jh-card-right">
+                      <span className="jh-expand-arrow">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                    </div>
+                  </div>
+                  <div className="jh-card-body" onClick={() => toggleExpand(j)}>
+                    <div className="jh-card-tags">
+                      {renderTags(j.work_type)}
+                      {isPW(j) && <span className="pw-tag">PW</span>}
+                    </div>
+                    <div className="jh-card-meta">
+                      <span className="jh-parked-dates">
+                        {effectiveStart(j) || '?'} → {effectiveEnd(j) || '?'}
+                      </span>
+                      {j.amount && parseFloat(j.amount) > 0 && (
+                        <span className="jh-money">{fmtMoney(j.amount)}</span>
+                      )}
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="jh-card-detail">
+                      <div className="jh-parked-form" onClick={e => e.stopPropagation()}>
+                        <div className="jh-detail-grid">
+                          <div className="jh-detail-item">
+                            <span className="jh-detail-label">Start</span>
+                            <input
+                              type="date"
+                              className="jh-date-input"
+                              value={effectiveStart(j) || ''}
+                              onChange={async e => {
+                                await updateJobField(j.job_id, 'scheduled_start', e.target.value || null, 'schedule_user')
+                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_start: e.target.value } : x))
+                              }}
+                            />
+                          </div>
+                          <div className="jh-detail-item">
+                            <span className="jh-detail-label">End</span>
+                            <input
+                              type="date"
+                              className="jh-date-input"
+                              value={effectiveEnd(j) || ''}
+                              onChange={async e => {
+                                await updateJobField(j.job_id, 'scheduled_end', e.target.value || null, 'schedule_user')
+                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_end: e.target.value } : x))
+                              }}
+                            />
+                          </div>
+                          <div className="jh-detail-item">
+                            <span className="jh-detail-label">Crew Needed</span>
+                            <input
+                              type="number"
+                              className="jh-amount-input"
+                              placeholder="0"
+                              defaultValue={j.crew_needed || ''}
+                              onBlur={async e => {
+                                await updateJobField(j.job_id, 'crew_needed', e.target.value || null, 'schedule_user')
+                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, crew_needed: e.target.value } : x))
+                              }}
+                            />
+                          </div>
+                          <div className="jh-detail-item">
+                            <span className="jh-detail-label">Lead</span>
+                            <input
+                              type="text"
+                              className="jh-amount-input"
+                              placeholder="Crew lead"
+                              defaultValue={j.lead || ''}
+                              onBlur={async e => {
+                                await updateJobField(j.job_id, 'lead', e.target.value || null, 'schedule_user')
+                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, lead: e.target.value } : x))
+                              }}
+                            />
+                          </div>
+                        </div>
+                        {/* field crew assignment */}
+                        <div className="jh-field-crew">
+                          <div className="jh-field-crew-title">Field Crew</div>
+                          {crewLoading ? (
+                            <div className="jh-empty">Loading...</div>
+                          ) : (
+                            <>
+                              {fieldCrew.length > 0 && (
+                                <div className="jh-field-crew-list">
+                                  {fieldCrew.map(fc => (
+                                    <div key={fc.id} className="jh-fc-chip">
+                                      <span
+                                        className={`jh-fc-role${fc.role === 'lead' ? ' lead' : ''}`}
+                                        onClick={e => { e.stopPropagation(); toggleFieldCrewRole(fc.id, fc.role, j.job_id) }}
+                                      >
+                                        {fc.role === 'lead' ? 'L' : 'C'}
+                                      </span>
+                                      <span className="jh-fc-name">{fc.team_members?.name || '?'}</span>
+                                      <button
+                                        className="jh-fc-remove"
+                                        onClick={e => { e.stopPropagation(); removeFieldCrew(fc.id, j.job_id) }}
+                                      >×</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <select
+                                className="jh-fc-select"
+                                value=""
+                                onChange={e => { if (e.target.value) assignFieldCrew(j.job_id, e.target.value) }}
+                              >
+                                <option value="">+ Assign crew member...</option>
+                                {teamMembers
+                                  .filter(tm => !fieldCrew.some(fc => fc.team_member_id === tm.id))
+                                  .map(tm => (
+                                    <option key={tm.id} value={tm.id}>{tm.name} ({tm.role})</option>
+                                  ))
+                                }
+                              </select>
+                            </>
+                          )}
+                        </div>
+                        <button
+                          className="jh-confirm-btn"
+                          onClick={async () => {
+                            await updateJobField(j.job_id, 'status', 'Scheduled', 'schedule_user')
+                            if (j.call_log_id) {
+                              await updateCallLogStage(j.call_log_id, 'Scheduled', 'schedule_user')
+                            }
+                            setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, status: 'Scheduled' } : x))
+                            setExpandedId(null)
+                          }}
+                        >
+                          Confirm &amp; Schedule
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* main job list (excludes parked) */}
       <div className="jh-list">
-        {filteredJobs.length === 0 && <div className="jh-empty">No jobs match this filter</div>}
-        {filteredJobs.map(j => {
+        {mainList.length === 0 && <div className="jh-empty">No jobs match this filter</div>}
+        {mainList.map(j => {
           const status = getJobStatus(j)
-          const statusClass = status === 'Ongoing' ? 'og' : status === 'On Hold' ? 'oh' : 'cp'
+          const statusClass = status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress' ? 'og' : status === 'On Hold' ? 'oh' : 'cp'
           const billedPct = getBilledTotal(billingLog, j.job_id)
           const amount = j.amount ? parseFloat(j.amount) : 0
           const billedAmt = amount > 0 ? Math.round(amount * billedPct / 100) : 0
-          const daysLeft = daysBetween(j.end_date, today)
+          const daysLeft = daysBetween(effectiveEnd(j), today)
           const flags = getJobFlags(j, billingLog, today)
           const isExpanded = expandedId === j.job_id
 
@@ -624,11 +815,11 @@ export default function Jobs() {
                   <div className="jh-detail-grid">
                     <div className="jh-detail-item">
                       <span className="jh-detail-label">Start</span>
-                      <span className="jh-detail-value">{j.start_date || '-'}</span>
+                      <span className="jh-detail-value">{effectiveStart(j) || '-'}</span>
                     </div>
                     <div className="jh-detail-item">
                       <span className="jh-detail-label">End</span>
-                      <span className="jh-detail-value">{j.end_date || '-'}</span>
+                      <span className="jh-detail-value">{effectiveEnd(j) || '-'}</span>
                     </div>
                     <div className="jh-detail-item">
                       <span className="jh-detail-label">Lead</span>
@@ -747,10 +938,12 @@ export default function Jobs() {
                   <div className="jh-detail-actions">
                     <select
                       className="jh-status-sel"
-                      value={status}
+                      value={j.status || 'Ongoing'}
                       onChange={e => updateStatus(j.job_id, e.target.value)}
                       onClick={e => e.stopPropagation()}
                     >
+                      <option value="Scheduled">Scheduled</option>
+                      <option value="In Progress">In Progress</option>
                       <option value="Ongoing">Ongoing</option>
                       <option value="On Hold">On Hold</option>
                       <option value="Complete">Complete</option>
@@ -779,6 +972,12 @@ export default function Jobs() {
                       </div>
                     )}
 
+                    <button
+                      className="jh-view-btn"
+                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}`) }}
+                    >
+                      View Detail
+                    </button>
                     <button
                       className="jh-del-btn"
                       onClick={e => { e.stopPropagation(); softDelete(j.job_id, `${j.job_num} - ${j.job_name}`) }}
