@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
 import FieldSowModal from '../components/FieldSowModal'
+import JobCrewScheduler from '../components/JobCrewScheduler'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -210,10 +211,8 @@ export default function Jobs() {
   // field sow modal
   const [sowJob, setSowJob] = useState(null)
 
-  // field crew assignment
+  // team members (for reference)
   const [teamMembers, setTeamMembers] = useState([])
-  const [fieldCrew, setFieldCrew] = useState([])
-  const [crewLoading, setCrewLoading] = useState(false)
 
   const today = useMemo(() => new Date(), [])
 
@@ -364,38 +363,6 @@ export default function Jobs() {
 
   /* ── field crew assignment ───────────────────────────────────── */
 
-  const loadFieldCrew = useCallback(async (jobId) => {
-    setCrewLoading(true)
-    const { data, error: err } = await supabase
-      .from('job_crew')
-      .select('id, team_member_id, role, team_members(name)')
-      .eq('job_id', jobId)
-    if (err) { console.error(err); setFieldCrew([]) }
-    else { setFieldCrew(data || []) }
-    setCrewLoading(false)
-  }, [])
-
-  const assignFieldCrew = useCallback(async (jobId, memberId) => {
-    const { error: err } = await supabase
-      .from('job_crew')
-      .insert({ job_id: jobId, team_member_id: memberId, role: 'crew' })
-    if (err) { console.error(err); return }
-    await loadFieldCrew(jobId)
-  }, [loadFieldCrew])
-
-  const removeFieldCrew = useCallback(async (rowId, jobId) => {
-    const { error: err } = await supabase.from('job_crew').delete().eq('id', rowId)
-    if (err) { console.error(err); return }
-    await loadFieldCrew(jobId)
-  }, [loadFieldCrew])
-
-  const toggleFieldCrewRole = useCallback(async (rowId, currentRole, jobId) => {
-    const newRole = currentRole === 'lead' ? 'crew' : 'lead'
-    const { error: err } = await supabase.from('job_crew').update({ role: newRole }).eq('id', rowId)
-    if (err) { console.error(err); return }
-    await loadFieldCrew(jobId)
-  }, [loadFieldCrew])
-
   /* ── expand / collapse ──────────────────────────────────────── */
 
   const toggleExpand = useCallback(async (job) => {
@@ -407,18 +374,15 @@ export default function Jobs() {
     setPctInput('')
     setAmountInput(job.amount != null && job.amount !== '' ? String(job.amount) : '')
     setLoadingHistory(true)
-    const [assignRes] = await Promise.all([
-      supabase
-        .from('assignments')
-        .select('crew_name, date')
-        .eq('job_id', job.job_id)
-        .order('date', { ascending: false }),
-      loadFieldCrew(job.job_id),
-    ])
-    if (assignRes.error) { console.error(assignRes.error); setJobAssignments([]) }
-    else { setJobAssignments(assignRes.data || []) }
+    const { data, error } = await supabase
+      .from('assignments')
+      .select('crew_name, date')
+      .eq('job_id', job.job_id)
+      .order('date', { ascending: false })
+    if (error) { console.error(error); setJobAssignments([]) }
+    else { setJobAssignments(data || []) }
     setLoadingHistory(false)
-  }, [expandedId, loadFieldCrew])
+  }, [expandedId])
 
   /* ── assignment history grouped by week ─────────────────────── */
 
@@ -626,9 +590,11 @@ export default function Jobs() {
                               type="date"
                               className="jh-date-input"
                               value={effectiveStart(j) || ''}
-                              onChange={async e => {
-                                await updateJobField(j.job_id, 'scheduled_start', e.target.value || null, 'schedule_user')
-                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_start: e.target.value } : x))
+                              max={effectiveEnd(j) || ''}
+                              onChange={e => {
+                                const val = e.target.value
+                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_start: val } : x))
+                                updateJobField(j.job_id, 'scheduled_start', val || null, 'schedule_user')
                               }}
                             />
                           </div>
@@ -638,9 +604,11 @@ export default function Jobs() {
                               type="date"
                               className="jh-date-input"
                               value={effectiveEnd(j) || ''}
-                              onChange={async e => {
-                                await updateJobField(j.job_id, 'scheduled_end', e.target.value || null, 'schedule_user')
-                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_end: e.target.value } : x))
+                              min={effectiveStart(j) || ''}
+                              onChange={e => {
+                                const val = e.target.value
+                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_end: val } : x))
+                                updateJobField(j.job_id, 'scheduled_end', val || null, 'schedule_user')
                               }}
                             />
                           </div>
@@ -671,48 +639,7 @@ export default function Jobs() {
                             />
                           </div>
                         </div>
-                        {/* field crew assignment */}
-                        <div className="jh-field-crew">
-                          <div className="jh-field-crew-title">Field Crew</div>
-                          {crewLoading ? (
-                            <div className="jh-empty">Loading...</div>
-                          ) : (
-                            <>
-                              {fieldCrew.length > 0 && (
-                                <div className="jh-field-crew-list">
-                                  {fieldCrew.map(fc => (
-                                    <div key={fc.id} className="jh-fc-chip">
-                                      <span
-                                        className={`jh-fc-role${fc.role === 'lead' ? ' lead' : ''}`}
-                                        onClick={e => { e.stopPropagation(); toggleFieldCrewRole(fc.id, fc.role, j.job_id) }}
-                                      >
-                                        {fc.role === 'lead' ? 'L' : 'C'}
-                                      </span>
-                                      <span className="jh-fc-name">{fc.team_members?.name || '?'}</span>
-                                      <button
-                                        className="jh-fc-remove"
-                                        onClick={e => { e.stopPropagation(); removeFieldCrew(fc.id, j.job_id) }}
-                                      >×</button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              <select
-                                className="jh-fc-select"
-                                value=""
-                                onChange={e => { if (e.target.value) assignFieldCrew(j.job_id, e.target.value) }}
-                              >
-                                <option value="">+ Assign crew member...</option>
-                                {teamMembers
-                                  .filter(tm => !fieldCrew.some(fc => fc.team_member_id === tm.id))
-                                  .map(tm => (
-                                    <option key={tm.id} value={tm.id}>{tm.name} ({tm.role})</option>
-                                  ))
-                                }
-                              </select>
-                            </>
-                          )}
-                        </div>
+                        <JobCrewScheduler job={j} />
                         <button
                           className="jh-confirm-btn"
                           onClick={async () => {
@@ -722,6 +649,7 @@ export default function Jobs() {
                             }
                             setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, status: 'Scheduled' } : x))
                             setExpandedId(null)
+                            navigate('/schedule')
                           }}
                         >
                           Confirm &amp; Schedule
@@ -885,54 +813,7 @@ export default function Jobs() {
                     )}
                   </div>
 
-                  {/* field crew assignment */}
-                  <div className="jh-field-crew">
-                    <div className="jh-field-crew-title">Field Crew</div>
-                    {crewLoading ? (
-                      <div className="jh-empty">Loading...</div>
-                    ) : (
-                      <>
-                        {fieldCrew.length > 0 && (
-                          <div className="jh-field-crew-list">
-                            {fieldCrew.map(fc => (
-                              <div key={fc.id} className="jh-fc-chip">
-                                <span
-                                  className={`jh-fc-role${fc.role === 'lead' ? ' lead' : ''}`}
-                                  title={fc.role === 'lead' ? 'Job Lead — click to change to Crew' : 'Crew — click to change to Lead'}
-                                  onClick={e => { e.stopPropagation(); toggleFieldCrewRole(fc.id, fc.role, j.job_id) }}
-                                >
-                                  {fc.role === 'lead' ? 'L' : 'C'}
-                                </span>
-                                <span className="jh-fc-name">{fc.team_members?.name || '?'}</span>
-                                <button
-                                  className="jh-fc-remove"
-                                  title="Remove from job"
-                                  onClick={e => { e.stopPropagation(); removeFieldCrew(fc.id, j.job_id) }}
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="jh-fc-add" onClick={e => e.stopPropagation()}>
-                          <select
-                            className="jh-fc-select"
-                            value=""
-                            onChange={e => { if (e.target.value) assignFieldCrew(j.job_id, e.target.value) }}
-                          >
-                            <option value="">+ Assign crew member...</option>
-                            {teamMembers
-                              .filter(tm => !fieldCrew.some(fc => fc.team_member_id === tm.id))
-                              .map(tm => (
-                                <option key={tm.id} value={tm.id}>{tm.name} ({tm.role})</option>
-                              ))
-                            }
-                          </select>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <JobCrewScheduler job={j} />
 
                   {/* status + actions */}
                   <div className="jh-detail-actions">

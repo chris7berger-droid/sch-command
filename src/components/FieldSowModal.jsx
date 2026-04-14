@@ -37,7 +37,7 @@ export default function FieldSowModal({ job, onClose, onUpdated }) {
     return (
       <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
         <div className="mdl">
-          <h3>Field SOW</h3>
+          <h3>Field SOW and Production Rate Tracker</h3>
           <div style={{ fontSize: 13, color: '#5a5249', padding: '20px 0' }}>
             No Field SOW data for this job.
           </div>
@@ -109,7 +109,7 @@ export default function FieldSowModal({ job, onClose, onUpdated }) {
     win.document.write(`<!DOCTYPE html>
 <html>
 <head>
-<title>Field SOW — ${job.job_num || ''} ${job.job_name || ''}</title>
+<title>Field SOW and Production Rate Tracker — ${job.job_num || ''} ${job.job_name || ''}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -162,7 +162,7 @@ ${el.innerHTML}
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="mdl mdl-wide" style={{ maxWidth: 860, maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>Field SOW</h3>
+          <h3 style={{ margin: 0 }}>Field SOW and Production Rate Tracker</h3>
           <div style={{ display: 'flex', gap: 6 }}>
             {editing ? (
               <>

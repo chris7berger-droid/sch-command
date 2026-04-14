@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJob, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
+import JobCrewScheduler from '../components/JobCrewScheduler'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -58,20 +59,27 @@ export default function JobDetail() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const [jobRes, asgnRes, blRes, matRes, chgRes, fcRes] = await Promise.all([
-      loadJob(parseInt(jobId)),
-      supabase.from('assignments').select('crew_name, date').eq('job_id', parseInt(jobId)).order('date', { ascending: false }),
-      supabase.from('billing_log').select('*').eq('job_id', parseInt(jobId)).order('date', { ascending: false }),
-      supabase.from('materials').select('*').eq('job_id', parseInt(jobId)).order('ordinal'),
-      supabase.from('job_changes').select('*').eq('job_id', parseInt(jobId)).order('changed_at', { ascending: false }).limit(100),
-      supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', parseInt(jobId)),
+    const jid = parseInt(jobId)
+    const [jobRes, asgnRes, blRes, matRes, chgRes] = await Promise.all([
+      loadJob(jid),
+      supabase.from('assignments').select('crew_name, date').eq('job_id', jid).order('date', { ascending: false }),
+      supabase.from('billing_log').select('*').eq('job_id', jid).order('date', { ascending: false }),
+      supabase.from('materials').select('*').eq('job_id', jid).order('ordinal'),
+      supabase.from('job_changes').select('*').eq('job_id', jid).order('changed_at', { ascending: false }).limit(100),
     ])
     if (jobRes.data) setJob(jobRes.data)
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
     setMaterials(matRes.data || [])
     setChanges(chgRes.data || [])
-    setFieldCrew(fcRes.data || [])
+    // job_crew.job_id is FK to call_log.id, not jobs.job_id
+    const clId = jobRes.data?.call_log_id
+    if (clId) {
+      const { data: fcData } = await supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId)
+      setFieldCrew(fcData || [])
+    } else {
+      setFieldCrew([])
+    }
     setLoading(false)
   }, [jobId])
 
@@ -129,6 +137,7 @@ export default function JobDetail() {
         {/* ── Overview ───────────────────────────────────── */}
         {tab === 'overview' && (
           <div className="jd-section">
+            {/* Read-only info row */}
             <div className="jd-grid">
               <div className="jd-field">
                 <span className="jd-label">Customer</span>
@@ -139,14 +148,6 @@ export default function JobDetail() {
                 <span className="jd-value">{job.sales_name || '-'}</span>
               </div>
               <div className="jd-field">
-                <span className="jd-label">Scheduled Start</span>
-                <span className="jd-value">{effectiveStart(job) || '-'}</span>
-              </div>
-              <div className="jd-field">
-                <span className="jd-label">Scheduled End</span>
-                <span className="jd-value">{effectiveEnd(job) || '-'}</span>
-              </div>
-              <div className="jd-field">
                 <span className="jd-label">Contract</span>
                 <span className="jd-value">{fmtMoney(amount)}</span>
               </div>
@@ -154,28 +155,103 @@ export default function JobDetail() {
                 <span className="jd-label">Billed</span>
                 <span className="jd-value">{Math.round(billedPct)}% ({fmtMoney(amount * billedPct / 100)})</span>
               </div>
+            </div>
+
+            {/* Editable fields */}
+            <div className="jd-grid" style={{ marginTop: 12 }}>
+              <div className="jd-field">
+                <span className="jd-label">Scheduled Start</span>
+                <input
+                  type="date"
+                  className="jd-input"
+                  value={effectiveStart(job) || ''}
+                  max={effectiveEnd(job) || ''}
+                  onChange={e => {
+                    const val = e.target.value
+                    setJob(prev => ({ ...prev, scheduled_start: val }))
+                    updateJobField(job.job_id, 'scheduled_start', val || null, 'schedule_user')
+                  }}
+                />
+              </div>
+              <div className="jd-field">
+                <span className="jd-label">Scheduled End</span>
+                <input
+                  type="date"
+                  className="jd-input"
+                  value={effectiveEnd(job) || ''}
+                  min={effectiveStart(job) || ''}
+                  onChange={e => {
+                    const val = e.target.value
+                    setJob(prev => ({ ...prev, scheduled_end: val }))
+                    updateJobField(job.job_id, 'scheduled_end', val || null, 'schedule_user')
+                  }}
+                />
+              </div>
               <div className="jd-field">
                 <span className="jd-label">Lead</span>
-                <span className="jd-value">{job.lead || '-'}</span>
+                <input
+                  type="text"
+                  className="jd-input"
+                  defaultValue={job.lead || ''}
+                  placeholder="Crew lead"
+                  onBlur={e => {
+                    updateJobField(job.job_id, 'lead', e.target.value || null, 'schedule_user')
+                  }}
+                />
               </div>
               <div className="jd-field">
                 <span className="jd-label">Crew Needed</span>
-                <span className="jd-value">{job.crew_needed || '-'}</span>
+                <input
+                  type="number"
+                  className="jd-input"
+                  defaultValue={job.crew_needed || ''}
+                  placeholder="0"
+                  onBlur={e => {
+                    updateJobField(job.job_id, 'crew_needed', e.target.value || null, 'schedule_user')
+                  }}
+                />
               </div>
+            </div>
+
+            <div className="jd-grid" style={{ marginTop: 12 }}>
               <div className="jd-field">
                 <span className="jd-label">Vehicle</span>
-                <span className="jd-value">{job.vehicle || '-'}</span>
+                <input
+                  type="text"
+                  className="jd-input"
+                  defaultValue={job.vehicle || ''}
+                  placeholder="-"
+                  onBlur={e => {
+                    updateJobField(job.job_id, 'vehicle', e.target.value || null, 'schedule_user')
+                  }}
+                />
               </div>
               <div className="jd-field">
                 <span className="jd-label">Equipment</span>
-                <span className="jd-value">{job.equipment || '-'}</span>
+                <input
+                  type="text"
+                  className="jd-input"
+                  defaultValue={job.equipment || ''}
+                  placeholder="-"
+                  onBlur={e => {
+                    updateJobField(job.job_id, 'equipment', e.target.value || null, 'schedule_user')
+                  }}
+                />
               </div>
               <div className="jd-field">
                 <span className="jd-label">Power Source</span>
-                <span className="jd-value">{job.power_source || '-'}</span>
+                <input
+                  type="text"
+                  className="jd-input"
+                  defaultValue={job.power_source || ''}
+                  placeholder="-"
+                  onBlur={e => {
+                    updateJobField(job.job_id, 'power_source', e.target.value || null, 'schedule_user')
+                  }}
+                />
               </div>
               <div className="jd-field">
-                <span className="jd-label">Call Log Stage</span>
+                <span className="jd-label">Stage</span>
                 <span className="jd-value">{job.stage || '-'}</span>
               </div>
             </div>
@@ -198,23 +274,6 @@ export default function JobDetail() {
               </div>
             )}
 
-            {/* Field crew */}
-            {fieldCrew.length > 0 && (
-              <div className="jd-crew-section">
-                <span className="jd-label">Field Crew</span>
-                <div className="jh-field-crew-list">
-                  {fieldCrew.map(fc => (
-                    <div key={fc.id} className="jh-fc-chip">
-                      <span className={`jh-fc-role${fc.role === 'lead' ? ' lead' : ''}`}>
-                        {fc.role === 'lead' ? 'L' : 'C'}
-                      </span>
-                      <span className="jh-fc-name">{fc.team_members?.name || '?'}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {job.notes && (
               <div className="jd-notes">
                 <span className="jd-label">Notes</span>
@@ -224,26 +283,10 @@ export default function JobDetail() {
           </div>
         )}
 
-        {/* ── Schedule (assignment history) ──────────────── */}
+        {/* ── Schedule (crew scheduler) ──────────────────── */}
         {tab === 'schedule' && (
           <div className="jd-section">
-            {assignments.length === 0 ? (
-              <div className="jh-empty">No crew assignments yet</div>
-            ) : (
-              <table className="jd-table">
-                <thead>
-                  <tr><th>Date</th><th>Crew</th></tr>
-                </thead>
-                <tbody>
-                  {assignments.map((a, i) => (
-                    <tr key={i}>
-                      <td>{a.date}</td>
-                      <td>{a.crew_name}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <JobCrewScheduler job={job} />
           </div>
         )}
 
@@ -324,13 +367,24 @@ export default function JobDetail() {
               <div className="jd-sow-list">
                 {job.field_sow.map((day, i) => (
                   <div key={i} className="jd-sow-card">
-                    <div className="jd-sow-day">Day {i + 1}</div>
+                    <div className="jd-sow-day">{day.day_label || `Day ${i + 1}`}</div>
                     {day.tasks && day.tasks.map((task, ti) => (
-                      <div key={ti} className="jd-sow-task">{task}</div>
+                      <div key={ti} className="jd-sow-task">
+                        {typeof task === 'string' ? task : task.description || ''}
+                        {task.pct_complete ? <span className="jd-sow-pct">{task.pct_complete}%</span> : null}
+                      </div>
                     ))}
-                    {day.crew_count && <div className="jd-sow-meta">Crew: {day.crew_count}</div>}
-                    {day.hours && <div className="jd-sow-meta">Hours: {day.hours}</div>}
-                    {day.description && <div className="jd-sow-task">{day.description}</div>}
+                    {day.materials && day.materials.length > 0 && (
+                      <div className="jd-sow-materials">
+                        {day.materials.map((mat, mi) => (
+                          <div key={mi} className="jd-sow-mat">
+                            {mat.name}{mat.qty_planned ? ` x${mat.qty_planned}` : ''}{mat.mils ? ` @ ${mat.mils} mils` : ''}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {day.crew_count ? <div className="jd-sow-meta">Crew: {day.crew_count}</div> : null}
+                    {day.hours_planned ? <div className="jd-sow-meta">Hours: {day.hours_planned}</div> : null}
                   </div>
                 ))}
               </div>
@@ -350,25 +404,39 @@ export default function JobDetail() {
             {changes.length === 0 ? (
               <div className="jh-empty">No changes logged yet</div>
             ) : (
-              <div className="jd-timeline">
-                {changes.map(c => (
-                  <div key={c.id} className="jd-timeline-item">
-                    <div className="jd-timeline-dot" />
-                    <div className="jd-timeline-content">
-                      <div className="jd-timeline-meta">
-                        <span className="jd-timeline-date">{fmtTimestamp(c.changed_at)}</span>
-                        <span className="jd-timeline-who">{c.changed_by}</span>
-                        <span className="jd-timeline-source">{c.source}</span>
-                      </div>
-                      <div className="jd-timeline-change">
-                        <span className="jd-timeline-field">{c.field}</span>
-                        {c.old_value && <span className="jd-timeline-old">{c.old_value}</span>}
-                        <span className="jd-timeline-arrow">{'\u2192'}</span>
-                        <span className="jd-timeline-new">{c.new_value}</span>
+              <div className="jd-history">
+                {(() => {
+                  // Group by date
+                  const groups = []
+                  let currentDate = null
+                  changes.forEach(c => {
+                    const d = new Date(c.changed_at)
+                    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                    if (dateKey !== currentDate) {
+                      currentDate = dateKey
+                      groups.push({ date: dateKey, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }), items: [] })
+                    }
+                    groups[groups.length - 1].items.push(c)
+                  })
+                  return groups.map(g => (
+                    <div key={g.date} className="jd-history-group">
+                      <div className="jd-history-date">{g.label}</div>
+                      <div className="jd-history-items">
+                        {g.items.map(c => (
+                          <div key={c.id} className="jd-history-row">
+                            <span className="jd-history-field">{c.field}</span>
+                            <span className="jd-history-vals">
+                              {c.old_value && <span className="jd-history-old">{c.old_value}</span>}
+                              <span className="jd-history-arrow">{'\u2192'}</span>
+                              <span className="jd-history-new">{c.new_value}</span>
+                            </span>
+                            <span className="jd-history-time">{new Date(c.changed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                })()}
               </div>
             )}
           </div>
