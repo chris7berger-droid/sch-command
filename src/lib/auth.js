@@ -31,7 +31,7 @@ export async function getCurrentTeamMember() {
     .from('team_members')
     .select('id, name, role, email, apps')
     .eq('auth_id', user.id)
-    .single()
+    .maybeSingle()
 
   if (error) return null
   return data
