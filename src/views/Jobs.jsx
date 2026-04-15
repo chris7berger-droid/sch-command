@@ -236,6 +236,17 @@ export default function Jobs() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  // Realtime: reload when jobs table changes (INSERT/UPDATE/DELETE)
+  useEffect(() => {
+    const channel = supabase
+      .channel('jobs-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
+        loadData()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [loadData])
+
   /* ── date range from filter ────────────────────────────────── */
 
   const dateRange = useMemo(() => {
