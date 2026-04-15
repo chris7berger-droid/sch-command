@@ -2986,6 +2986,38 @@
   gap: 12px;
 }
 
+.jh-parked-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.jh-parked-info {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.jh-parked-info .jh-detail-label {
+  margin-right: 8px;
+}
+
+.jh-parked-sow {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.jh-proposal-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--teal);
+  background: var(--header-dark);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+}
+
 .jh-confirm-btn {
   font-family: var(--font-heading);
   font-size: 13px;

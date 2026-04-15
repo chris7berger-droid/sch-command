@@ -560,6 +560,7 @@ export default function Jobs() {
                       <div className="jh-card-title">
                         <span className="jh-card-num">{j.job_num}</span>
                         <span className="jh-card-name">{j.job_name}</span>
+                        {j.source_proposal_id && <span className="jh-proposal-tag">P#{j.source_proposal_id}</span>}
                       </div>
                     </div>
                     <div className="jh-card-right">
@@ -583,63 +584,17 @@ export default function Jobs() {
                   {isExpanded && (
                     <div className="jh-card-detail">
                       <div className="jh-parked-form" onClick={e => e.stopPropagation()}>
-                        <div className="jh-detail-grid">
-                          <div className="jh-detail-item">
-                            <span className="jh-detail-label">Start</span>
-                            <input
-                              type="date"
-                              className="jh-date-input"
-                              value={effectiveStart(j) || ''}
-                              max={effectiveEnd(j) || ''}
-                              onChange={e => {
-                                const val = e.target.value
-                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_start: val } : x))
-                                updateJobField(j.job_id, 'scheduled_start', val || null, 'schedule_user')
-                              }}
-                            />
-                          </div>
-                          <div className="jh-detail-item">
-                            <span className="jh-detail-label">End</span>
-                            <input
-                              type="date"
-                              className="jh-date-input"
-                              value={effectiveEnd(j) || ''}
-                              min={effectiveStart(j) || ''}
-                              onChange={e => {
-                                const val = e.target.value
-                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, scheduled_end: val } : x))
-                                updateJobField(j.job_id, 'scheduled_end', val || null, 'schedule_user')
-                              }}
-                            />
-                          </div>
-                          <div className="jh-detail-item">
-                            <span className="jh-detail-label">Crew Needed</span>
-                            <input
-                              type="number"
-                              className="jh-amount-input"
-                              placeholder="0"
-                              defaultValue={j.crew_needed || ''}
-                              onBlur={async e => {
-                                await updateJobField(j.job_id, 'crew_needed', e.target.value || null, 'schedule_user')
-                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, crew_needed: e.target.value } : x))
-                              }}
-                            />
-                          </div>
-                          <div className="jh-detail-item">
-                            <span className="jh-detail-label">Lead</span>
-                            <input
-                              type="text"
-                              className="jh-amount-input"
-                              placeholder="Crew lead"
-                              defaultValue={j.lead || ''}
-                              onBlur={async e => {
-                                await updateJobField(j.job_id, 'lead', e.target.value || null, 'schedule_user')
-                                setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, lead: e.target.value } : x))
-                              }}
-                            />
-                          </div>
+                        <div className="jh-parked-summary">
+                          {j.customer_name && <div className="jh-parked-info"><span className="jh-detail-label">Customer</span> {j.customer_name}</div>}
+                          {(effectiveStart(j) || effectiveEnd(j)) && (
+                            <div className="jh-parked-info"><span className="jh-detail-label">Dates</span> {effectiveStart(j) || '?'} → {effectiveEnd(j) || '?'}</div>
+                          )}
+                          {j.sow && <div className="jh-parked-info"><span className="jh-detail-label">Sales SOW</span> <span className="jh-parked-sow">{j.sow.length > 120 ? j.sow.slice(0, 120) + '...' : j.sow}</span></div>}
+                          {j.field_sow && j.field_sow.length > 0 && (
+                            <div className="jh-parked-info"><span className="jh-detail-label">Field SOW</span> {j.field_sow.length} day{j.field_sow.length !== 1 ? 's' : ''} planned</div>
+                          )}
+                          {j.notes && <div className="jh-parked-info"><span className="jh-detail-label">Notes</span> {j.notes}</div>}
                         </div>
-                        <JobCrewScheduler job={j} />
                         <button
                           className="jh-confirm-btn"
                           onClick={async () => {
@@ -649,7 +604,7 @@ export default function Jobs() {
                             }
                             setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, status: 'Scheduled' } : x))
                             setExpandedId(null)
-                            navigate('/schedule')
+                            navigate(`/jobs/${j.job_id}`)
                           }}
                         >
                           Confirm &amp; Schedule
