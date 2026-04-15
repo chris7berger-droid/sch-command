@@ -3011,7 +3011,7 @@
 .jh-proposal-tag {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--teal);
+  color: #30cfac;
   background: var(--header-dark);
   border-radius: 4px;
   padding: 2px 8px;
