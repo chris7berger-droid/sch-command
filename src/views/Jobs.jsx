@@ -653,6 +653,8 @@ export default function Jobs() {
                   <div className="jh-card-title">
                     <span className="jh-card-num">{j.job_num}</span>
                     <span className="jh-card-name">{j.job_name}</span>
+                    {j.is_change_order && <span className="jh-co-tag">CO{j.co_number || ''}</span>}
+                    {j.proposal_number && <span className="jh-proposal-tag">P{j.proposal_number}</span>}
                   </div>
                 </div>
                 <div className="jh-card-right">
