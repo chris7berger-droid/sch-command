@@ -706,85 +706,9 @@ export default function Jobs() {
                 </div>
               </div>
 
-              {/* expanded detail */}
+              {/* expanded — actions only, detail lives in Job Detail view */}
               {isExpanded && (
                 <div className="jh-card-detail">
-                  <div className="jh-detail-grid">
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Start</span>
-                      <span className="jh-detail-value">{effectiveStart(j) || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">End</span>
-                      <span className="jh-detail-value">{effectiveEnd(j) || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Lead</span>
-                      <span className="jh-detail-value">{j.lead || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Crew Needed</span>
-                      <span className="jh-detail-value">{j.crew_needed || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Vehicle</span>
-                      <span className="jh-detail-value">{j.vehicle || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Equipment</span>
-                      <span className="jh-detail-value">{j.equipment || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Power Source</span>
-                      <span className="jh-detail-value">{j.power_source || '-'}</span>
-                    </div>
-                    <div className="jh-detail-item">
-                      <span className="jh-detail-label">Contract</span>
-                      <div className="jh-amount-edit" onClick={e => e.stopPropagation()}>
-                        <span className="jh-amount-dollar">$</span>
-                        <input
-                          type="number"
-                          className="jh-amount-input"
-                          placeholder="0"
-                          value={amountInput}
-                          onChange={e => setAmountInput(e.target.value)}
-                        />
-                        <button
-                          className="jh-amount-save"
-                          disabled={savingAmount}
-                          onClick={() => saveAmount(j.job_id)}
-                        >
-                          {savingAmount ? '...' : 'Save'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {j.notes && (
-                    <div className="jh-detail-notes">
-                      <span className="jh-detail-label">Notes</span>
-                      <p>{j.notes}</p>
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                    {j.sow && (
-                      <a className="jh-sow-link" href={j.sow} target="_blank" rel="noopener noreferrer" style={{ marginBottom: 0 }}>SOW Link</a>
-                    )}
-                    {j.field_sow && j.field_sow.length > 0 && (
-                      <button
-                        className="jh-sow-link"
-                        style={{ marginBottom: 0 }}
-                        onClick={e => { e.stopPropagation(); setSowJob(j) }}
-                      >
-                        Field SOW
-                      </button>
-                    )}
-                  </div>
-
-                  <JobCrewScheduler job={j} />
-
-                  {/* status + actions */}
                   <div className="jh-detail-actions">
                     <select
                       className="jh-status-sel"
@@ -799,7 +723,6 @@ export default function Jobs() {
                       <option value="Complete">Complete</option>
                     </select>
 
-                    {/* % complete + add to bill list */}
                     {amount > 0 && j.no_bill !== 'Yes' && (
                       <div className="jh-bill-action">
                         <input
@@ -834,31 +757,6 @@ export default function Jobs() {
                     >
                       {'\uD83D\uDDD1'} Delete
                     </button>
-                  </div>
-
-                  {/* assignment history */}
-                  <div className="jh-hist-section">
-                    <div className="jh-hist-section-title">Assignment History</div>
-                    {loadingHistory ? (
-                      <div className="jh-empty">Loading...</div>
-                    ) : weekGroups.length === 0 ? (
-                      <div className="jh-empty">No crew assignments yet</div>
-                    ) : (
-                      <div className="jh-wk-list">
-                        {weekGroups.map(wk => (
-                          <div key={wk.monday} className="jh-wk-card">
-                            <div className="jh-wk-title">{wk.label}</div>
-                            <div className="jh-wk-crew">
-                              {wk.crew.map(c => (
-                                <span key={c.name} className="jh-wk-chip">
-                                  {flipName(c.name)} <span className="jh-wk-days">{c.days}</span>
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
