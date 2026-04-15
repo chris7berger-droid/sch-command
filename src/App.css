@@ -3018,6 +3018,17 @@
   margin-left: 8px;
 }
 
+.jh-co-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #9b59b6;
+  background: rgba(142,68,173,0.12);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  font-weight: 700;
+}
+
 .jh-confirm-btn {
   font-family: var(--font-heading);
   font-size: 13px;
