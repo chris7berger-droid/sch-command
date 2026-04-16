@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField as auditUpdateJobField, updateJobFields } from '../lib/queries'
+import { useUser } from '../lib/user'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -74,6 +75,8 @@ function workTypeTags(wt) {
 /* ── component ───────────────────────────────────────────────────── */
 
 export default function Billing() {
+  const user = useUser()
+  const changedBy = user?.name || changedBy
   const [wkStart, setWkStart] = useState(() => getMonday(new Date()))
   const [jobs, setJobs] = useState([])
   const [billingLog, setBillingLog] = useState([])
@@ -252,29 +255,29 @@ export default function Billing() {
       updates.partial_bill_date = null
       updates.partial_percent = null
     }
-    await updateJobFields(jobId, updates, 'schedule_user')
+    await updateJobFields(jobId, updates, changedBy)
     await loadData()
   }
 
   async function pauseBill(jobId) {
-    await auditUpdateJobField(jobId, 'billing_paused', 'Yes', 'schedule_user')
+    await auditUpdateJobField(jobId, 'billing_paused', 'Yes', changedBy)
     await loadData()
   }
 
   async function unpauseBill(jobId) {
-    await auditUpdateJobField(jobId, 'billing_paused', 'No', 'schedule_user')
+    await auditUpdateJobField(jobId, 'billing_paused', 'No', changedBy)
     await loadData()
   }
 
   async function rescheduleBill(jobId) {
     const nd = prompt('New billing date (YYYY-MM-DD):')
     if (!nd) return
-    await updateJobFields(jobId, { partial_bill_date: nd, billing_paused: 'No' }, 'schedule_user')
+    await updateJobFields(jobId, { partial_bill_date: nd, billing_paused: 'No' }, changedBy)
     await loadData()
   }
 
   async function handleUpdateBillingField(jobId, field, value) {
-    await auditUpdateJobField(jobId, field, value, 'schedule_user')
+    await auditUpdateJobField(jobId, field, value, changedBy)
     await loadData()
   }
 
@@ -324,7 +327,7 @@ export default function Billing() {
       for (const lg of remainingLogs) newBilled += parseFloat(lg.percent) || 0
     }
     newBilled = Math.min(newBilled, 100)
-    await auditUpdateJobField(jobId, 'billed_to_date', String(newBilled), 'schedule_user')
+    await auditUpdateJobField(jobId, 'billed_to_date', String(newBilled), changedBy)
     await loadData()
   }
 

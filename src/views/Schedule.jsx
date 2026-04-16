@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField } from '../lib/queries'
+import { useUser } from '../lib/user'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -100,6 +101,8 @@ function gTagClass(t) {
 }
 
 export default function Schedule() {
+  const user = useUser()
+  const changedBy = user?.name || changedBy
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
   const [assignments, setAssignments] = useState([])
@@ -375,7 +378,7 @@ export default function Schedule() {
   async function handleUpdateJob(jobId, field, value) {
     // Optimistic: update local state immediately so UI reacts without waiting for DB
     setJobs(prev => prev.map(j => String(j.job_id) === String(jobId) ? { ...j, [field]: value } : j))
-    const { error: err } = await updateJobField(jobId, field, value, 'schedule_user')
+    const { error: err } = await updateJobField(jobId, field, value, changedBy)
     if (err) { console.error(err) }
   }
 
@@ -416,8 +419,8 @@ export default function Schedule() {
   }
 
   async function handleClearDefer(jobId) {
-    await updateJobField(jobId, 'deferred_time', null, 'schedule_user')
-    await updateJobField(jobId, 'deferred_days', null, 'schedule_user')
+    await updateJobField(jobId, 'deferred_time', null, changedBy)
+    await updateJobField(jobId, 'deferred_days', null, changedBy)
     setJobs(prev => prev.map(j => String(j.job_id) === String(jobId) ? { ...j, deferred_time: null, deferred_days: null } : j))
   }
 

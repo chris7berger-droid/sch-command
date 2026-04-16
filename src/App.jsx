@@ -17,6 +17,7 @@ import JobDetail from './views/JobDetail'
 import StatsBar from './components/StatsBar'
 import Login from './views/Login'
 import { ScheduleCommandMark } from './components/Logo'
+import { UserProvider } from './lib/user'
 
 const NAV_ITEMS = [
   { path: '/jobs', label: 'Jobs' },
@@ -265,6 +266,7 @@ function AppShell({ session, teamMember }) {
   const archivedCrew = crewList.filter(c => c.archived === 'Yes')
 
   return (
+    <UserProvider teamMember={teamMember}>
     <>
       <header className="app-header">
         <div className="app-header-top">
@@ -497,5 +499,6 @@ function AppShell({ session, teamMember }) {
         </div>
       )}
     </>
+    </UserProvider>
   )
 }

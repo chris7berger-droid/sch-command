@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJob, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
+import { useUser } from '../lib/user'
 import JobCrewScheduler from '../components/JobCrewScheduler'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -46,6 +47,8 @@ function fmtTimestamp(ts) {
 export default function JobDetail() {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const user = useUser()
+  const changedBy = user?.name || changedBy
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('overview')
@@ -169,7 +172,7 @@ export default function JobDetail() {
                   onChange={e => {
                     const val = e.target.value
                     setJob(prev => ({ ...prev, scheduled_start: val }))
-                    updateJobField(job.job_id, 'scheduled_start', val || null, 'schedule_user')
+                    updateJobField(job.job_id, 'scheduled_start', val || null, changedBy)
                   }}
                 />
               </div>
@@ -183,7 +186,7 @@ export default function JobDetail() {
                   onChange={e => {
                     const val = e.target.value
                     setJob(prev => ({ ...prev, scheduled_end: val }))
-                    updateJobField(job.job_id, 'scheduled_end', val || null, 'schedule_user')
+                    updateJobField(job.job_id, 'scheduled_end', val || null, changedBy)
                   }}
                 />
               </div>
@@ -195,7 +198,7 @@ export default function JobDetail() {
                   defaultValue={job.lead || ''}
                   placeholder="Crew lead"
                   onBlur={e => {
-                    updateJobField(job.job_id, 'lead', e.target.value || null, 'schedule_user')
+                    updateJobField(job.job_id, 'lead', e.target.value || null, changedBy)
                   }}
                 />
               </div>
@@ -207,7 +210,7 @@ export default function JobDetail() {
                   defaultValue={job.crew_needed || ''}
                   placeholder="0"
                   onBlur={e => {
-                    updateJobField(job.job_id, 'crew_needed', e.target.value || null, 'schedule_user')
+                    updateJobField(job.job_id, 'crew_needed', e.target.value || null, changedBy)
                   }}
                 />
               </div>
@@ -222,7 +225,7 @@ export default function JobDetail() {
                   defaultValue={job.vehicle || ''}
                   placeholder="-"
                   onBlur={e => {
-                    updateJobField(job.job_id, 'vehicle', e.target.value || null, 'schedule_user')
+                    updateJobField(job.job_id, 'vehicle', e.target.value || null, changedBy)
                   }}
                 />
               </div>
@@ -234,7 +237,7 @@ export default function JobDetail() {
                   defaultValue={job.equipment || ''}
                   placeholder="-"
                   onBlur={e => {
-                    updateJobField(job.job_id, 'equipment', e.target.value || null, 'schedule_user')
+                    updateJobField(job.job_id, 'equipment', e.target.value || null, changedBy)
                   }}
                 />
               </div>
@@ -246,7 +249,7 @@ export default function JobDetail() {
                   defaultValue={job.power_source || ''}
                   placeholder="-"
                   onBlur={e => {
-                    updateJobField(job.job_id, 'power_source', e.target.value || null, 'schedule_user')
+                    updateJobField(job.job_id, 'power_source', e.target.value || null, changedBy)
                   }}
                 />
               </div>

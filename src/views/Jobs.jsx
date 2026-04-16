@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
+import { useUser } from '../lib/user'
 import FieldSowModal from '../components/FieldSowModal'
 import JobCrewScheduler from '../components/JobCrewScheduler'
 
@@ -181,6 +182,8 @@ function urgencyScore(job, billingLog, today) {
 
 export default function Jobs() {
   const navigate = useNavigate()
+  const user = useUser()
+  const changedBy = user?.name || changedBy
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
@@ -326,7 +329,6 @@ export default function Jobs() {
 
   const updateStatus = useCallback(async (jobId, newStatus) => {
     const job = jobs.find(j => j.job_id === jobId)
-    const changedBy = 'schedule_user' // TODO: replace with actual user name from auth context
     const { error: err } = await updateJobField(jobId, 'status', newStatus, changedBy)
     if (err) { console.error(err); return }
     // sync call_log.stage for linked jobs
@@ -344,7 +346,7 @@ export default function Jobs() {
   const softDelete = useCallback(async (jobId, jobName) => {
     if (!window.confirm(`Delete "${jobName}"? It can be restored within 24 hours.`)) return
     const now = new Date().toISOString()
-    const { error: err } = await updateJobFields(jobId, { deleted: 'Yes', deleted_at: now }, 'schedule_user')
+    const { error: err } = await updateJobFields(jobId, { deleted: 'Yes', deleted_at: now }, changedBy)
     if (err) { console.error(err); return }
     setJobs(prev => prev.filter(j => j.job_id !== jobId))
     if (expandedId === jobId) setExpandedId(null)
@@ -458,7 +460,7 @@ export default function Jobs() {
       return
     }
     setSavingAmount(true)
-    const { error: err } = await updateJobField(jobId, 'amount', val, 'schedule_user')
+    const { error: err } = await updateJobField(jobId, 'amount', val, changedBy)
     if (err) { console.error(err); setSavingAmount(false); return }
     setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, amount: val } : j))
     setSavingAmount(false)
@@ -610,9 +612,9 @@ export default function Jobs() {
                         <button
                           className="jh-confirm-btn"
                           onClick={async () => {
-                            await updateJobField(j.job_id, 'status', 'Scheduled', 'schedule_user')
+                            await updateJobField(j.job_id, 'status', 'Scheduled', changedBy)
                             if (j.call_log_id) {
-                              await updateCallLogStage(j.call_log_id, 'Scheduled', 'schedule_user')
+                              await updateCallLogStage(j.call_log_id, 'Scheduled', changedBy)
                             }
                             setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, status: 'Scheduled' } : x))
                             setExpandedId(null)
