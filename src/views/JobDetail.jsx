@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJob, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -47,6 +47,8 @@ function fmtTimestamp(ts) {
 export default function JobDetail() {
   const { jobId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const mode = searchParams.get('mode') // 'planning' | 'management' | null
   const user = useUser()
   const changedBy = user?.name || changedBy
   const [job, setJob] = useState(null)
@@ -72,8 +74,8 @@ export default function JobDetail() {
     ])
     if (jobRes.data) {
       setJob(jobRes.data)
-      // Default tab: Parked jobs start on planning, others on overview
-      setTab(prev => prev || (jobRes.data.status === 'Parked' ? 'schedule' : 'overview'))
+      // Default tab based on mode param or job status
+      setTab(prev => prev || (mode === 'management' ? 'overview' : mode === 'planning' ? 'schedule' : jobRes.data.status === 'Parked' ? 'schedule' : 'overview'))
     }
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
@@ -101,7 +103,7 @@ export default function JobDetail() {
 
   // Readiness checks
   const scheduleReady = assignments.length > 0
-  const materialsReady = job?.materials_needed === false || (job?.materials_needed === true && materials.length > 0 && materials.every(m => m.status && m.status !== 'Not Ordered'))
+  const materialsReady = job?.materials_needed === false || (job?.materials_needed === true && materials.length > 0)
   const materialsDecided = job?.materials_needed !== null && job?.materials_needed !== undefined
   const fieldSowReady = job?.field_sow && job.field_sow.length > 0
   const readyCount = [scheduleReady, materialsReady && materialsDecided, fieldSowReady].filter(Boolean).length
@@ -109,8 +111,13 @@ export default function JobDetail() {
 
   // Schedule summary
   const crewNames = [...new Set(assignments.map(a => a.crew_name))]
+  const scheduleDays = [...new Set(assignments.map(a => a.date))].length
+  const soldCrewCount = job?.field_sow?.length > 0
+    ? Math.max(...job.field_sow.map(d => d.crew_count || 0))
+    : null
+  const crewMismatch = soldCrewCount && crewNames.length !== soldCrewCount
   const scheduleSummary = scheduleReady
-    ? `${crewNames.length} crew, ${assignments.length} day${assignments.length !== 1 ? 's' : ''} assigned`
+    ? `${crewNames.length} man crew, ${scheduleDays} day${scheduleDays !== 1 ? 's' : ''}${crewMismatch ? ` (sold as ${soldCrewCount} man crew job)` : ''}`
     : 'No crew assigned'
 
   // Materials summary
@@ -158,6 +165,7 @@ export default function JobDetail() {
 
       {/* Tab Groups */}
       <div className="jd-tab-groups">
+        {mode !== 'management' && (
         <div className="jd-tab-group">
           <div className="jd-tab-group-label">JOB PLANNING</div>
           <div className="jd-tabs">
@@ -172,6 +180,8 @@ export default function JobDetail() {
             ))}
           </div>
         </div>
+        )}
+        {mode !== 'planning' && (
         <div className="jd-tab-group">
           <div className="jd-tab-group-label">JOB MANAGEMENT</div>
           <div className="jd-tabs">
@@ -186,10 +196,11 @@ export default function JobDetail() {
             ))}
           </div>
         </div>
+        )}
       </div>
 
-      {/* Readiness Checklist — Parked jobs only */}
-      {job.status === 'Parked' && (
+      {/* Readiness Checklist — Parked jobs only, planning mode */}
+      {job.status === 'Parked' && mode !== 'management' && (
         <div className="jd-readiness">
           <div className="jd-readiness-items">
             <div className={`jd-ready-item${scheduleReady ? ' done' : ''}`} onClick={() => setTab('schedule')}>
@@ -419,7 +430,7 @@ export default function JobDetail() {
         {/* ── Schedule (crew scheduler) ──────────────────── */}
         {tab === 'schedule' && (
           <div className="jd-section">
-            <JobCrewScheduler job={job} />
+            <JobCrewScheduler job={job} onAssignmentsChange={setAssignments} />
           </div>
         )}
 

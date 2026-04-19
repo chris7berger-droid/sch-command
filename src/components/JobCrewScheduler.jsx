@@ -69,7 +69,7 @@ function buildWeeks(startStr, endStr) {
 
 /* ── component ──────────────────────────────────────────────────── */
 
-export default function JobCrewScheduler({ job }) {
+export default function JobCrewScheduler({ job, onAssignmentsChange }) {
   const [crew, setCrew] = useState([])
   const [jobAssignments, setJobAssignments] = useState([])   // this job only
   const [allAssignments, setAllAssignments] = useState([])    // all jobs in date range
@@ -163,7 +163,8 @@ export default function JobCrewScheduler({ job }) {
     ])
     setJobAssignments(jobRes.data || [])
     setAllAssignments(allRes.data || [])
-  }, [jobId, weekDateRange.min, weekDateRange.max])
+    if (onAssignmentsChange) onAssignmentsChange(jobRes.data || [])
+  }, [jobId, weekDateRange.min, weekDateRange.max, onAssignmentsChange])
 
   const toggleDay = useCallback(async (crewName, dateStr) => {
     const key = crewName + '|' + dateStr

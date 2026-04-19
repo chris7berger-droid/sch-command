@@ -593,9 +593,15 @@ export default function Jobs() {
                 <div className="jh-parked-actions">
                   <button
                     className="jh-view-btn"
-                    onClick={() => navigate(`/jobs/${j.job_id}`)}
+                    onClick={() => navigate(`/jobs/${j.job_id}?mode=planning`)}
                   >
-                    View Detail
+                    Job Planning
+                  </button>
+                  <button
+                    className="jh-view-btn"
+                    onClick={() => navigate(`/jobs/${j.job_id}?mode=management`)}
+                  >
+                    Job Management
                   </button>
                 </div>
               </div>
@@ -720,9 +726,15 @@ export default function Jobs() {
 
                     <button
                       className="jh-view-btn"
-                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}`) }}
+                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=planning`) }}
                     >
-                      View Detail
+                      Job Planning
+                    </button>
+                    <button
+                      className="jh-view-btn"
+                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
+                    >
+                      Job Management
                     </button>
                     <button
                       className="jh-del-btn"
