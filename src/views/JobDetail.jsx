@@ -51,7 +51,7 @@ export default function JobDetail() {
   const changedBy = user?.name || changedBy
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState(null)
 
   // sub-data
   const [assignments, setAssignments] = useState([])
@@ -70,7 +70,11 @@ export default function JobDetail() {
       supabase.from('materials').select('*').eq('job_id', jid).order('ordinal'),
       supabase.from('job_changes').select('*').eq('job_id', jid).order('changed_at', { ascending: false }).limit(100),
     ])
-    if (jobRes.data) setJob(jobRes.data)
+    if (jobRes.data) {
+      setJob(jobRes.data)
+      // Default tab: Parked jobs start on planning, others on overview
+      setTab(prev => prev || (jobRes.data.status === 'Parked' ? 'schedule' : 'overview'))
+    }
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
     setMaterials(matRes.data || [])
@@ -95,15 +99,46 @@ export default function JobDetail() {
 
   const amount = job?.amount ? parseFloat(job.amount) : 0
 
+  // Readiness checks
+  const scheduleReady = assignments.length > 0
+  const materialsReady = job?.materials_needed === false || (job?.materials_needed === true && materials.length > 0 && materials.every(m => m.status && m.status !== 'Not Ordered'))
+  const materialsDecided = job?.materials_needed !== null && job?.materials_needed !== undefined
+  const fieldSowReady = job?.field_sow && job.field_sow.length > 0
+  const readyCount = [scheduleReady, materialsReady && materialsDecided, fieldSowReady].filter(Boolean).length
+  const allReady = readyCount === 3
+
+  // Schedule summary
+  const crewNames = [...new Set(assignments.map(a => a.crew_name))]
+  const scheduleSummary = scheduleReady
+    ? `${crewNames.length} crew, ${assignments.length} day${assignments.length !== 1 ? 's' : ''} assigned`
+    : 'No crew assigned'
+
+  // Materials summary
+  const materialsSummary = !materialsDecided
+    ? 'Not decided'
+    : job.materials_needed === false
+      ? 'No materials needed'
+      : materials.length === 0
+        ? 'Needed — none added'
+        : `${materials.length} item${materials.length !== 1 ? 's' : ''}${materials.some(m => m.status === 'Not Ordered') ? `, ${materials.filter(m => m.status === 'Not Ordered').length} not ordered` : ''}`
+
+  // Field SOW summary
+  const fieldSowSummary = fieldSowReady
+    ? `${job.field_sow.length} day${job.field_sow.length !== 1 ? 's' : ''} planned`
+    : 'No Field SOW data'
+
   if (loading) return <div className="jd-wrap"><div className="jh-empty">Loading...</div></div>
   if (!job) return <div className="jd-wrap"><div className="jh-empty">Job not found</div></div>
 
-  const TABS = [
-    { key: 'overview', label: 'Overview' },
+  const PLANNING_TABS = [
     { key: 'schedule', label: 'Schedule' },
-    { key: 'billing', label: 'Billing' },
     { key: 'materials', label: 'Materials' },
     { key: 'fieldsow', label: 'Field SOW' },
+  ]
+
+  const MANAGEMENT_TABS = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'billing', label: 'Billing' },
     { key: 'history', label: 'History' },
   ]
 
@@ -121,18 +156,113 @@ export default function JobDetail() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="jd-tabs">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            className={`jd-tab${tab === t.key ? ' active' : ''}`}
-            onClick={() => setTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Tab Groups */}
+      <div className="jd-tab-groups">
+        <div className="jd-tab-group">
+          <div className="jd-tab-group-label">JOB PLANNING</div>
+          <div className="jd-tabs">
+            {PLANNING_TABS.map(t => (
+              <button
+                key={t.key}
+                className={`jd-tab${tab === t.key ? ' active' : ''}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="jd-tab-group">
+          <div className="jd-tab-group-label">JOB MANAGEMENT</div>
+          <div className="jd-tabs">
+            {MANAGEMENT_TABS.map(t => (
+              <button
+                key={t.key}
+                className={`jd-tab${tab === t.key ? ' active' : ''}`}
+                onClick={() => setTab(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* Readiness Checklist — Parked jobs only */}
+      {job.status === 'Parked' && (
+        <div className="jd-readiness">
+          <div className="jd-readiness-items">
+            <div className={`jd-ready-item${scheduleReady ? ' done' : ''}`} onClick={() => setTab('schedule')}>
+              <span className="jd-ready-check">{scheduleReady ? '\u2713' : '\u25CB'}</span>
+              <span className="jd-ready-label">Schedule</span>
+              <span className="jd-ready-summary">{scheduleSummary}</span>
+            </div>
+            <div className={`jd-ready-item${materialsReady && materialsDecided ? ' done' : ''}`}>
+              <span className="jd-ready-check">{materialsReady && materialsDecided ? '\u2713' : '\u25CB'}</span>
+              <span className="jd-ready-label">Materials</span>
+              {!materialsDecided ? (
+                <span className="jd-ready-toggle">
+                  <button
+                    className="jd-mat-toggle-btn yes"
+                    onClick={async () => {
+                      await updateJobField(job.job_id, 'materials_needed', true, changedBy)
+                      setJob(prev => ({ ...prev, materials_needed: true }))
+                      setTab('materials')
+                    }}
+                  >
+                    Needed
+                  </button>
+                  <button
+                    className="jd-mat-toggle-btn no"
+                    onClick={async () => {
+                      await updateJobField(job.job_id, 'materials_needed', false, changedBy)
+                      setJob(prev => ({ ...prev, materials_needed: false }))
+                    }}
+                  >
+                    Not Needed
+                  </button>
+                </span>
+              ) : (
+                <span className="jd-ready-summary">
+                  {materialsSummary}
+                  <button
+                    className="jd-mat-change"
+                    onClick={async () => {
+                      const newVal = !job.materials_needed
+                      await updateJobField(job.job_id, 'materials_needed', newVal, changedBy)
+                      setJob(prev => ({ ...prev, materials_needed: newVal }))
+                      if (newVal) setTab('materials')
+                    }}
+                  >
+                    change
+                  </button>
+                </span>
+              )}
+            </div>
+            <div className={`jd-ready-item${fieldSowReady ? ' done' : ''}`} onClick={() => setTab('fieldsow')}>
+              <span className="jd-ready-check">{fieldSowReady ? '\u2713' : '\u25CB'}</span>
+              <span className="jd-ready-label">Field SOW</span>
+              <span className="jd-ready-summary">{fieldSowSummary}</span>
+            </div>
+          </div>
+          <div className="jd-readiness-footer">
+            <span className="jd-ready-count">{readyCount} of 3 ready</span>
+            <button
+              className={`jh-confirm-btn${!allReady ? ' disabled' : ''}`}
+              disabled={!allReady}
+              onClick={async () => {
+                await updateJobField(job.job_id, 'status', 'Scheduled', changedBy)
+                if (job.call_log_id) {
+                  await updateCallLogStage(job.call_log_id, 'Scheduled', changedBy)
+                }
+                setJob(prev => ({ ...prev, status: 'Scheduled' }))
+              }}
+            >
+              Send Job Plan to Schedule
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="jd-content">

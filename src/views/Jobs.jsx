@@ -563,72 +563,43 @@ export default function Jobs() {
         <div className="jh-parked-section">
           <div className="jh-parked-header">INCOMING JOBS</div>
           <div className="jh-list">
-            {parked.map(j => {
-              const isExpanded = expandedId === j.job_id
-              return (
-                <div key={j.job_id} className={`jh-card parked${isExpanded ? ' expanded' : ''}`}>
-                  <div className="jh-card-hdr" onClick={() => toggleExpand(j)}>
-                    <div className="jh-card-left">
-                      <span className="jh-status-badge pk">Parked</span>
-                      <div className="jh-card-title">
-                        <span className="jh-card-num">{j.job_num}</span>
-                        <span className="jh-card-name">{j.job_name}</span>
-                        {j.is_change_order && <span className="jh-co-tag">CO{j.co_number || ''}</span>}
-                        {j.proposal_number && <span className="jh-proposal-tag">P{j.proposal_number}</span>}
-                      </div>
-                    </div>
-                    <div className="jh-card-right">
-                      <span className="jh-expand-arrow">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+            {parked.map(j => (
+              <div key={j.job_id} className="jh-card parked">
+                <div className="jh-card-hdr">
+                  <div className="jh-card-left">
+                    <span className="jh-status-badge pk">Parked</span>
+                    <div className="jh-card-title">
+                      <span className="jh-card-num">{j.job_num}</span>
+                      <span className="jh-card-name">{j.job_name}</span>
+                      {j.is_change_order && <span className="jh-co-tag">CO{j.co_number || ''}</span>}
+                      {j.proposal_number && <span className="jh-proposal-tag">P{j.proposal_number}</span>}
                     </div>
                   </div>
-                  <div className="jh-card-body" onClick={() => toggleExpand(j)}>
-                    <div className="jh-card-tags">
-                      {renderTags(j.work_type)}
-                      {isPW(j) && <span className="pw-tag">PW</span>}
-                    </div>
-                    <div className="jh-card-meta">
-                      <span className="jh-parked-dates">
-                        {effectiveStart(j) || '?'} → {effectiveEnd(j) || '?'}
-                      </span>
-                      {j.amount && parseFloat(j.amount) > 0 && (
-                        <span className="jh-money">{fmtMoney(j.amount)}</span>
-                      )}
-                    </div>
-                  </div>
-                  {isExpanded && (
-                    <div className="jh-card-detail">
-                      <div className="jh-parked-form" onClick={e => e.stopPropagation()}>
-                        <div className="jh-parked-summary">
-                          {j.customer_name && <div className="jh-parked-info"><span className="jh-detail-label">Customer</span> {j.customer_name}</div>}
-                          {(effectiveStart(j) || effectiveEnd(j)) && (
-                            <div className="jh-parked-info"><span className="jh-detail-label">Dates</span> {effectiveStart(j) || '?'} → {effectiveEnd(j) || '?'}</div>
-                          )}
-                          {j.sow && <div className="jh-parked-info"><span className="jh-detail-label">Sales SOW</span> <span className="jh-parked-sow">{j.sow.length > 120 ? j.sow.slice(0, 120) + '...' : j.sow}</span></div>}
-                          {j.field_sow && j.field_sow.length > 0 && (
-                            <div className="jh-parked-info"><span className="jh-detail-label">Field SOW</span> {j.field_sow.length} day{j.field_sow.length !== 1 ? 's' : ''} planned</div>
-                          )}
-                          {j.notes && <div className="jh-parked-info"><span className="jh-detail-label">Notes</span> {j.notes}</div>}
-                        </div>
-                        <button
-                          className="jh-confirm-btn"
-                          onClick={async () => {
-                            await updateJobField(j.job_id, 'status', 'Scheduled', changedBy)
-                            if (j.call_log_id) {
-                              await updateCallLogStage(j.call_log_id, 'Scheduled', changedBy)
-                            }
-                            setJobs(prev => prev.map(x => x.job_id === j.job_id ? { ...x, status: 'Scheduled' } : x))
-                            setExpandedId(null)
-                            navigate(`/jobs/${j.job_id}`)
-                          }}
-                        >
-                          Confirm &amp; Schedule
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
-              )
-            })}
+                <div className="jh-card-body">
+                  <div className="jh-card-tags">
+                    {renderTags(j.work_type)}
+                    {isPW(j) && <span className="pw-tag">PW</span>}
+                  </div>
+                  <div className="jh-card-meta">
+                    <span className="jh-parked-dates">
+                      {effectiveStart(j) || '?'} → {effectiveEnd(j) || '?'}
+                    </span>
+                    {j.amount && parseFloat(j.amount) > 0 && (
+                      <span className="jh-money">{fmtMoney(j.amount)}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="jh-parked-actions">
+                  <button
+                    className="jh-view-btn"
+                    onClick={() => navigate(`/jobs/${j.job_id}`)}
+                  >
+                    View Detail
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

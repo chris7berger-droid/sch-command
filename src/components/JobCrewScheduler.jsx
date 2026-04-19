@@ -73,6 +73,7 @@ export default function JobCrewScheduler({ job }) {
   const [crew, setCrew] = useState([])
   const [jobAssignments, setJobAssignments] = useState([])   // this job only
   const [allAssignments, setAllAssignments] = useState([])    // all jobs in date range
+  const [jobLookup, setJobLookup] = useState({})              // job_id -> { job_num, job_name }
   const [loading, setLoading] = useState(true)
   const [weekPicker, setWeekPicker] = useState(null) // which week index has picker open
 
@@ -99,14 +100,18 @@ export default function JobCrewScheduler({ job }) {
 
   const loadData = useCallback(async () => {
     if (!jobId || !weekDateRange.min) return
-    const [crewRes, jobAsgnRes, allAsgnRes] = await Promise.all([
+    const [crewRes, jobAsgnRes, allAsgnRes, jobsRes] = await Promise.all([
       supabase.from('crew').select('*').or('archived.is.null,archived.eq.No').order('name'),
       supabase.from('assignments').select('*').eq('job_id', jobId),
       supabase.from('assignments').select('crew_name, date, job_id').gte('date', weekDateRange.min).lte('date', weekDateRange.max),
+      supabase.from('jobs').select('job_id, job_num, job_name'),
     ])
     setCrew(crewRes.data || [])
     setJobAssignments(jobAsgnRes.data || [])
     setAllAssignments(allAsgnRes.data || [])
+    const jl = {}
+    ;(jobsRes.data || []).forEach(j => { jl[j.job_id] = { job_num: j.job_num, job_name: j.job_name } })
+    setJobLookup(jl)
     setLoading(false)
   }, [jobId, weekDateRange.min, weekDateRange.max])
 
@@ -229,9 +234,24 @@ export default function JobCrewScheduler({ job }) {
 
   const totalInRange = inRangeDates.length
 
+  // Format dates for the banner
+  const startFormatted = startDate ? new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+  const endFormatted = endDate ? new Date(endDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '—'
+  const totalDays = startDate && endDate ? Math.round((new Date(endDate + 'T00:00:00') - new Date(startDate + 'T00:00:00')) / (1000 * 60 * 60 * 24)) + 1 : 0
+
   return (
     <div className="jcs-wrap" onClick={e => e.stopPropagation()}>
       <div className="jcs-title">Crew Schedule</div>
+
+      <div className="jcs-date-banner">
+        <div className="jcs-date-banner-label">JOB SCHEDULE DATES</div>
+        <div className="jcs-date-banner-range">
+          <span className="jcs-date-banner-date">{startFormatted}</span>
+          <span className="jcs-date-banner-arrow">{'\u2192'}</span>
+          <span className="jcs-date-banner-date">{endFormatted}</span>
+          {totalDays > 0 && <span className="jcs-date-banner-days">{totalDays} day{totalDays !== 1 ? 's' : ''}</span>}
+        </div>
+      </div>
 
       {weeks.map((week, wi) => {
         // Only show crew that have assignments in THIS week
@@ -283,15 +303,15 @@ export default function JobCrewScheduler({ job }) {
                 {week.days.map(d => {
                   const assigned = asgnMap[name + '|' + d.dateStr]
                   const otherJobs = (allAsgnMap[name + '|' + d.dateStr] || []).filter(id => id !== jobId)
+                  const otherJobNames = otherJobs.map(id => { const j = jobLookup[id]; return j ? `${j.job_num} - ${j.job_name}` : `Job ${id}` }).join(', ')
                   return (
                     <div
                       key={d.dateStr}
                       className={`jcs-cell${assigned ? ' on' : ''}${!d.inRange ? ' out' : ''}${otherJobs.length > 0 && !assigned ? ' busy' : ''}`}
                       onClick={() => d.inRange && toggleDay(name, d.dateStr)}
-                      title={otherJobs.length > 0 ? `Also on ${otherJobs.length} other job${otherJobs.length > 1 ? 's' : ''}` : ''}
+                      title={assigned ? 'Click to unassign' : otherJobs.length > 0 ? `On: ${otherJobNames}` : 'Click to assign'}
                     >
                       {assigned && <span className="jcs-bubble">{shortName(name)}</span>}
-                      {!assigned && otherJobs.length > 0 && <span className="jcs-busy-dot" />}
                     </div>
                   )
                 })}
@@ -314,9 +334,8 @@ export default function JobCrewScheduler({ job }) {
             {weekPicker === wi && (() => {
               const weekInRange = week.days.filter(d => d.inRange)
               const weekDateStrs = weekInRange.map(d => d.dateStr)
-              // Crew already assigned any day this week
-              const weekCrewSet = new Set(jobAssignments.filter(a => weekDateStrs.includes(a.date)).map(a => a.crew_name))
-              const available = crew.filter(c => !weekCrewSet.has(c.name))
+              // Show all crew — checkmarks indicate who's booked
+              const available = crew
 
               return (
                 <div className="jcs-picker">
@@ -349,16 +368,19 @@ export default function JobCrewScheduler({ job }) {
                           <span className="jcs-picker-avail">{freeCount}/{weekDateStrs.length}</span>
                         </div>
                         {weekDateStrs.map(ds => {
+                          const alreadyOnThisJob = asgnMap[c.name + '|' + ds]
                           const otherJobs = (allAsgnMap[c.name + '|' + ds] || []).filter(id => id !== jobId)
                           const busy = otherJobs.length > 0
+                          const busyJobNames = otherJobs.map(id => { const j = jobLookup[id]; return j ? `${j.job_num} - ${j.job_name}` : `Job ${id}` }).join(', ')
+                          const booked = alreadyOnThisJob || busy
                           return (
                             <div
                               key={ds}
-                              className={`jcs-picker-cell${busy ? ' busy' : ' free'} clickable`}
-                              onClick={e => { e.stopPropagation(); addCrewToDay(c.name, ds) }}
-                              title={busy ? 'Busy — click to assign anyway' : 'Click to assign this day'}
+                              className={`jcs-picker-cell${alreadyOnThisJob ? ' assigned' : busy ? ' busy' : ' free'} clickable`}
+                              onClick={e => { e.stopPropagation(); if (!alreadyOnThisJob) addCrewToDay(c.name, ds) }}
+                              title={alreadyOnThisJob ? 'Assigned to this job' : busy ? `On: ${busyJobNames} — click to assign anyway` : 'Available — click to assign'}
                             >
-                              {busy ? '●' : '○'}
+                              {booked ? '✓' : '○'}
                             </div>
                           )
                         })}
