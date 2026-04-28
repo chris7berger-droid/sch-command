@@ -127,3 +127,15 @@ Session handoff docs use the naming convention `SCH_HANDOFF_v{N}.md` with increm
 ```bash
 cd ~/sch-command && npm run dev
 ```
+
+---
+
+## Security Rules
+
+1. **Row Level Security (RLS) policies** — before writing or editing ANY SQL
+   that touches RLS, policies, anon access, public pages, or token-gated
+   reads, read `CLAUDE_RLS.md` in the repo root. It contains the rules for
+   correct policy patterns, the 2026-04-26 sales-command incident
+   anti-pattern, and the 6-gate deploy requirements. The anti-pattern in
+   `CLAUDE_RLS.md` is the most common RLS mistake — do not write policies
+   that match it.
