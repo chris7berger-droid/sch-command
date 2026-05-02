@@ -3,10 +3,10 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs } from '../lib/queries'
 import PipelineTab from '../components/tabs/PipelineTab'
-import ScheduleTab from '../components/tabs/ScheduleTab'
+import ReadyTab from '../components/tabs/ReadyTab'
 import ActiveTab from '../components/tabs/ActiveTab'
-import ReadyToBillTab from '../components/tabs/ReadyToBillTab'
-import JobsTabBar, { JOBS_TABS } from '../components/JobsTabBar'
+import BillingTab from '../components/tabs/BillingTab'
+import JobsTabBar, { JOBS_TABS, LEGACY_TAB_SLUG_MAP } from '../components/JobsTabBar'
 
 /* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
 
@@ -96,7 +96,21 @@ function urgencyScore(job, billingLog, today) {
 export default function Jobs() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
-  const activeTab = JOBS_TABS.includes(tabParam) ? tabParam : 'pipeline'
+  // Map legacy slugs (?tab=schedule, ?tab=ready-to-bill) to the new keys so
+  // external links continue to work. The URL is normalized via the effect below.
+  const mappedTab = tabParam && LEGACY_TAB_SLUG_MAP[tabParam]
+  const activeTab = mappedTab || (JOBS_TABS.includes(tabParam) ? tabParam : 'pipeline')
+
+  useEffect(() => {
+    if (mappedTab) {
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev)
+        params.set('tab', mappedTab)
+        return params
+      }, { replace: true })
+    }
+  }, [mappedTab, setSearchParams])
+
   const setActiveTab = useCallback((next) => {
     setSearchParams(prev => {
       const params = new URLSearchParams(prev)
@@ -244,8 +258,8 @@ export default function Jobs() {
   if (loading) return <div className="jh-empty">Loading jobs...</div>
   if (error) return <div className="jh-empty">Error: {error}</div>
 
-  // Schedule + Ready to Bill tabs render their own dashboards — hide shell scoreboard
-  // and shell filters to avoid visual doubling.
+  // Ready + Billing tabs embed full views (<Schedule />, <Billing />) that bring
+  // their own headers — hide shell chrome to avoid visual doubling.
   const showShellChrome = activeTab === 'pipeline' || activeTab === 'active'
 
   const FILTER_OPTIONS = [
@@ -344,7 +358,7 @@ export default function Jobs() {
           reload={loadData}
         />
       )}
-      {activeTab === 'schedule' && <ScheduleTab />}
+      {activeTab === 'ready' && <ReadyTab />}
       {activeTab === 'active' && (
         <ActiveTab
           filteredJobs={filteredJobs}
@@ -355,7 +369,7 @@ export default function Jobs() {
           today={today}
         />
       )}
-      {activeTab === 'ready-to-bill' && <ReadyToBillTab />}
+      {activeTab === 'billing' && <BillingTab />}
 
       {/* Restore Bin Modal */}
       {showBin && (
