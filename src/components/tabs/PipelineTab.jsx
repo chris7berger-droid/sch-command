@@ -1,36 +1,15 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { loadJobs, updateJobField, updateJobFields, updateCallLogStage } from '../../lib/queries'
+import { updateJobField, updateJobFields, updateCallLogStage } from '../../lib/queries'
 import { useUser } from '../../lib/user'
 import FieldSowModal from '../FieldSowModal'
-import JobCrewScheduler from '../JobCrewScheduler'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
 function fmtD(d) {
   const dt = d instanceof Date ? d : new Date(d)
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-}
-
-function getMonday(d) {
-  const dt = new Date(d)
-  const day = dt.getDay()
-  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))
-  dt.setHours(0, 0, 0, 0)
-  return dt
-}
-
-function getQuarterStart(d) {
-  const dt = new Date(d)
-  const q = Math.floor(dt.getMonth() / 3) * 3
-  return new Date(dt.getFullYear(), q, 1)
-}
-
-function getQuarterEnd(d) {
-  const dt = new Date(d)
-  const q = Math.floor(dt.getMonth() / 3) * 3 + 2
-  return new Date(dt.getFullYear(), q + 1, 0)
 }
 
 function isPW(j) {
@@ -48,7 +27,6 @@ function getJobStatus(j) {
   return 'Ongoing'
 }
 
-// Effective start/end: prefer scheduled dates, fall back to legacy
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
 
@@ -84,59 +62,21 @@ function fmtMoney(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-function flipName(n) {
-  if (!n) return ''
-  const p = n.split(',')
-  return p.length === 2 ? p[1].trim() + ' ' + p[0].trim() : n
-}
-
-const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-const WEEKDAY_ORDER = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function fmtWk(monday) {
-  const mon = monday instanceof Date ? monday : new Date(monday + 'T00:00:00')
-  const fri = new Date(mon)
-  fri.setDate(mon.getDate() + 4)
-  return `${MONTHS[mon.getMonth()]} ${mon.getDate()} – ${MONTHS[fri.getMonth()]} ${fri.getDate()}, ${fri.getFullYear()}`
-}
-
-function dayLabel(dates, mondayOfWeek) {
-  if (!dates || dates.length === 0) return ''
-  const labels = dates.map(ds => DAY_NAMES[new Date(ds + 'T00:00:00').getDay()])
-  const unique = [...new Set(labels)]
-  const sorted = unique.sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
-  if (sorted.length >= 2) {
-    const indices = sorted.map(s => WEEKDAY_ORDER.indexOf(s))
-    let consecutive = true
-    for (let i = 1; i < indices.length; i++) {
-      if (indices[i] !== indices[i - 1] + 1) { consecutive = false; break }
-    }
-    if (consecutive) return `${sorted[0]}-${sorted[sorted.length - 1]}`
-  }
-  return sorted.join(',')
-}
-
-/* ── flags ───────────────────────────────────────────────────────── */
-
 function getJobFlags(job, billingLog, today) {
   const flags = []
   const status = getJobStatus(job)
 
-  // Overdue: active job past end_date
   const endDate = effectiveEnd(job)
   if ((status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress') && endDate) {
     const daysLeft = daysBetween(endDate, today)
     if (daysLeft !== null && daysLeft < 0) flags.push('OVERDUE')
   }
 
-  // Unbilled: has amount, no billing log entries, not no_bill
   if (status !== 'Complete' && job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
     const billed = getBilledTotal(billingLog, job.job_id)
     if (billed === 0) flags.push('UNBILLED')
   }
 
-  // Ready to Invoice: partial billing, not paused, has amount
   if (job.partial_billing === 'Yes' && job.billing_paused !== 'Yes' && job.amount && parseFloat(job.amount) > 0) {
     const billed = getBilledTotal(billingLog, job.job_id)
     if (billed < 100) flags.push('READY TO INVOICE')
@@ -145,184 +85,25 @@ function getJobFlags(job, billingLog, today) {
   return flags
 }
 
-/* ── urgency score (lower = more urgent) ─────────────────────────── */
+/* ── component ──────────────────────────────────────────────────── */
 
-function urgencyScore(job, billingLog, today) {
-  const status = getJobStatus(job)
-  let score = 0
-
-  // Status weight: Parked first, then active, On Hold, Complete last
-  if (status === 'Parked') score = -5000
-  else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') score = 0
-  else if (status === 'On Hold') score = 10000
-  else score = 20000
-
-  // Days until end date: overdue jobs float to top
-  const endDate = effectiveEnd(job)
-  if (endDate) {
-    const daysLeft = daysBetween(endDate, today)
-    if (daysLeft !== null) {
-      if (daysLeft < 0) score -= 1000 + Math.abs(daysLeft) // overdue = highest urgency
-      else score += daysLeft
-    }
-  } else {
-    score += 5000 // no end date = low urgency
-  }
-
-  // Unbilled flag adds urgency
-  if (job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
-    const billed = getBilledTotal(billingLog, job.job_id)
-    if (billed === 0) score -= 500
-  }
-
-  return score
-}
-
-/* ── main component ──────────────────────────────────────────────── */
-
-export default function PipelineTab() {
+export default function PipelineTab({ filteredJobs, jobs, setJobs, billingLog, setBillingLog, today, reload }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || changedBy
-  const [jobs, setJobs] = useState([])
-  const [assignments, setAssignments] = useState([])
-  const [billingLog, setBillingLog] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
-  // search
-  const [search, setSearch] = useState('')
-
-  // date filter
-  const [dateFilter, setDateFilter] = useState('week')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
-
-  // expanded job
   const [expandedId, setExpandedId] = useState(null)
-  const [jobAssignments, setJobAssignments] = useState([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
+  const [, setJobAssignments] = useState([])
+  const [, setLoadingHistory] = useState(false)
   const [pctInput, setPctInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [amountInput, setAmountInput] = useState('')
-  const [savingAmount, setSavingAmount] = useState(false)
+  const [, setSavingAmount] = useState(false)
 
-  // restore bin
-  const [showBin, setShowBin] = useState(false)
-  const [deletedJobs, setDeletedJobs] = useState([])
-
-  // field sow modal
   const [sowJob, setSowJob] = useState(null)
 
-  // team members (for reference)
-  const [teamMembers, setTeamMembers] = useState([])
-
-  const today = useMemo(() => new Date(), [])
-
-  /* ── data fetch ─────────────────────────────────────────────── */
-
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    const [jobsRes, assignRes, billRes, tmRes] = await Promise.all([
-      loadJobs(),
-      supabase.from('assignments').select('*'),
-      supabase.from('billing_log').select('*'),
-      supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
-    ])
-    if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
-    setJobs(jobsRes.data || [])
-    setAssignments(assignRes.data || [])
-    setBillingLog(billRes.data || [])
-    setTeamMembers(tmRes.data || [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { loadData() }, [loadData])
-
-  // Realtime: reload when jobs table changes (INSERT/UPDATE/DELETE)
-  useEffect(() => {
-    const channel = supabase
-      .channel('jobs-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
-        loadData()
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [loadData])
-
-  /* ── date range from filter ────────────────────────────────── */
-
-  const dateRange = useMemo(() => {
-    const now = new Date()
-    switch (dateFilter) {
-      case 'week': {
-        const mon = getMonday(now)
-        const fri = new Date(mon)
-        fri.setDate(fri.getDate() + 4)
-        return { from: fmtD(mon), to: fmtD(fri) }
-      }
-      case 'month': {
-        const first = new Date(now.getFullYear(), now.getMonth(), 1)
-        const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-        return { from: fmtD(first), to: fmtD(last) }
-      }
-      case 'quarter': {
-        return { from: fmtD(getQuarterStart(now)), to: fmtD(getQuarterEnd(now)) }
-      }
-      case 'all':
-        return null
-      case 'custom':
-        if (customFrom && customTo) return { from: customFrom, to: customTo }
-        return null
-      default:
-        return null
-    }
-  }, [dateFilter, customFrom, customTo])
-
-  /* ── filter jobs ────────────────────────────────────────────── */
-
-  const filteredJobs = useMemo(() => {
-    let list = jobs
-
-    // date range filter (using scheduled dates, falling back to legacy)
-    // Parked jobs always pass — they're incoming work that needs attention
-    if (dateRange) {
-      list = list.filter(j => {
-        if (getJobStatus(j) === 'Parked') return true
-        const start = effectiveStart(j)
-        const end = effectiveEnd(j)
-        if (!start && !end) return true
-        return (start || '1900-01-01') <= dateRange.to && (end || '2999-12-31') >= dateRange.from
-      })
-    }
-
-    // search filter
-    if (search.trim()) {
-      const q = search.toLowerCase().trim()
-      list = list.filter(j => {
-        const num = (j.job_num || '').toLowerCase()
-        const name = (j.job_name || '').toLowerCase()
-        const wt = (j.work_type || '').toLowerCase()
-        return num.includes(q) || name.includes(q) || wt.includes(q)
-      })
-    }
-
-    // sort by urgency
-    list = [...list].sort((a, b) => urgencyScore(a, billingLog, today) - urgencyScore(b, billingLog, today))
-
-    return list
-  }, [jobs, search, dateRange, billingLog, today])
-
-  /* ── buckets (counts for scoreboards) ──────────────────────── */
-
+  // tab buckets — split parked into its own section, rest into main list
   const parked = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Parked'), [filteredJobs])
-  const activeJobs = useMemo(() => filteredJobs.filter(j => {
-    const s = getJobStatus(j)
-    return s === 'Ongoing' || s === 'Scheduled' || s === 'In Progress'
-  }), [filteredJobs])
-  const onHold = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold'), [filteredJobs])
-  const complete = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Complete'), [filteredJobs])
-  // Main list excludes parked (they get their own section)
   const mainList = useMemo(() => filteredJobs.filter(j => getJobStatus(j) !== 'Parked'), [filteredJobs])
 
   /* ── status update ──────────────────────────────────────────── */
@@ -331,7 +112,6 @@ export default function PipelineTab() {
     const job = jobs.find(j => j.job_id === jobId)
     const { error: err } = await updateJobField(jobId, 'status', newStatus, changedBy)
     if (err) { console.error(err); return }
-    // sync call_log.stage for linked jobs
     if (job?.call_log_id) {
       const stageMap = { 'Scheduled': 'Scheduled', 'In Progress': 'In Progress', 'Complete': 'Complete' }
       if (stageMap[newStatus]) {
@@ -339,7 +119,7 @@ export default function PipelineTab() {
       }
     }
     setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, status: newStatus } : j))
-  }, [jobs])
+  }, [jobs, setJobs, changedBy])
 
   /* ── soft delete ────────────────────────────────────────────── */
 
@@ -350,31 +130,7 @@ export default function PipelineTab() {
     if (err) { console.error(err); return }
     setJobs(prev => prev.filter(j => j.job_id !== jobId))
     if (expandedId === jobId) setExpandedId(null)
-  }, [expandedId])
-
-  /* ── restore bin ────────────────────────────────────────────── */
-
-  const openBin = useCallback(async () => {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const { data, error: err } = await supabase
-      .from('jobs')
-      .select('*')
-      .eq('deleted', 'Yes')
-      .gte('deleted_at', cutoff)
-      .order('deleted_at', { ascending: false })
-    if (err) { console.error(err); return }
-    setDeletedJobs(data || [])
-    setShowBin(true)
-  }, [])
-
-  const restoreJob = useCallback(async (jobId) => {
-    const { error: err } = await supabase.from('jobs').update({ deleted: 'No', deleted_at: null }).eq('job_id', jobId)
-    if (err) { console.error(err); return }
-    setDeletedJobs(prev => prev.filter(j => j.job_id !== jobId))
-    await loadData()
-  }, [loadData])
-
-  /* ── field crew assignment ───────────────────────────────────── */
+  }, [expandedId, setJobs, changedBy])
 
   /* ── expand / collapse ──────────────────────────────────────── */
 
@@ -397,33 +153,6 @@ export default function PipelineTab() {
     setLoadingHistory(false)
   }, [expandedId])
 
-  /* ── assignment history grouped by week ─────────────────────── */
-
-  const weekGroups = useMemo(() => {
-    if (!jobAssignments.length) return []
-    const groups = {}
-    for (const a of jobAssignments) {
-      const mon = getMonday(new Date(a.date + 'T00:00:00'))
-      const key = fmtD(mon)
-      if (!groups[key]) groups[key] = {}
-      if (!groups[key][a.crew_name]) groups[key][a.crew_name] = []
-      groups[key][a.crew_name].push(a.date)
-    }
-    const sorted = Object.keys(groups).sort((a, b) => b.localeCompare(a))
-    return sorted.map(monStr => {
-      const mon = new Date(monStr + 'T00:00:00')
-      const crewEntries = Object.entries(groups[monStr]).sort((a, b) => a[0].localeCompare(b[0]))
-      return {
-        monday: monStr,
-        label: fmtWk(mon),
-        crew: crewEntries.map(([name, dates]) => ({
-          name,
-          days: dayLabel(dates, mon),
-        })),
-      }
-    })
-  }, [jobAssignments])
-
   /* ── add to bill list ───────────────────────────────────────── */
 
   const addToBillList = useCallback(async (job) => {
@@ -444,27 +173,11 @@ export default function PipelineTab() {
       invoiced: 'No',
     })
     if (err) { console.error(err); setSaving(false); return }
-    // refresh billing log
     const { data } = await supabase.from('billing_log').select('*')
     if (data) setBillingLog(data)
     setPctInput('')
     setSaving(false)
-  }, [pctInput, billingLog])
-
-  /* ── save contract amount ──────────────────────────────────── */
-
-  const saveAmount = useCallback(async (jobId) => {
-    const val = amountInput.trim() === '' ? null : parseFloat(amountInput)
-    if (amountInput.trim() !== '' && (isNaN(val) || val < 0)) {
-      alert('Enter a valid dollar amount')
-      return
-    }
-    setSavingAmount(true)
-    const { error: err } = await updateJobField(jobId, 'amount', val, changedBy)
-    if (err) { console.error(err); setSavingAmount(false); return }
-    setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, amount: val } : j))
-    setSavingAmount(false)
-  }, [amountInput])
+  }, [pctInput, billingLog, setBillingLog])
 
   /* ── work type tags renderer ────────────────────────────────── */
 
@@ -477,87 +190,8 @@ export default function PipelineTab() {
 
   /* ── render ─────────────────────────────────────────────────── */
 
-  if (loading) return <div className="jh-empty">Loading jobs...</div>
-  if (error) return <div className="jh-empty">Error: {error}</div>
-
-  const FILTER_OPTIONS = [
-    { key: 'week', label: 'This Week' },
-    { key: 'month', label: 'This Month' },
-    { key: 'quarter', label: 'This Quarter' },
-    { key: 'all', label: 'All Time' },
-    { key: 'custom', label: 'Custom' },
-  ]
-
   return (
-    <div className="jh-wrap">
-      {/* search bar */}
-      <div className="jh-toolbar">
-        <input
-          className="jh-search"
-          type="text"
-          placeholder="Search jobs by name, number, or work type..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-
-      {/* date filter */}
-      <div className="jh-filter-bar">
-        <div className="jh-filter-pills">
-          {FILTER_OPTIONS.map(f => (
-            <button
-              key={f.key}
-              className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-              onClick={() => setDateFilter(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        {dateFilter === 'custom' && (
-          <div className="jh-custom-range">
-            <input
-              type="date"
-              className="jh-date-input"
-              value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
-            />
-            <span className="jh-range-sep">to</span>
-            <input
-              type="date"
-              className="jh-date-input"
-              value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* scoreboard + bin */}
-      <div className="jh-scores-row">
-        <div className="jh-scores">
-          {parked.length > 0 && (
-            <div className="jh-score pk">
-              <div className="jh-score-num">{parked.length}</div>
-              <div className="jh-score-lbl">Parked</div>
-            </div>
-          )}
-          <div className="jh-score og">
-            <div className="jh-score-num">{activeJobs.length}</div>
-            <div className="jh-score-lbl">Active</div>
-          </div>
-          <div className="jh-score oh">
-            <div className="jh-score-num">{onHold.length}</div>
-            <div className="jh-score-lbl">On Hold</div>
-          </div>
-          <div className="jh-score cp">
-            <div className="jh-score-num">{complete.length}</div>
-            <div className="jh-score-lbl">Complete</div>
-          </div>
-        </div>
-        <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
-      </div>
-
+    <>
       {/* parked / incoming jobs section */}
       {parked.length > 0 && (
         <div className="jh-parked-section">
@@ -612,7 +246,7 @@ export default function PipelineTab() {
 
       {/* main job list (excludes parked) */}
       <div className="jh-list">
-        {mainList.length === 0 && <div className="jh-empty">No jobs match this filter</div>}
+        {mainList.length === 0 && parked.length === 0 && <div className="jh-empty">No jobs match this filter</div>}
         {mainList.map(j => {
           const status = getJobStatus(j)
           const statusClass = status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress' ? 'og' : status === 'On Hold' ? 'oh' : 'cp'
@@ -625,7 +259,6 @@ export default function PipelineTab() {
 
           return (
             <div key={j.job_id} className={`jh-card${isPW(j) ? ' pw-row' : ''}${isExpanded ? ' expanded' : ''}`}>
-              {/* card header — always visible */}
               <div className="jh-card-hdr" onClick={() => toggleExpand(j)}>
                 <div className="jh-card-left">
                   <span className={`jh-status-badge ${statusClass}`}>{status}</span>
@@ -637,7 +270,6 @@ export default function PipelineTab() {
                   </div>
                 </div>
                 <div className="jh-card-right">
-                  {/* days until end */}
                   {daysLeft !== null && status !== 'Complete' && (
                     <span className={`jh-days${daysLeft < 0 ? ' overdue' : daysLeft <= 7 ? ' soon' : ''}`}>
                       {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
@@ -647,7 +279,6 @@ export default function PipelineTab() {
                 </div>
               </div>
 
-              {/* card body — always visible */}
               <div className="jh-card-body" onClick={() => toggleExpand(j)}>
                 <div className="jh-card-tags">
                   {renderTags(j.work_type)}
@@ -655,7 +286,6 @@ export default function PipelineTab() {
                   {j.no_bill === 'Yes' && <span className="nb-tag">NO BILL</span>}
                 </div>
 
-                {/* progress bar */}
                 {amount > 0 && j.no_bill !== 'Yes' && (
                   <div className="jh-progress-row">
                     <div className="jh-progress-bar">
@@ -670,7 +300,6 @@ export default function PipelineTab() {
                   </div>
                 )}
 
-                {/* money + flags */}
                 <div className="jh-card-meta">
                   {amount > 0 && (
                     <span className="jh-money">
@@ -685,7 +314,6 @@ export default function PipelineTab() {
                 </div>
               </div>
 
-              {/* expanded — actions only, detail lives in Job Detail view */}
               {isExpanded && (
                 <div className="jh-card-detail">
                   <div className="jh-detail-actions">
@@ -750,32 +378,7 @@ export default function PipelineTab() {
         })}
       </div>
 
-      {/* Field SOW Modal */}
-      {sowJob && <FieldSowModal job={sowJob} onClose={() => setSowJob(null)} onUpdated={() => { loadData(); setSowJob(null) }} />}
-
-      {/* Restore Bin Modal */}
-      {showBin && (
-        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowBin(false) }}>
-          <div className="mdl">
-            <h3>Restore Bin (last 24 hrs)</h3>
-            {deletedJobs.length === 0 ? (
-              <div className="jh-empty">No recently deleted jobs</div>
-            ) : (
-              <div className="jh-bin-list">
-                {deletedJobs.map(j => (
-                  <div key={j.job_id} className="jh-bin-row">
-                    <span className="jh-bin-name">{j.job_num} - {j.job_name}</span>
-                    <button className="jh-bin-restore" onClick={() => restoreJob(j.job_id)}>Restore</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="macts">
-              <button className="app-act-btn" onClick={() => setShowBin(false)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {sowJob && <FieldSowModal job={sowJob} onClose={() => setSowJob(null)} onUpdated={() => { reload(); setSowJob(null) }} />}
+    </>
   )
 }
