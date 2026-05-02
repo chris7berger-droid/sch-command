@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { loadJobs } from '../lib/queries'
 import PipelineTab from '../components/tabs/PipelineTab'
 import ScheduleTab from '../components/tabs/ScheduleTab'
+import ActiveTab from '../components/tabs/ActiveTab'
 import ReadyToBillTab from '../components/tabs/ReadyToBillTab'
 import JobsTabBar, { JOBS_TABS } from '../components/JobsTabBar'
 
@@ -344,7 +345,16 @@ export default function Jobs() {
         />
       )}
       {activeTab === 'schedule' && <ScheduleTab />}
-      {activeTab === 'active' && <div className="jh-empty">Active jobs view coming next.</div>}
+      {activeTab === 'active' && (
+        <ActiveTab
+          filteredJobs={filteredJobs}
+          jobs={jobs}
+          setJobs={setJobs}
+          billingLog={billingLog}
+          setBillingLog={setBillingLog}
+          today={today}
+        />
+      )}
       {activeTab === 'ready-to-bill' && <ReadyToBillTab />}
 
       {/* Restore Bin Modal */}
