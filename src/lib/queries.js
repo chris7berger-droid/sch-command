@@ -157,6 +157,44 @@ export async function updateJobFields(jobId, updates, changedBy, source = 'sched
   return { error: null }
 }
 
+// ── PRT readers (Field Command writes via PowerSync) ───────────────────────
+// daily_production_reports.job_id is FK to call_log.id (NOT jobs.job_id).
+// Always pass job.call_log_id, not job.job_id.
+
+export async function loadPRTsForJob(callLogId) {
+  if (!callLogId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('daily_production_reports')
+    .select('id, job_id, wtc_id, report_date, submitted_by, tasks, materials_used, hours_regular, hours_ot, photos, notes, status, approved_by, approved_at, created_at, tenant_id, team_members:submitted_by(id, name)')
+    .eq('job_id', callLogId)
+    .order('report_date', { ascending: false })
+  if (error) return { data: null, error }
+  return { data: data || [], error: null }
+}
+
+export async function loadPRT(prtId) {
+  const { data, error } = await supabase
+    .from('daily_production_reports')
+    .select('*, team_members:submitted_by(id, name)')
+    .eq('id', prtId)
+    .single()
+  if (error) return { data: null, error }
+  return { data, error: null }
+}
+
+let _teamMemberMapCache = null
+export async function loadTeamMemberMap({ refresh = false } = {}) {
+  if (_teamMemberMapCache && !refresh) return { data: _teamMemberMapCache, error: null }
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('id, name, role, email')
+  if (error) return { data: null, error }
+  const map = {}
+  for (const m of (data || [])) map[m.id] = m
+  _teamMemberMapCache = map
+  return { data: map, error: null }
+}
+
 // ── Update call_log stage with audit logging ────────────────────────────────
 export async function updateCallLogStage(callLogId, newStage, changedBy, source = 'schedule_command') {
   // read current stage

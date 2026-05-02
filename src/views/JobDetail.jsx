@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJob, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
+import { loadJob, updateJobField, updateJobFields, updateCallLogStage, loadPRTsForJob } from '../lib/queries'
 import { useUser } from '../lib/user'
 import JobCrewScheduler from '../components/JobCrewScheduler'
+import PRTDetail from '../components/PRTDetail'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -61,6 +62,8 @@ export default function JobDetail() {
   const [materials, setMaterials] = useState([])
   const [changes, setChanges] = useState([])
   const [fieldCrew, setFieldCrew] = useState([])
+  const [prts, setPrts] = useState([])
+  const [openPrtId, setOpenPrtId] = useState(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -84,10 +87,15 @@ export default function JobDetail() {
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
     if (clId) {
-      const { data: fcData } = await supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId)
+      const [{ data: fcData }, prtRes] = await Promise.all([
+        supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId),
+        loadPRTsForJob(clId),
+      ])
       setFieldCrew(fcData || [])
+      setPrts(prtRes.data || [])
     } else {
       setFieldCrew([])
+      setPrts([])
     }
     setLoading(false)
   }, [jobId])
@@ -145,6 +153,7 @@ export default function JobDetail() {
 
   const MANAGEMENT_TABS = [
     { key: 'overview', label: 'Overview' },
+    { key: 'production', label: 'Production' },
     { key: 'billing', label: 'Billing' },
     { key: 'history', label: 'History' },
   ]
@@ -537,6 +546,43 @@ export default function JobDetail() {
               <div className="jd-sales-sow">
                 <span className="jd-label">Sales SOW</span>
                 <pre className="jd-sow-text">{job.sow}</pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Production (PRT list from Field Command) ───── */}
+        {tab === 'production' && (
+          <div className="jd-section">
+            {openPrtId ? (
+              <PRTDetail prtId={openPrtId} onBack={() => setOpenPrtId(null)} />
+            ) : prts.length === 0 ? (
+              <div className="jh-empty">No production reports submitted yet</div>
+            ) : (
+              <div className="jd-prt-list">
+                {prts.map(p => {
+                  const tasks = Array.isArray(p.tasks) ? p.tasks : (p.tasks ? JSON.parse(p.tasks) : [])
+                  const photos = Array.isArray(p.photos) ? p.photos : (p.photos ? JSON.parse(p.photos) : [])
+                  const submitter = p.team_members?.name || 'Unknown'
+                  const hoursR = p.hours_regular != null ? Number(p.hours_regular) : 0
+                  const hoursOT = p.hours_ot != null ? Number(p.hours_ot) : 0
+                  return (
+                    <div key={p.id} className="jd-prt-card" onClick={() => setOpenPrtId(p.id)}>
+                      <div className="jd-prt-row">
+                        <span className="jd-prt-date">{p.report_date}</span>
+                        <span className={`jd-prt-status jd-prt-status-${p.status || 'submitted'}`}>{p.status || 'submitted'}</span>
+                      </div>
+                      <div className="jd-prt-row">
+                        <span className="jd-prt-submitter">by {submitter}</span>
+                      </div>
+                      <div className="jd-prt-meta">
+                        <span className="jd-prt-meta-item"><strong>{tasks.length}</strong> task{tasks.length !== 1 ? 's' : ''}</span>
+                        <span className="jd-prt-meta-item"><strong>{photos.length}</strong> photo{photos.length !== 1 ? 's' : ''}</span>
+                        <span className="jd-prt-meta-item"><strong>{(hoursR + hoursOT).toFixed(1)}</strong>h{hoursOT > 0 ? ` (${hoursOT}OT)` : ''}</span>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

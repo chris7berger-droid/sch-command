@@ -4934,3 +4934,255 @@
   color: var(--sand-dark);
   flex-shrink: 0;
 }
+
+/* ── PRT (Production Rate Tracker) — Field Command reports ─────────────── */
+
+.jd-prt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jd-prt-card {
+  background: var(--linen-card, #c8bcaa);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+}
+
+.jd-prt-card:hover {
+  border-color: #30cfac;
+  transform: translateY(-1px);
+}
+
+.jd-prt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.jd-prt-row + .jd-prt-row {
+  margin-top: 4px;
+}
+
+.jd-prt-date {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.jd-prt-submitter {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--sand-dark);
+  font-style: italic;
+}
+
+.jd-prt-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: #1c1814;
+  color: #30cfac;
+}
+
+.jd-prt-status-approved {
+  background: var(--command-green, #5BBD3F);
+  color: #1c1814;
+}
+
+.jd-prt-status-rejected {
+  background: #b04040;
+  color: #fff;
+}
+
+.jd-prt-meta {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(28, 24, 20, 0.1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.jd-prt-meta-item strong {
+  color: #1c1814;
+  font-weight: 700;
+}
+
+/* ── PRT Detail view ──────────────────────────────────────────────────── */
+
+.jd-prt-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.jd-prt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.18);
+}
+
+.jd-prt-detail-date {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.jd-prt-detail-submitter {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--sand-dark);
+  margin-top: 2px;
+}
+
+.jd-prt-hours {
+  display: flex;
+  gap: 10px;
+}
+
+.jd-prt-hours-pill {
+  background: #1c1814;
+  color: #30cfac;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.jd-prt-hours-pill strong {
+  font-size: 16px;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.jd-prt-hours-ot {
+  color: #d4a017;
+}
+
+.jd-prt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jd-prt-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jd-prt-task {
+  background: var(--linen-deep, #a89b88);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.jd-prt-task-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.jd-prt-task-desc {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.jd-prt-task-pcts {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.jd-prt-pct-target {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--sand-dark);
+}
+
+.jd-prt-pct-actual {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #b04040;
+}
+
+.jd-prt-pct-actual.on-track {
+  color: var(--command-green, #5BBD3F);
+}
+
+.jd-prt-task-bar {
+  height: 6px;
+  background: rgba(28, 24, 20, 0.1);
+  border-radius: 3px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.jd-prt-task-fill {
+  height: 100%;
+  background: var(--command-green, #5BBD3F);
+  border-radius: 3px;
+}
+
+.jd-prt-task-notes {
+  margin-top: 6px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--sand-dark);
+  font-style: italic;
+}
+
+.jd-prt-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.jd-prt-photo {
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  background: var(--linen-deep, #a89b88);
+}
+
+.jd-prt-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.jd-prt-notes {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
