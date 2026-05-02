@@ -2347,6 +2347,39 @@
   color: var(--text-primary);
 }
 
+/* Jobs lifecycle tabs (Pipeline | Schedule | Active | Ready to Bill) */
+.jh-tabs {
+  display: flex;
+  gap: 0;
+  margin: 6px 0 14px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.18);
+}
+
+.jh-tab {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 10px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.jh-tab:hover {
+  color: var(--text-primary);
+}
+
+.jh-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--command-green);
+}
+
 .jh-date-input:focus { outline: none; border-color: var(--command-green); }
 
 .jh-range-sep {

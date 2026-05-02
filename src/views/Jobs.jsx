@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs } from '../lib/queries'
 import PipelineTab from '../components/tabs/PipelineTab'
+import JobsTabBar, { JOBS_TABS } from '../components/JobsTabBar'
 
 /* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
 
@@ -89,6 +91,18 @@ function urgencyScore(job, billingLog, today) {
 /* ── shell ───────────────────────────────────────────────────────── */
 
 export default function Jobs() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab = JOBS_TABS.includes(tabParam) ? tabParam : 'pipeline'
+  const setActiveTab = useCallback((next) => {
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev)
+      if (next === 'pipeline') params.delete('tab')
+      else params.set('tab', next)
+      return params
+    })
+  }, [setSearchParams])
+
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
@@ -227,6 +241,10 @@ export default function Jobs() {
   if (loading) return <div className="jh-empty">Loading jobs...</div>
   if (error) return <div className="jh-empty">Error: {error}</div>
 
+  // Schedule + Ready to Bill tabs render their own dashboards — hide shell scoreboard
+  // and shell filters to avoid visual doubling.
+  const showShellChrome = activeTab === 'pipeline' || activeTab === 'active'
+
   const FILTER_OPTIONS = [
     { key: 'week', label: 'This Week' },
     { key: 'month', label: 'This Month' },
@@ -237,84 +255,95 @@ export default function Jobs() {
 
   return (
     <div className="jh-wrap">
-      {/* search bar */}
-      <div className="jh-toolbar">
-        <input
-          className="jh-search"
-          type="text"
-          placeholder="Search jobs by name, number, or work type..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-
-      {/* date filter */}
-      <div className="jh-filter-bar">
-        <div className="jh-filter-pills">
-          {FILTER_OPTIONS.map(f => (
-            <button
-              key={f.key}
-              className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-              onClick={() => setDateFilter(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        {dateFilter === 'custom' && (
-          <div className="jh-custom-range">
+      {showShellChrome && (
+        <>
+          {/* search bar */}
+          <div className="jh-toolbar">
             <input
-              type="date"
-              className="jh-date-input"
-              value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
-            />
-            <span className="jh-range-sep">to</span>
-            <input
-              type="date"
-              className="jh-date-input"
-              value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
+              className="jh-search"
+              type="text"
+              placeholder="Search jobs by name, number, or work type..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
             />
           </div>
-        )}
-      </div>
 
-      {/* scoreboard + bin */}
-      <div className="jh-scores-row">
-        <div className="jh-scores">
-          {parkedCount > 0 && (
-            <div className="jh-score pk">
-              <div className="jh-score-num">{parkedCount}</div>
-              <div className="jh-score-lbl">Parked</div>
+          {/* date filter */}
+          <div className="jh-filter-bar">
+            <div className="jh-filter-pills">
+              {FILTER_OPTIONS.map(f => (
+                <button
+                  key={f.key}
+                  className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
+                  onClick={() => setDateFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
-          )}
-          <div className="jh-score og">
-            <div className="jh-score-num">{activeCount}</div>
-            <div className="jh-score-lbl">Active</div>
+            {dateFilter === 'custom' && (
+              <div className="jh-custom-range">
+                <input
+                  type="date"
+                  className="jh-date-input"
+                  value={customFrom}
+                  onChange={e => setCustomFrom(e.target.value)}
+                />
+                <span className="jh-range-sep">to</span>
+                <input
+                  type="date"
+                  className="jh-date-input"
+                  value={customTo}
+                  onChange={e => setCustomTo(e.target.value)}
+                />
+              </div>
+            )}
           </div>
-          <div className="jh-score oh">
-            <div className="jh-score-num">{onHoldCount}</div>
-            <div className="jh-score-lbl">On Hold</div>
+
+          {/* scoreboard + bin */}
+          <div className="jh-scores-row">
+            <div className="jh-scores">
+              {parkedCount > 0 && (
+                <div className="jh-score pk">
+                  <div className="jh-score-num">{parkedCount}</div>
+                  <div className="jh-score-lbl">Parked</div>
+                </div>
+              )}
+              <div className="jh-score og">
+                <div className="jh-score-num">{activeCount}</div>
+                <div className="jh-score-lbl">Active</div>
+              </div>
+              <div className="jh-score oh">
+                <div className="jh-score-num">{onHoldCount}</div>
+                <div className="jh-score-lbl">On Hold</div>
+              </div>
+              <div className="jh-score cp">
+                <div className="jh-score-num">{completeCount}</div>
+                <div className="jh-score-lbl">Complete</div>
+              </div>
+            </div>
+            <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
           </div>
-          <div className="jh-score cp">
-            <div className="jh-score-num">{completeCount}</div>
-            <div className="jh-score-lbl">Complete</div>
-          </div>
-        </div>
-        <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
-      </div>
+        </>
+      )}
+
+      <JobsTabBar active={activeTab} onChange={setActiveTab} />
 
       {/* tab body */}
-      <PipelineTab
-        filteredJobs={filteredJobs}
-        jobs={jobs}
-        setJobs={setJobs}
-        billingLog={billingLog}
-        setBillingLog={setBillingLog}
-        today={today}
-        reload={loadData}
-      />
+      {activeTab === 'pipeline' && (
+        <PipelineTab
+          filteredJobs={filteredJobs}
+          jobs={jobs}
+          setJobs={setJobs}
+          billingLog={billingLog}
+          setBillingLog={setBillingLog}
+          today={today}
+          reload={loadData}
+        />
+      )}
+      {activeTab === 'schedule' && <div className="jh-empty">Schedule view coming next.</div>}
+      {activeTab === 'active' && <div className="jh-empty">Active jobs view coming next.</div>}
+      {activeTab === 'ready-to-bill' && <div className="jh-empty">Ready to Bill view coming next.</div>}
 
       {/* Restore Bin Modal */}
       {showBin && (
