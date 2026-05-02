@@ -3,6 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs } from '../lib/queries'
 import PipelineTab from '../components/tabs/PipelineTab'
+import ScheduleTab from '../components/tabs/ScheduleTab'
+import ReadyToBillTab from '../components/tabs/ReadyToBillTab'
 import JobsTabBar, { JOBS_TABS } from '../components/JobsTabBar'
 
 /* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
@@ -341,9 +343,9 @@ export default function Jobs() {
           reload={loadData}
         />
       )}
-      {activeTab === 'schedule' && <div className="jh-empty">Schedule view coming next.</div>}
+      {activeTab === 'schedule' && <ScheduleTab />}
       {activeTab === 'active' && <div className="jh-empty">Active jobs view coming next.</div>}
-      {activeTab === 'ready-to-bill' && <div className="jh-empty">Ready to Bill view coming next.</div>}
+      {activeTab === 'ready-to-bill' && <ReadyToBillTab />}
 
       {/* Restore Bin Modal */}
       {showBin && (
