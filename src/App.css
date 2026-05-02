@@ -2347,7 +2347,7 @@
   color: var(--text-primary);
 }
 
-/* Jobs lifecycle tabs (Pipeline | Schedule | Active | Ready to Bill) */
+/* Jobs lifecycle tabs (Pipeline | Ready | Active | Billing) */
 .jh-tabs {
   display: flex;
   gap: 0;
