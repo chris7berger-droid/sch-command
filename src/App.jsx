@@ -151,7 +151,7 @@ function AppShell({ session, teamMember }) {
       start_date: f.start_date || null,
       end_date: f.end_date || null,
       prevailing_wage: f.prevailing_wage ? 'Yes' : 'No',
-      status: 'Ongoing',
+      status: 'Parked',
     }
     setSync('ing')
     const { error } = await supabase.from('jobs').insert([row])
