@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobs, updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
-import { useUser } from '../lib/user'
-import FieldSowModal from '../components/FieldSowModal'
-import JobCrewScheduler from '../components/JobCrewScheduler'
+import { loadJobs } from '../lib/queries'
+import PipelineTab from '../components/tabs/PipelineTab'
+import ScheduleTab from '../components/tabs/ScheduleTab'
+import ActiveTab from '../components/tabs/ActiveTab'
+import ReadyToBillTab from '../components/tabs/ReadyToBillTab'
+import JobsTabBar, { JOBS_TABS } from '../components/JobsTabBar'
 
-/* ── helpers ─────────────────────────────────────────────────────── */
+/* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
 
 function fmtD(d) {
   const dt = d instanceof Date ? d : new Date(d)
@@ -33,10 +35,6 @@ function getQuarterEnd(d) {
   return new Date(dt.getFullYear(), q + 1, 0)
 }
 
-function isPW(j) {
-  return j && (j.prevailing_wage === 'Yes' || j.prevailing_wage === true)
-}
-
 function getJobStatus(j) {
   if (!j || !j.status) return 'Ongoing'
   const s = j.status.toLowerCase().trim()
@@ -48,21 +46,8 @@ function getJobStatus(j) {
   return 'Ongoing'
 }
 
-// Effective start/end: prefer scheduled dates, fall back to legacy
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
-
-function gTagClass(t) {
-  if (!t) return ''
-  const lower = t.toLowerCase().trim()
-  if (lower.includes('flake')) return 'tg-flake'
-  if (lower.includes('epoxy')) return 'tg-epoxy'
-  if (lower.includes('caulk')) return 'tg-caulk'
-  if (lower.includes('demo')) return 'tg-demo'
-  if (lower.includes('joint') || lower.includes('fill') || lower.includes('seal')) return 'tg-teal'
-  if (lower.includes('plenum')) return 'tg-plenum'
-  return 'tg-default'
-}
 
 function getBilledTotal(billingLog, jobId) {
   if (!billingLog || !billingLog.length) return 0
@@ -79,97 +64,25 @@ function daysBetween(dateStr, refDate) {
   return Math.ceil((d - r) / (1000 * 60 * 60 * 24))
 }
 
-function fmtMoney(n) {
-  if (n == null || n === '' || isNaN(n)) return '-'
-  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
-
-function flipName(n) {
-  if (!n) return ''
-  const p = n.split(',')
-  return p.length === 2 ? p[1].trim() + ' ' + p[0].trim() : n
-}
-
-const DAY_NAMES = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-const WEEKDAY_ORDER = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-function fmtWk(monday) {
-  const mon = monday instanceof Date ? monday : new Date(monday + 'T00:00:00')
-  const fri = new Date(mon)
-  fri.setDate(mon.getDate() + 4)
-  return `${MONTHS[mon.getMonth()]} ${mon.getDate()} \u2013 ${MONTHS[fri.getMonth()]} ${fri.getDate()}, ${fri.getFullYear()}`
-}
-
-function dayLabel(dates, mondayOfWeek) {
-  if (!dates || dates.length === 0) return ''
-  const labels = dates.map(ds => DAY_NAMES[new Date(ds + 'T00:00:00').getDay()])
-  const unique = [...new Set(labels)]
-  const sorted = unique.sort((a, b) => WEEKDAY_ORDER.indexOf(a) - WEEKDAY_ORDER.indexOf(b))
-  if (sorted.length >= 2) {
-    const indices = sorted.map(s => WEEKDAY_ORDER.indexOf(s))
-    let consecutive = true
-    for (let i = 1; i < indices.length; i++) {
-      if (indices[i] !== indices[i - 1] + 1) { consecutive = false; break }
-    }
-    if (consecutive) return `${sorted[0]}-${sorted[sorted.length - 1]}`
-  }
-  return sorted.join(',')
-}
-
-/* ── flags ───────────────────────────────────────────────────────── */
-
-function getJobFlags(job, billingLog, today) {
-  const flags = []
-  const status = getJobStatus(job)
-
-  // Overdue: active job past end_date
-  const endDate = effectiveEnd(job)
-  if ((status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress') && endDate) {
-    const daysLeft = daysBetween(endDate, today)
-    if (daysLeft !== null && daysLeft < 0) flags.push('OVERDUE')
-  }
-
-  // Unbilled: has amount, no billing log entries, not no_bill
-  if (status !== 'Complete' && job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
-    const billed = getBilledTotal(billingLog, job.job_id)
-    if (billed === 0) flags.push('UNBILLED')
-  }
-
-  // Ready to Invoice: partial billing, not paused, has amount
-  if (job.partial_billing === 'Yes' && job.billing_paused !== 'Yes' && job.amount && parseFloat(job.amount) > 0) {
-    const billed = getBilledTotal(billingLog, job.job_id)
-    if (billed < 100) flags.push('READY TO INVOICE')
-  }
-
-  return flags
-}
-
-/* ── urgency score (lower = more urgent) ─────────────────────────── */
-
 function urgencyScore(job, billingLog, today) {
   const status = getJobStatus(job)
   let score = 0
-
-  // Status weight: Parked first, then active, On Hold, Complete last
   if (status === 'Parked') score = -5000
   else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') score = 0
   else if (status === 'On Hold') score = 10000
   else score = 20000
 
-  // Days until end date: overdue jobs float to top
   const endDate = effectiveEnd(job)
   if (endDate) {
     const daysLeft = daysBetween(endDate, today)
     if (daysLeft !== null) {
-      if (daysLeft < 0) score -= 1000 + Math.abs(daysLeft) // overdue = highest urgency
+      if (daysLeft < 0) score -= 1000 + Math.abs(daysLeft)
       else score += daysLeft
     }
   } else {
-    score += 5000 // no end date = low urgency
+    score += 5000
   }
 
-  // Unbilled flag adds urgency
   if (job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
     const billed = getBilledTotal(billingLog, job.job_id)
     if (billed === 0) score -= 500
@@ -178,48 +91,39 @@ function urgencyScore(job, billingLog, today) {
   return score
 }
 
-/* ── main component ──────────────────────────────────────────────── */
+/* ── shell ───────────────────────────────────────────────────────── */
 
 export default function Jobs() {
-  const navigate = useNavigate()
-  const user = useUser()
-  const changedBy = user?.name || changedBy
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const activeTab = JOBS_TABS.includes(tabParam) ? tabParam : 'pipeline'
+  const setActiveTab = useCallback((next) => {
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev)
+      if (next === 'pipeline') params.delete('tab')
+      else params.set('tab', next)
+      return params
+    })
+  }, [setSearchParams])
+
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
+  const [teamMembers, setTeamMembers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  // search
+  // shell-level filters drive both scoreboard and tab content
   const [search, setSearch] = useState('')
-
-  // date filter
   const [dateFilter, setDateFilter] = useState('week')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
-
-  // expanded job
-  const [expandedId, setExpandedId] = useState(null)
-  const [jobAssignments, setJobAssignments] = useState([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
-  const [pctInput, setPctInput] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [amountInput, setAmountInput] = useState('')
-  const [savingAmount, setSavingAmount] = useState(false)
 
   // restore bin
   const [showBin, setShowBin] = useState(false)
   const [deletedJobs, setDeletedJobs] = useState([])
 
-  // field sow modal
-  const [sowJob, setSowJob] = useState(null)
-
-  // team members (for reference)
-  const [teamMembers, setTeamMembers] = useState([])
-
   const today = useMemo(() => new Date(), [])
-
-  /* ── data fetch ─────────────────────────────────────────────── */
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -239,7 +143,7 @@ export default function Jobs() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Realtime: reload when jobs table changes (INSERT/UPDATE/DELETE)
+  // Realtime: reload when jobs table changes
   useEffect(() => {
     const channel = supabase
       .channel('jobs-changes')
@@ -249,8 +153,6 @@ export default function Jobs() {
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [loadData])
-
-  /* ── date range from filter ────────────────────────────────── */
 
   const dateRange = useMemo(() => {
     const now = new Date()
@@ -266,9 +168,8 @@ export default function Jobs() {
         const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
         return { from: fmtD(first), to: fmtD(last) }
       }
-      case 'quarter': {
+      case 'quarter':
         return { from: fmtD(getQuarterStart(now)), to: fmtD(getQuarterEnd(now)) }
-      }
       case 'all':
         return null
       case 'custom':
@@ -279,13 +180,10 @@ export default function Jobs() {
     }
   }, [dateFilter, customFrom, customTo])
 
-  /* ── filter jobs ────────────────────────────────────────────── */
-
+  // shell-filtered jobs (date + search) — tabs apply status filter on top
   const filteredJobs = useMemo(() => {
     let list = jobs
 
-    // date range filter (using scheduled dates, falling back to legacy)
-    // Parked jobs always pass — they're incoming work that needs attention
     if (dateRange) {
       list = list.filter(j => {
         if (getJobStatus(j) === 'Parked') return true
@@ -296,7 +194,6 @@ export default function Jobs() {
       })
     }
 
-    // search filter
     if (search.trim()) {
       const q = search.toLowerCase().trim()
       list = list.filter(j => {
@@ -307,50 +204,18 @@ export default function Jobs() {
       })
     }
 
-    // sort by urgency
     list = [...list].sort((a, b) => urgencyScore(a, billingLog, today) - urgencyScore(b, billingLog, today))
-
     return list
   }, [jobs, search, dateRange, billingLog, today])
 
-  /* ── buckets (counts for scoreboards) ──────────────────────── */
-
-  const parked = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Parked'), [filteredJobs])
-  const activeJobs = useMemo(() => filteredJobs.filter(j => {
+  // scoreboard buckets
+  const parkedCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Parked').length, [filteredJobs])
+  const activeCount = useMemo(() => filteredJobs.filter(j => {
     const s = getJobStatus(j)
     return s === 'Ongoing' || s === 'Scheduled' || s === 'In Progress'
-  }), [filteredJobs])
-  const onHold = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold'), [filteredJobs])
-  const complete = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Complete'), [filteredJobs])
-  // Main list excludes parked (they get their own section)
-  const mainList = useMemo(() => filteredJobs.filter(j => getJobStatus(j) !== 'Parked'), [filteredJobs])
-
-  /* ── status update ──────────────────────────────────────────── */
-
-  const updateStatus = useCallback(async (jobId, newStatus) => {
-    const job = jobs.find(j => j.job_id === jobId)
-    const { error: err } = await updateJobField(jobId, 'status', newStatus, changedBy)
-    if (err) { console.error(err); return }
-    // sync call_log.stage for linked jobs
-    if (job?.call_log_id) {
-      const stageMap = { 'Scheduled': 'Scheduled', 'In Progress': 'In Progress', 'Complete': 'Complete' }
-      if (stageMap[newStatus]) {
-        await updateCallLogStage(job.call_log_id, stageMap[newStatus], changedBy)
-      }
-    }
-    setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, status: newStatus } : j))
-  }, [jobs])
-
-  /* ── soft delete ────────────────────────────────────────────── */
-
-  const softDelete = useCallback(async (jobId, jobName) => {
-    if (!window.confirm(`Delete "${jobName}"? It can be restored within 24 hours.`)) return
-    const now = new Date().toISOString()
-    const { error: err } = await updateJobFields(jobId, { deleted: 'Yes', deleted_at: now }, changedBy)
-    if (err) { console.error(err); return }
-    setJobs(prev => prev.filter(j => j.job_id !== jobId))
-    if (expandedId === jobId) setExpandedId(null)
-  }, [expandedId])
+  }).length, [filteredJobs])
+  const onHoldCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold').length, [filteredJobs])
+  const completeCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Complete').length, [filteredJobs])
 
   /* ── restore bin ────────────────────────────────────────────── */
 
@@ -374,111 +239,14 @@ export default function Jobs() {
     await loadData()
   }, [loadData])
 
-  /* ── field crew assignment ───────────────────────────────────── */
-
-  /* ── expand / collapse ──────────────────────────────────────── */
-
-  const toggleExpand = useCallback(async (job) => {
-    if (expandedId === job.job_id) {
-      setExpandedId(null)
-      return
-    }
-    setExpandedId(job.job_id)
-    setPctInput('')
-    setAmountInput(job.amount != null && job.amount !== '' ? String(job.amount) : '')
-    setLoadingHistory(true)
-    const { data, error } = await supabase
-      .from('assignments')
-      .select('crew_name, date')
-      .eq('job_id', job.job_id)
-      .order('date', { ascending: false })
-    if (error) { console.error(error); setJobAssignments([]) }
-    else { setJobAssignments(data || []) }
-    setLoadingHistory(false)
-  }, [expandedId])
-
-  /* ── assignment history grouped by week ─────────────────────── */
-
-  const weekGroups = useMemo(() => {
-    if (!jobAssignments.length) return []
-    const groups = {}
-    for (const a of jobAssignments) {
-      const mon = getMonday(new Date(a.date + 'T00:00:00'))
-      const key = fmtD(mon)
-      if (!groups[key]) groups[key] = {}
-      if (!groups[key][a.crew_name]) groups[key][a.crew_name] = []
-      groups[key][a.crew_name].push(a.date)
-    }
-    const sorted = Object.keys(groups).sort((a, b) => b.localeCompare(a))
-    return sorted.map(monStr => {
-      const mon = new Date(monStr + 'T00:00:00')
-      const crewEntries = Object.entries(groups[monStr]).sort((a, b) => a[0].localeCompare(b[0]))
-      return {
-        monday: monStr,
-        label: fmtWk(mon),
-        crew: crewEntries.map(([name, dates]) => ({
-          name,
-          days: dayLabel(dates, mon),
-        })),
-      }
-    })
-  }, [jobAssignments])
-
-  /* ── add to bill list ───────────────────────────────────────── */
-
-  const addToBillList = useCallback(async (job) => {
-    const pct = parseFloat(pctInput)
-    if (isNaN(pct) || pct <= 0 || pct > 100) {
-      alert('Enter a valid percent (1-100)')
-      return
-    }
-    setSaving(true)
-    const existing = getBilledTotal(billingLog, job.job_id)
-    const { error: err } = await supabase.from('billing_log').insert({
-      job_id: job.job_id,
-      date: fmtD(new Date()),
-      percent: pct,
-      cumulative_percent: existing + pct,
-      type: 'partial',
-      notes: '',
-      invoiced: 'No',
-    })
-    if (err) { console.error(err); setSaving(false); return }
-    // refresh billing log
-    const { data } = await supabase.from('billing_log').select('*')
-    if (data) setBillingLog(data)
-    setPctInput('')
-    setSaving(false)
-  }, [pctInput, billingLog])
-
-  /* ── save contract amount ──────────────────────────────────── */
-
-  const saveAmount = useCallback(async (jobId) => {
-    const val = amountInput.trim() === '' ? null : parseFloat(amountInput)
-    if (amountInput.trim() !== '' && (isNaN(val) || val < 0)) {
-      alert('Enter a valid dollar amount')
-      return
-    }
-    setSavingAmount(true)
-    const { error: err } = await updateJobField(jobId, 'amount', val, changedBy)
-    if (err) { console.error(err); setSavingAmount(false); return }
-    setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, amount: val } : j))
-    setSavingAmount(false)
-  }, [amountInput])
-
-  /* ── work type tags renderer ────────────────────────────────── */
-
-  function renderTags(workType) {
-    if (!workType) return null
-    return workType.split(',').map(t => t.trim()).filter(Boolean).map(t => (
-      <span key={t} className={`sch-tg ${gTagClass(t)}`}>{t}</span>
-    ))
-  }
-
   /* ── render ─────────────────────────────────────────────────── */
 
   if (loading) return <div className="jh-empty">Loading jobs...</div>
   if (error) return <div className="jh-empty">Error: {error}</div>
+
+  // Schedule + Ready to Bill tabs render their own dashboards — hide shell scoreboard
+  // and shell filters to avoid visual doubling.
+  const showShellChrome = activeTab === 'pipeline' || activeTab === 'active'
 
   const FILTER_OPTIONS = [
     { key: 'week', label: 'This Week' },
@@ -490,268 +258,104 @@ export default function Jobs() {
 
   return (
     <div className="jh-wrap">
-      {/* search bar */}
-      <div className="jh-toolbar">
-        <input
-          className="jh-search"
-          type="text"
-          placeholder="Search jobs by name, number, or work type..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-
-      {/* date filter */}
-      <div className="jh-filter-bar">
-        <div className="jh-filter-pills">
-          {FILTER_OPTIONS.map(f => (
-            <button
-              key={f.key}
-              className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-              onClick={() => setDateFilter(f.key)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-        {dateFilter === 'custom' && (
-          <div className="jh-custom-range">
+      {showShellChrome && (
+        <>
+          {/* search bar */}
+          <div className="jh-toolbar">
             <input
-              type="date"
-              className="jh-date-input"
-              value={customFrom}
-              onChange={e => setCustomFrom(e.target.value)}
-            />
-            <span className="jh-range-sep">to</span>
-            <input
-              type="date"
-              className="jh-date-input"
-              value={customTo}
-              onChange={e => setCustomTo(e.target.value)}
+              className="jh-search"
+              type="text"
+              placeholder="Search jobs by name, number, or work type..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
             />
           </div>
-        )}
-      </div>
 
-      {/* scoreboard + bin */}
-      <div className="jh-scores-row">
-        <div className="jh-scores">
-          {parked.length > 0 && (
-            <div className="jh-score pk">
-              <div className="jh-score-num">{parked.length}</div>
-              <div className="jh-score-lbl">Parked</div>
+          {/* date filter */}
+          <div className="jh-filter-bar">
+            <div className="jh-filter-pills">
+              {FILTER_OPTIONS.map(f => (
+                <button
+                  key={f.key}
+                  className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
+                  onClick={() => setDateFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
-          )}
-          <div className="jh-score og">
-            <div className="jh-score-num">{activeJobs.length}</div>
-            <div className="jh-score-lbl">Active</div>
-          </div>
-          <div className="jh-score oh">
-            <div className="jh-score-num">{onHold.length}</div>
-            <div className="jh-score-lbl">On Hold</div>
-          </div>
-          <div className="jh-score cp">
-            <div className="jh-score-num">{complete.length}</div>
-            <div className="jh-score-lbl">Complete</div>
-          </div>
-        </div>
-        <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'\uD83D\uDDD1'} Bin</button>
-      </div>
-
-      {/* parked / incoming jobs section */}
-      {parked.length > 0 && (
-        <div className="jh-parked-section">
-          <div className="jh-parked-header">INCOMING JOBS</div>
-          <div className="jh-list">
-            {parked.map(j => (
-              <div key={j.job_id} className="jh-card parked">
-                <div className="jh-card-hdr">
-                  <div className="jh-card-left">
-                    <span className="jh-status-badge pk">Parked</span>
-                    <div className="jh-card-title">
-                      <span className="jh-card-num">{j.job_num}</span>
-                      <span className="jh-card-name">{j.job_name}</span>
-                      {j.is_change_order && <span className="jh-co-tag">CO{j.co_number || ''}</span>}
-                      {j.proposal_number && <span className="jh-proposal-tag">P{j.proposal_number}</span>}
-                    </div>
-                  </div>
-                </div>
-                <div className="jh-card-body">
-                  <div className="jh-card-tags">
-                    {renderTags(j.work_type)}
-                    {isPW(j) && <span className="pw-tag">PW</span>}
-                  </div>
-                  <div className="jh-card-meta">
-                    <span className="jh-parked-dates">
-                      {effectiveStart(j) || '?'} → {effectiveEnd(j) || '?'}
-                    </span>
-                    {j.amount && parseFloat(j.amount) > 0 && (
-                      <span className="jh-money">{fmtMoney(j.amount)}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="jh-parked-actions">
-                  <button
-                    className="jh-view-btn"
-                    onClick={() => navigate(`/jobs/${j.job_id}?mode=planning`)}
-                  >
-                    Job Planning
-                  </button>
-                  <button
-                    className="jh-view-btn"
-                    onClick={() => navigate(`/jobs/${j.job_id}?mode=management`)}
-                  >
-                    Job Management
-                  </button>
-                </div>
+            {dateFilter === 'custom' && (
+              <div className="jh-custom-range">
+                <input
+                  type="date"
+                  className="jh-date-input"
+                  value={customFrom}
+                  onChange={e => setCustomFrom(e.target.value)}
+                />
+                <span className="jh-range-sep">to</span>
+                <input
+                  type="date"
+                  className="jh-date-input"
+                  value={customTo}
+                  onChange={e => setCustomTo(e.target.value)}
+                />
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
 
-      {/* main job list (excludes parked) */}
-      <div className="jh-list">
-        {mainList.length === 0 && <div className="jh-empty">No jobs match this filter</div>}
-        {mainList.map(j => {
-          const status = getJobStatus(j)
-          const statusClass = status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress' ? 'og' : status === 'On Hold' ? 'oh' : 'cp'
-          const billedPct = getBilledTotal(billingLog, j.job_id)
-          const amount = j.amount ? parseFloat(j.amount) : 0
-          const billedAmt = amount > 0 ? Math.round(amount * billedPct / 100) : 0
-          const daysLeft = daysBetween(effectiveEnd(j), today)
-          const flags = getJobFlags(j, billingLog, today)
-          const isExpanded = expandedId === j.job_id
-
-          return (
-            <div key={j.job_id} className={`jh-card${isPW(j) ? ' pw-row' : ''}${isExpanded ? ' expanded' : ''}`}>
-              {/* card header — always visible */}
-              <div className="jh-card-hdr" onClick={() => toggleExpand(j)}>
-                <div className="jh-card-left">
-                  <span className={`jh-status-badge ${statusClass}`}>{status}</span>
-                  <div className="jh-card-title">
-                    <span className="jh-card-num">{j.job_num}</span>
-                    <span className="jh-card-name">{j.job_name}</span>
-                    {j.is_change_order && <span className="jh-co-tag">CO{j.co_number || ''}</span>}
-                    {j.proposal_number && <span className="jh-proposal-tag">P{j.proposal_number}</span>}
-                  </div>
-                </div>
-                <div className="jh-card-right">
-                  {/* days until end */}
-                  {daysLeft !== null && status !== 'Complete' && (
-                    <span className={`jh-days${daysLeft < 0 ? ' overdue' : daysLeft <= 7 ? ' soon' : ''}`}>
-                      {daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue` : `${daysLeft}d left`}
-                    </span>
-                  )}
-                  <span className="jh-expand-arrow">{isExpanded ? '\u25B2' : '\u25BC'}</span>
-                </div>
-              </div>
-
-              {/* card body — always visible */}
-              <div className="jh-card-body" onClick={() => toggleExpand(j)}>
-                <div className="jh-card-tags">
-                  {renderTags(j.work_type)}
-                  {isPW(j) && <span className="pw-tag">PW</span>}
-                  {j.no_bill === 'Yes' && <span className="nb-tag">NO BILL</span>}
-                </div>
-
-                {/* progress bar */}
-                {amount > 0 && j.no_bill !== 'Yes' && (
-                  <div className="jh-progress-row">
-                    <div className="jh-progress-bar">
-                      <div
-                        className={`jh-progress-fill${billedPct >= 100 ? ' done' : ''}`}
-                        style={{ width: `${Math.min(billedPct, 100)}%` }}
-                      />
-                    </div>
-                    <span className={`jh-progress-lbl${billedPct >= 100 ? ' done' : ''}`}>
-                      {Math.round(billedPct)}%
-                    </span>
-                  </div>
-                )}
-
-                {/* money + flags */}
-                <div className="jh-card-meta">
-                  {amount > 0 && (
-                    <span className="jh-money">
-                      {fmtMoney(billedAmt)} / {fmtMoney(amount)}
-                    </span>
-                  )}
-                  {flags.map(f => (
-                    <span key={f} className={`jh-flag ${f === 'OVERDUE' ? 'flag-red' : f === 'UNBILLED' ? 'flag-orange' : 'flag-cyan'}`}>
-                      {f}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* expanded — actions only, detail lives in Job Detail view */}
-              {isExpanded && (
-                <div className="jh-card-detail">
-                  <div className="jh-detail-actions">
-                    <select
-                      className="jh-status-sel"
-                      value={j.status || 'Ongoing'}
-                      onChange={e => updateStatus(j.job_id, e.target.value)}
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <option value="Scheduled">Scheduled</option>
-                      <option value="In Progress">In Progress</option>
-                      <option value="Ongoing">Ongoing</option>
-                      <option value="On Hold">On Hold</option>
-                      <option value="Complete">Complete</option>
-                    </select>
-
-                    {amount > 0 && j.no_bill !== 'Yes' && (
-                      <div className="jh-bill-action">
-                        <input
-                          type="number"
-                          className="jh-pct-input"
-                          placeholder="% to bill"
-                          min="1"
-                          max="100"
-                          value={pctInput}
-                          onChange={e => setPctInput(e.target.value)}
-                          onClick={e => e.stopPropagation()}
-                        />
-                        <button
-                          className="jh-bill-btn"
-                          disabled={saving}
-                          onClick={e => { e.stopPropagation(); addToBillList(j) }}
-                        >
-                          {saving ? 'Saving...' : 'Add to Bill List'}
-                        </button>
-                      </div>
-                    )}
-
-                    <button
-                      className="jh-view-btn"
-                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=planning`) }}
-                    >
-                      Job Planning
-                    </button>
-                    <button
-                      className="jh-view-btn"
-                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
-                    >
-                      Job Management
-                    </button>
-                    <button
-                      className="jh-del-btn"
-                      onClick={e => { e.stopPropagation(); softDelete(j.job_id, `${j.job_num} - ${j.job_name}`) }}
-                    >
-                      {'\uD83D\uDDD1'} Delete
-                    </button>
-                  </div>
+          {/* scoreboard + bin */}
+          <div className="jh-scores-row">
+            <div className="jh-scores">
+              {parkedCount > 0 && (
+                <div className="jh-score pk">
+                  <div className="jh-score-num">{parkedCount}</div>
+                  <div className="jh-score-lbl">Parked</div>
                 </div>
               )}
+              <div className="jh-score og">
+                <div className="jh-score-num">{activeCount}</div>
+                <div className="jh-score-lbl">Active</div>
+              </div>
+              <div className="jh-score oh">
+                <div className="jh-score-num">{onHoldCount}</div>
+                <div className="jh-score-lbl">On Hold</div>
+              </div>
+              <div className="jh-score cp">
+                <div className="jh-score-num">{completeCount}</div>
+                <div className="jh-score-lbl">Complete</div>
+              </div>
             </div>
-          )
-        })}
-      </div>
+            <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
+          </div>
+        </>
+      )}
 
-      {/* Field SOW Modal */}
-      {sowJob && <FieldSowModal job={sowJob} onClose={() => setSowJob(null)} onUpdated={() => { loadData(); setSowJob(null) }} />}
+      <JobsTabBar active={activeTab} onChange={setActiveTab} />
+
+      {/* tab body */}
+      {activeTab === 'pipeline' && (
+        <PipelineTab
+          filteredJobs={filteredJobs}
+          jobs={jobs}
+          setJobs={setJobs}
+          billingLog={billingLog}
+          setBillingLog={setBillingLog}
+          today={today}
+          reload={loadData}
+        />
+      )}
+      {activeTab === 'schedule' && <ScheduleTab />}
+      {activeTab === 'active' && (
+        <ActiveTab
+          filteredJobs={filteredJobs}
+          jobs={jobs}
+          setJobs={setJobs}
+          billingLog={billingLog}
+          setBillingLog={setBillingLog}
+          today={today}
+        />
+      )}
+      {activeTab === 'ready-to-bill' && <ReadyToBillTab />}
 
       {/* Restore Bin Modal */}
       {showBin && (
