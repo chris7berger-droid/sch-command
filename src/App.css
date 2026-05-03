@@ -5368,6 +5368,115 @@
 .jh-tile-rate    .jh-tile-dot { background: #b86bff; }
 .jh-tile-rate    .jh-tile-count { color: #b86bff; }
 
+/* ── Daily Log (Field Command entries on JobDetail) ───────────────── */
+.jd-dl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.jd-dl-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jd-dl-date {
+  font-family: var(--font-display, 'Barlow Condensed', sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-light, #6b6358);
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+}
+
+.jd-dl-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.jd-dl-card {
+  background: var(--linen-card, #c8bcaa);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jd-dl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jd-dl-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-family: var(--font-display, 'Barlow Condensed', sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: #1c1814;
+  color: #30cfac;
+}
+
+.jd-dl-pill-sod { background: var(--command-green, #5BBD3F); color: #1c1814; }
+.jd-dl-pill-mod { background: var(--warning, #e67e22); color: #1c1814; }
+.jd-dl-pill-eod { background: var(--cyan, #0891b2); color: #fff; }
+.jd-dl-pill-other { background: rgba(28, 24, 20, 0.6); color: #fff; }
+
+.jd-dl-author {
+  font-family: var(--font-body, 'Barlow', sans-serif);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #1c1814);
+}
+
+.jd-dl-time {
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 11px;
+  color: var(--sand-dark, #6b6358);
+  margin-left: auto;
+}
+
+.jd-dl-notes {
+  font-family: var(--font-body, 'Barlow', sans-serif);
+  font-size: 13px;
+  color: var(--text-primary, #1c1814);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.jd-dl-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.jd-dl-photo {
+  display: block;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  background: var(--linen-deep, #a89b88);
+}
+
+.jd-dl-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 /* ── Production Rate page ─────────────────────────────── */
 .pr-wrap {
   max-width: 1100px;
