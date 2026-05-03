@@ -182,6 +182,20 @@ export async function loadPRT(prtId) {
   return { data, error: null }
 }
 
+export async function loadRecentPRTs(days = 14) {
+  const since = new Date()
+  since.setDate(since.getDate() - days)
+  const sinceStr = since.toISOString().split('T')[0]
+  const { data, error } = await supabase
+    .from('daily_production_reports')
+    .select('id, job_id, report_date, submitted_by, tasks, hours_regular, hours_ot, photos, status, team_members:submitted_by(id, name), call_log:job_id(id, display_job_number, job_name)')
+    .gte('report_date', sinceStr)
+    .order('report_date', { ascending: false })
+    .limit(500)
+  if (error) return { data: null, error }
+  return { data: data || [], error: null }
+}
+
 let _teamMemberMapCache = null
 export async function loadTeamMemberMap({ refresh = false } = {}) {
   if (_teamMemberMapCache && !refresh) return { data: _teamMemberMapCache, error: null }

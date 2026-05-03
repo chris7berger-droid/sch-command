@@ -13,6 +13,7 @@ import Materials from './views/Materials'
 import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
+import ProductionRate from './views/ProductionRate'
 import JobDetail from './views/JobDetail'
 import StatsBar from './components/StatsBar'
 import Login from './views/Login'
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { path: '/daily', label: 'Daily' },
   { path: '/materials', label: 'Materials' },
   { path: '/billing', label: 'Billing' },
+  { path: '/production-rate', label: 'Production Rate' },
   { path: '/schedules', label: 'Schedules' },
 ]
 
@@ -310,6 +312,7 @@ function AppShell({ session, teamMember }) {
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/daily" element={<Daily />} />
           <Route path="/schedules" element={<Schedules />} />
+          <Route path="/production-rate" element={<ProductionRate />} />
         </Routes>
       </main>
 
