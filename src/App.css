@@ -5364,6 +5364,68 @@
 .jh-tile-schedule .jh-tile-dot { background: #30cfac; }
 .jh-tile-schedule .jh-tile-count { color: #30cfac; }
 
+.jh-tile-rate    { border-left-color: #b86bff; }
+.jh-tile-rate    .jh-tile-dot { background: #b86bff; }
+.jh-tile-rate    .jh-tile-count { color: #b86bff; }
+
+/* ── Production Rate page ─────────────────────────────── */
+.pr-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 18px 20px 40px;
+}
+
+.pr-header {
+  margin-bottom: 18px;
+}
+
+.pr-title {
+  font-family: var(--font-display, 'Barlow Condensed', sans-serif);
+  font-weight: 700;
+  font-size: 28px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text, #1c1814);
+  margin: 0 0 4px;
+}
+
+.pr-sub {
+  font-family: var(--font-body, 'Barlow', sans-serif);
+  font-size: 13px;
+  color: var(--text-light, #6b6358);
+}
+
+.pr-job {
+  font-family: var(--font-body, 'Barlow', sans-serif);
+  font-size: 13px;
+  color: var(--text, #1c1814);
+}
+
+.pr-rate {
+  font-family: var(--font-display, 'Barlow Condensed', sans-serif);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 6px;
+}
+
+.pr-rate-ok {
+  background: var(--command-green, #5BBD3F);
+  color: #1c1814;
+}
+
+.pr-rate-behind {
+  background: #b04040;
+  color: #fff;
+}
+
+.pr-rate-na {
+  background: rgba(28, 24, 20, 0.08);
+  color: var(--text-light, #6b6358);
+}
+
 /* Back-to-picker bar shown above the tabs once a stage is open */
 .jh-back-bar {
   display: flex;

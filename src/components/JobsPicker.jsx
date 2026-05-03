@@ -50,6 +50,7 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
   const navigate = useNavigate()
   const goTab = (key) => onPick ? onPick(key) : navigate(`/jobs?tab=${key}`)
   const goSchedule = () => navigate('/schedule')
+  const goProductionRate = () => navigate('/production-rate')
 
   return (
     <div className="jh-picker">
@@ -128,6 +129,18 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
           <div className="jh-tile-desc">This week's crew board — who's where, day by day.</div>
           <div className="jh-tile-foot">
             <span className="jh-tile-attn">Open weekly grid</span>
+            <span className="jh-tile-arrow">→</span>
+          </div>
+        </button>
+
+        <button className="jh-tile jh-tile-rate" onClick={goProductionRate}>
+          <div className="jh-tile-head">
+            <div className="jh-tile-name"><span className="jh-tile-dot" />Production Rate</div>
+            <div className="jh-tile-count">{counts.inProgress}</div>
+          </div>
+          <div className="jh-tile-desc">Recent field reports across all jobs — target vs actual progress.</div>
+          <div className="jh-tile-foot">
+            <span className="jh-tile-attn">Open recent reports</span>
             <span className="jh-tile-arrow">→</span>
           </div>
         </button>
