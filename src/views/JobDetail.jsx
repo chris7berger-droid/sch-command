@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJob, updateJobField, updateJobFields, updateCallLogStage, loadPRTsForJob } from '../lib/queries'
+import { loadJob, updateJobField, updateJobFields, updateCallLogStage, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import JobCrewScheduler from '../components/JobCrewScheduler'
 import PRTDetail from '../components/PRTDetail'
@@ -64,6 +64,8 @@ export default function JobDetail() {
   const [fieldCrew, setFieldCrew] = useState([])
   const [prts, setPrts] = useState([])
   const [openPrtId, setOpenPrtId] = useState(null)
+  const [dailyLogs, setDailyLogs] = useState([])
+  const [teamMap, setTeamMap] = useState({})
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -87,15 +89,21 @@ export default function JobDetail() {
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
     if (clId) {
-      const [{ data: fcData }, prtRes] = await Promise.all([
+      const [{ data: fcData }, prtRes, dlRes, tmRes] = await Promise.all([
         supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId),
         loadPRTsForJob(clId),
+        loadDailyLogsForJob(clId),
+        loadTeamMemberMap(),
       ])
       setFieldCrew(fcData || [])
       setPrts(prtRes.data || [])
+      setDailyLogs(dlRes.data || [])
+      setTeamMap(tmRes.data || {})
     } else {
       setFieldCrew([])
       setPrts([])
+      setDailyLogs([])
+      setTeamMap({})
     }
     setLoading(false)
   }, [jobId])
@@ -154,6 +162,7 @@ export default function JobDetail() {
   const MANAGEMENT_TABS = [
     { key: 'overview', label: 'Overview' },
     { key: 'production', label: 'Production' },
+    { key: 'daily-log', label: 'Daily Log' },
     { key: 'billing', label: 'Billing' },
     { key: 'history', label: 'History' },
   ]
@@ -583,6 +592,64 @@ export default function JobDetail() {
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Daily Log (Field Command entries) ─────────── */}
+        {tab === 'daily-log' && (
+          <div className="jd-section">
+            {dailyLogs.length === 0 ? (
+              <div className="jh-empty">No daily log entries yet</div>
+            ) : (
+              <div className="jd-dl-list">
+                {(() => {
+                  // Group by date (created_at YYYY-MM-DD)
+                  const groups = new Map()
+                  for (const e of dailyLogs) {
+                    const date = (e.created_at || '').slice(0, 10) || 'undated'
+                    if (!groups.has(date)) groups.set(date, [])
+                    groups.get(date).push(e)
+                  }
+                  return [...groups.entries()].map(([date, entries]) => (
+                    <div key={date} className="jd-dl-group">
+                      <div className="jd-dl-date">{date}</div>
+                      <div className="jd-dl-items">
+                        {entries.map(e => {
+                          const photos = (() => {
+                            if (Array.isArray(e.photos)) return e.photos
+                            if (typeof e.photos === 'string') {
+                              try { const p = JSON.parse(e.photos); return Array.isArray(p) ? p : [] } catch { return [] }
+                            }
+                            return []
+                          })()
+                          const author = teamMap[e.employee_id]?.name || 'Unknown'
+                          const type = (e.entry_type || 'OTHER').toUpperCase()
+                          return (
+                            <div key={e.id} className="jd-dl-card">
+                              <div className="jd-dl-row">
+                                <span className={`jd-dl-pill jd-dl-pill-${type.toLowerCase()}`}>{type}</span>
+                                <span className="jd-dl-author">{author}</span>
+                                <span className="jd-dl-time">{fmtTimestamp(e.created_at)}</span>
+                              </div>
+                              {e.notes && <div className="jd-dl-notes">{e.notes}</div>}
+                              {photos.length > 0 && (
+                                <div className="jd-dl-photos">
+                                  {photos.map((url, i) => (
+                                    <a key={i} href={url} target="_blank" rel="noreferrer" className="jd-dl-photo">
+                                      <img src={url} alt={`Daily log ${i + 1}`} loading="lazy" />
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))
+                })()}
               </div>
             )}
           </div>

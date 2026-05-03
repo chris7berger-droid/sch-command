@@ -182,6 +182,19 @@ export async function loadPRT(prtId) {
   return { data, error: null }
 }
 
+// daily_log_entries.job_id is FK to call_log.id (NOT jobs.job_id).
+// employee_id is text, references team_members.id (uuid).
+export async function loadDailyLogsForJob(callLogId) {
+  if (!callLogId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('daily_log_entries')
+    .select('id, job_id, employee_id, entry_type, photos, notes, created_at')
+    .eq('job_id', callLogId)
+    .order('created_at', { ascending: false })
+  if (error) return { data: null, error }
+  return { data: data || [], error: null }
+}
+
 export async function loadRecentPRTs(days = 14) {
   const since = new Date()
   since.setDate(since.getDate() - days)
