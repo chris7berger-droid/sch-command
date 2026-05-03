@@ -7,6 +7,8 @@ import ReadyTab from '../components/tabs/ReadyTab'
 import ActiveTab from '../components/tabs/ActiveTab'
 import BillingTab from '../components/tabs/BillingTab'
 import JobsTabBar, { JOBS_TABS, LEGACY_TAB_SLUG_MAP } from '../components/JobsTabBar'
+import JobsPicker from '../components/JobsPicker'
+import JobCardList from '../components/JobCardList'
 
 /* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
 
@@ -99,7 +101,11 @@ export default function Jobs() {
   // Map legacy slugs (?tab=schedule, ?tab=ready-to-bill) to the new keys so
   // external links continue to work. The URL is normalized via the effect below.
   const mappedTab = tabParam && LEGACY_TAB_SLUG_MAP[tabParam]
-  const activeTab = mappedTab || (JOBS_TABS.includes(tabParam) ? tabParam : 'pipeline')
+  // No tab param → picker landing. 'all' is a valid stage key but not in JOBS_TABS
+  // (it's reachable from the picker, not the tab bar).
+  const VALID_TABS = [...JOBS_TABS, 'all']
+  const activeTab = mappedTab || (VALID_TABS.includes(tabParam) ? tabParam : null)
+  const showPicker = activeTab === null
 
   useEffect(() => {
     if (mappedTab) {
@@ -114,11 +120,13 @@ export default function Jobs() {
   const setActiveTab = useCallback((next) => {
     setSearchParams(prev => {
       const params = new URLSearchParams(prev)
-      if (next === 'pipeline') params.delete('tab')
+      if (next === null) params.delete('tab')
       else params.set('tab', next)
       return params
     })
   }, [setSearchParams])
+
+  const goToPicker = useCallback(() => setActiveTab(null), [setActiveTab])
 
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
@@ -259,8 +267,9 @@ export default function Jobs() {
   if (error) return <div className="jh-empty">Error: {error}</div>
 
   // Ready + Billing tabs embed full views (<Schedule />, <Billing />) that bring
-  // their own headers — hide shell chrome to avoid visual doubling.
-  const showShellChrome = activeTab === 'pipeline' || activeTab === 'active'
+  // their own headers — hide shell chrome to avoid visual doubling. Picker has
+  // its own layout, so chrome is hidden there too.
+  const showShellChrome = activeTab === 'pipeline' || activeTab === 'active' || activeTab === 'all'
 
   const FILTER_OPTIONS = [
     { key: 'week', label: 'This Week' },
@@ -344,32 +353,64 @@ export default function Jobs() {
         </>
       )}
 
-      <JobsTabBar active={activeTab} onChange={setActiveTab} />
+      {showPicker && (
+        <JobsPicker jobs={jobs} today={today} onPick={setActiveTab} />
+      )}
 
-      {/* tab body */}
-      {activeTab === 'pipeline' && (
-        <PipelineTab
-          filteredJobs={filteredJobs}
-          jobs={jobs}
-          setJobs={setJobs}
-          billingLog={billingLog}
-          setBillingLog={setBillingLog}
-          today={today}
-          reload={loadData}
-        />
+      {!showPicker && (
+        <>
+          <div className="jh-back-bar">
+            <button className="jh-back-btn" onClick={goToPicker}>← All stages</button>
+            <span className="jh-back-context">
+              Viewing <b>{
+                activeTab === 'pipeline' ? 'Pipeline' :
+                activeTab === 'ready' ? 'Ready' :
+                activeTab === 'active' ? 'Active' :
+                activeTab === 'billing' ? 'Billing' :
+                activeTab === 'all' ? 'All Jobs' : ''
+              }</b>
+            </span>
+          </div>
+
+          <JobsTabBar active={activeTab} onChange={setActiveTab} />
+
+          {/* tab body */}
+          {activeTab === 'pipeline' && (
+            <PipelineTab
+              filteredJobs={filteredJobs}
+              jobs={jobs}
+              setJobs={setJobs}
+              billingLog={billingLog}
+              setBillingLog={setBillingLog}
+              today={today}
+              reload={loadData}
+            />
+          )}
+          {activeTab === 'ready' && <ReadyTab />}
+          {activeTab === 'active' && (
+            <ActiveTab
+              filteredJobs={filteredJobs}
+              jobs={jobs}
+              setJobs={setJobs}
+              billingLog={billingLog}
+              setBillingLog={setBillingLog}
+              today={today}
+            />
+          )}
+          {activeTab === 'billing' && <BillingTab />}
+          {activeTab === 'all' && (
+            <JobCardList
+              jobs={filteredJobs}
+              allJobs={jobs}
+              setJobs={setJobs}
+              billingLog={billingLog}
+              setBillingLog={setBillingLog}
+              today={today}
+              emptyText="No jobs match the current filters"
+            />
+          )}
+        </>
       )}
-      {activeTab === 'ready' && <ReadyTab />}
-      {activeTab === 'active' && (
-        <ActiveTab
-          filteredJobs={filteredJobs}
-          jobs={jobs}
-          setJobs={setJobs}
-          billingLog={billingLog}
-          setBillingLog={setBillingLog}
-          today={today}
-        />
-      )}
-      {activeTab === 'billing' && <BillingTab />}
 
       {/* Restore Bin Modal */}
       {showBin && (

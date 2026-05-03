@@ -5219,3 +5219,179 @@
   line-height: 1.5;
   white-space: pre-wrap;
 }
+
+/* ── Jobs Picker (lifecycle stage tile landing) ─────────────────── */
+
+.jh-picker {
+  padding: 8px 0 32px;
+}
+
+.jh-picker-intro {
+  margin: 0 4px 18px;
+}
+
+.jh-picker-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.jh-picker-sub {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+.jh-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.jh-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 14px;
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-left: 4px solid var(--sand-dark);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--text-primary);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+}
+
+.jh-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(28, 24, 20, 0.08), 0 12px 24px rgba(28, 24, 20, 0.07);
+}
+
+.jh-tile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.jh-tile-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+}
+
+.jh-tile-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sand-dark);
+}
+
+.jh-tile-count {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--command-green);
+  font-variant-numeric: tabular-nums;
+}
+
+.jh-tile-desc {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.jh-tile-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-light);
+  margin-top: 4px;
+}
+
+.jh-tile-attn {
+  color: var(--text-light);
+}
+
+.jh-tile-arrow {
+  color: var(--sand-dark);
+  font-size: 14px;
+}
+
+/* Per-stage accent — left border + dot + count color */
+.jh-tile-parked   { border-left-color: #d4a017; }
+.jh-tile-parked   .jh-tile-dot { background: #d4a017; }
+.jh-tile-parked   .jh-tile-count { color: #d4a017; }
+.jh-tile-parked   .jh-tile-attn { color: #d4a017; }
+
+.jh-tile-ready    { border-left-color: var(--warning); }
+.jh-tile-ready    .jh-tile-dot { background: var(--warning); }
+.jh-tile-ready    .jh-tile-count { color: var(--warning); }
+
+.jh-tile-active   { border-left-color: var(--command-green); }
+.jh-tile-active   .jh-tile-dot { background: var(--command-green); }
+.jh-tile-active   .jh-tile-count { color: var(--command-green); }
+
+.jh-tile-billing  { border-left-color: var(--cyan); }
+.jh-tile-billing  .jh-tile-dot { background: var(--cyan); }
+.jh-tile-billing  .jh-tile-count { color: var(--cyan); }
+
+.jh-tile-all      { border-left-color: var(--header-dark); }
+.jh-tile-all      .jh-tile-count { color: var(--text-primary); }
+
+.jh-tile-schedule { border-left-color: #30cfac; }
+.jh-tile-schedule .jh-tile-dot { background: #30cfac; }
+.jh-tile-schedule .jh-tile-count { color: #30cfac; }
+
+/* Back-to-picker bar shown above the tabs once a stage is open */
+.jh-back-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+
+.jh-back-btn {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 6px 12px;
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.jh-back-btn:hover { border-color: var(--sand-dark); }
+
+.jh-back-context {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.jh-back-context b { color: var(--text-primary); font-weight: 700; }
