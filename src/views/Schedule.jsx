@@ -101,7 +101,7 @@ function gTagClass(t) {
   return ''
 }
 
-export default function Schedule() {
+export default function Schedule({ embedded = false } = {}) {
   const user = useUser()
   const navigate = useNavigate()
   const changedBy = user?.name || changedBy
@@ -901,9 +901,11 @@ export default function Schedule() {
 
   return (
     <div className="sch-layout">
-      <div className="jh-back-bar">
-        <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
-      </div>
+      {!embedded && (
+        <div className="jh-back-bar">
+          <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
+        </div>
+      )}
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
         <div className="sch-pool">

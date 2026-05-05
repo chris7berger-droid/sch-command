@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { loadJob, updateJobField, updateJobFields, updateCallLogStage, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import JobCrewScheduler from '../components/JobCrewScheduler'
+import Schedule from './Schedule'
 import PRTDetail from '../components/PRTDetail'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
@@ -448,7 +449,7 @@ export default function JobDetail() {
         {/* ── Schedule (crew scheduler) ──────────────────── */}
         {tab === 'schedule' && (
           <div className="jd-section">
-            <JobCrewScheduler job={job} onAssignmentsChange={setAssignments} />
+            <Schedule embedded />
           </div>
         )}
 
