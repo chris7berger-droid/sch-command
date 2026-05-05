@@ -312,10 +312,8 @@ export default function Schedule({ embedded = false } = {}) {
     const hasRange = !!(effStart(job) || effEnd(job))
     if (!hasRange) return
     const existing = crewJobDays(jobId, name)
-    const inRange = dates.filter(d => jobInRange(job, d))
-    // Pre-select: existing days + all in-range days not yet assigned
-    const preSelected = [...new Set([...existing, ...inRange])]
-    setAssignModal({ name, jobId, selectedDays: preSelected, job })
+    // Pre-select only existing assignments — user opts in to new days
+    setAssignModal({ name, jobId, selectedDays: [...existing], job })
   }
 
   function toggleAssignDay(ds) {
