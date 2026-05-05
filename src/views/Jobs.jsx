@@ -1,14 +1,20 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs } from '../lib/queries'
 import PipelineTab from '../components/tabs/PipelineTab'
-import ReadyTab from '../components/tabs/ReadyTab'
 import ActiveTab from '../components/tabs/ActiveTab'
-import BillingTab from '../components/tabs/BillingTab'
-import JobsTabBar, { JOBS_TABS, LEGACY_TAB_SLUG_MAP } from '../components/JobsTabBar'
 import JobsPicker from '../components/JobsPicker'
 import JobCardList from '../components/JobCardList'
+
+const VALID_TABS = ['pipeline', 'active', 'all']
+// Old/removed tab slugs redirect to their canonical destination page.
+const TAB_REDIRECTS = {
+  ready: '/schedule',
+  schedule: '/schedule',
+  billing: '/billing',
+  'ready-to-bill': '/billing',
+}
 
 /* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
 
@@ -97,25 +103,15 @@ function urgencyScore(job, billingLog, today) {
 
 export default function Jobs() {
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const tabParam = searchParams.get('tab')
-  // Map legacy slugs (?tab=schedule, ?tab=ready-to-bill) to the new keys so
-  // external links continue to work. The URL is normalized via the effect below.
-  const mappedTab = tabParam && LEGACY_TAB_SLUG_MAP[tabParam]
-  // No tab param → picker landing. 'all' is a valid stage key but not in JOBS_TABS
-  // (it's reachable from the picker, not the tab bar).
-  const VALID_TABS = [...JOBS_TABS, 'all']
-  const activeTab = mappedTab || (VALID_TABS.includes(tabParam) ? tabParam : null)
-  const showPicker = activeTab === null
+  const redirectTo = tabParam && TAB_REDIRECTS[tabParam]
+  const activeTab = !redirectTo && VALID_TABS.includes(tabParam) ? tabParam : null
+  const showPicker = activeTab === null && !redirectTo
 
   useEffect(() => {
-    if (mappedTab) {
-      setSearchParams(prev => {
-        const params = new URLSearchParams(prev)
-        params.set('tab', mappedTab)
-        return params
-      }, { replace: true })
-    }
-  }, [mappedTab, setSearchParams])
+    if (redirectTo) navigate(redirectTo, { replace: true })
+  }, [redirectTo, navigate])
 
   const setActiveTab = useCallback((next) => {
     setSearchParams(prev => {
@@ -266,10 +262,8 @@ export default function Jobs() {
   if (loading) return <div className="jh-empty">Loading jobs...</div>
   if (error) return <div className="jh-empty">Error: {error}</div>
 
-  // Ready + Billing tabs embed full views (<Schedule />, <Billing />) that bring
-  // their own headers — hide shell chrome to avoid visual doubling. Picker has
-  // its own layout, so chrome is hidden there too.
-  const showShellChrome = activeTab === 'pipeline' || activeTab === 'active' || activeTab === 'all'
+  // Picker has its own layout — hide shell chrome on landing.
+  const showShellChrome = activeTab !== null
 
   const FILTER_OPTIONS = [
     { key: 'week', label: 'This Week' },
@@ -364,17 +358,12 @@ export default function Jobs() {
             <span className="jh-back-context">
               Viewing <b>{
                 activeTab === 'pipeline' ? 'Pipeline' :
-                activeTab === 'ready' ? 'Ready' :
                 activeTab === 'active' ? 'Active' :
-                activeTab === 'billing' ? 'Billing' :
                 activeTab === 'all' ? 'All Jobs' : ''
               }</b>
             </span>
           </div>
 
-          <JobsTabBar active={activeTab} onChange={setActiveTab} />
-
-          {/* tab body */}
           {activeTab === 'pipeline' && (
             <PipelineTab
               filteredJobs={filteredJobs}
@@ -386,7 +375,6 @@ export default function Jobs() {
               reload={loadData}
             />
           )}
-          {activeTab === 'ready' && <ReadyTab />}
           {activeTab === 'active' && (
             <ActiveTab
               filteredJobs={filteredJobs}
@@ -397,7 +385,6 @@ export default function Jobs() {
               today={today}
             />
           )}
-          {activeTab === 'billing' && <BillingTab />}
           {activeTab === 'all' && (
             <JobCardList
               jobs={filteredJobs}
