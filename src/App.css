@@ -750,6 +750,30 @@
 
 .sch-ptitle-av { color: var(--command-green); }
 
+.sch-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 6px 4px 8px;
+  font-size: 9px;
+  color: var(--sand-dark);
+  border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+  margin-bottom: 4px;
+}
+.sch-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.sch-legend .sch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
 .sch-tlbl {
   font-size: 9px;
   font-weight: 700;
@@ -1703,6 +1727,34 @@
 .sch-modal-day-on {
   background: var(--command-green);
   border-color: var(--command-green);
+  color: #fff;
+}
+
+.sch-modal-day-conflict {
+  border-color: var(--danger);
+  border-width: 2px;
+  position: relative;
+}
+
+.sch-modal-day-conflict.sch-modal-day-on {
+  background: var(--command-green);
+  border-color: var(--danger);
+}
+
+.sch-modal-day-conflict-lbl {
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--danger);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60px;
+}
+
+.sch-modal-day-on .sch-modal-day-conflict-lbl {
   color: #fff;
 }
 
