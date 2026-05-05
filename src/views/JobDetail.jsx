@@ -570,6 +570,7 @@ export default function JobDetail() {
               key={job.job_id}
               value={job.field_sow}
               saving={false}
+              availableMaterials={materials}
               onSave={async (next) => {
                 await updateJobField(job.job_id, 'field_sow', next, changedBy)
                 setJob(prev => ({ ...prev, field_sow: next }))
