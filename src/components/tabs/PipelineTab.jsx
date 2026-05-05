@@ -97,12 +97,6 @@ export default function PipelineTab({ filteredJobs, jobs, setJobs, billingLog, s
                   >
                     Job Planning
                   </button>
-                  <button
-                    className="jh-view-btn"
-                    onClick={() => navigate(`/jobs/${j.job_id}?mode=management`)}
-                  >
-                    Job Management
-                  </button>
                 </div>
               </div>
             ))}

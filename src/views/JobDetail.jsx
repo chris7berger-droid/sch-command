@@ -199,7 +199,7 @@ export default function JobDetail() {
           </div>
         </div>
         )}
-        {mode !== 'planning' && (
+        {mode !== 'planning' && job.status !== 'Parked' && (
         <div className="jd-tab-group">
           <div className="jd-tab-group-label">JOB MANAGEMENT</div>
           <div className="jd-tabs">
