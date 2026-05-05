@@ -6,6 +6,7 @@ import { useUser } from '../lib/user'
 import JobCrewScheduler from '../components/JobCrewScheduler'
 import Schedule from './Schedule'
 import PRTDetail from '../components/PRTDetail'
+import FieldSowBuilder from '../components/FieldSowBuilder'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -565,39 +566,22 @@ export default function JobDetail() {
         {/* ── Field SOW ──────────────────────────────────── */}
         {tab === 'fieldsow' && (
           <div className="jd-section">
-            {(!job.field_sow || job.field_sow.length === 0) ? (
-              <div className="jh-empty">No Field SOW data</div>
-            ) : (
-              <div className="jd-sow-list">
-                {job.field_sow.map((day, i) => (
-                  <div key={i} className="jd-sow-card">
-                    <div className="jd-sow-day">{day.day_label || `Day ${i + 1}`}</div>
-                    {day.tasks && day.tasks.map((task, ti) => (
-                      <div key={ti} className="jd-sow-task">
-                        {typeof task === 'string' ? task : task.description || ''}
-                        {task.pct_complete ? <span className="jd-sow-pct">{task.pct_complete}%</span> : null}
-                      </div>
-                    ))}
-                    {day.materials && day.materials.length > 0 && (
-                      <div className="jd-sow-materials">
-                        {day.materials.map((mat, mi) => (
-                          <div key={mi} className="jd-sow-mat">
-                            {mat.name}{mat.qty_planned ? ` x${mat.qty_planned}` : ''}{mat.mils ? ` @ ${mat.mils} mils` : ''}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {day.crew_count ? <div className="jd-sow-meta">Crew: {day.crew_count}</div> : null}
-                    {day.hours_planned ? <div className="jd-sow-meta">Hours: {day.hours_planned}</div> : null}
-                  </div>
-                ))}
-              </div>
-            )}
+            <FieldSowBuilder
+              key={job.job_id}
+              value={job.field_sow}
+              saving={false}
+              onSave={async (next) => {
+                await updateJobField(job.job_id, 'field_sow', next, changedBy)
+                setJob(prev => ({ ...prev, field_sow: next }))
+              }}
+            />
             {job.sow && (
-              <div className="jd-sales-sow">
-                <span className="jd-label">Sales SOW</span>
-                <pre className="jd-sow-text">{job.sow}</pre>
-              </div>
+              <details className="jd-sales-sow-collapse" style={{ marginTop: 20 }}>
+                <summary style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--sand-dark)', cursor: 'pointer' }}>
+                  Sales SOW (read-only reference)
+                </summary>
+                <pre className="jd-sow-text" style={{ marginTop: 8 }}>{job.sow}</pre>
+              </details>
             )}
           </div>
         )}

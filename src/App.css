@@ -3254,6 +3254,160 @@
   cursor: pointer;
 }
 
+/* ── Field SOW Builder ─────────────────────────────────────────── */
+.fsb-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fsb-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.18);
+}
+.fsb-title {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text);
+}
+.fsb-header-actions { display: flex; gap: 10px; align-items: center; }
+.fsb-add-day {
+  background: none;
+  border: 1.5px dashed rgba(28, 24, 20, 0.3);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  cursor: pointer;
+}
+.fsb-add-day:hover {
+  border-color: var(--command-green);
+  color: var(--command-green);
+}
+.fsb-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--sand-dark);
+  background: rgba(28, 24, 20, 0.04);
+  border: 1px dashed rgba(28, 24, 20, 0.25);
+  border-radius: 8px;
+}
+.fsb-day {
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.fsb-day-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px 14px;
+  background: rgba(28, 24, 20, 0.06);
+  border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+}
+.fsb-field { display: flex; flex-direction: column; gap: 3px; }
+.fsb-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--sand-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.fsb-input {
+  background: var(--linen-deep, #bfb3a1);
+  border: 1.5px solid rgba(28, 24, 20, 0.18);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  -webkit-appearance: none;
+}
+.fsb-input:focus { border-color: var(--command-green); }
+.fsb-input-sm { width: 100px; }
+.fsb-input-num { width: 80px; text-align: center; }
+.fsb-remove-day {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--sand-dark);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.fsb-remove-day:hover { color: var(--danger); }
+.fsb-tasks { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+.fsb-task-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fsb-task-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--sand-dark);
+  width: 18px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.fsb-task-desc { flex: 1; min-width: 0; }
+.fsb-pct-wrap { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.fsb-pct { width: 60px; text-align: center; }
+.fsb-pct.known { border-color: var(--command-green); }
+.fsb-pct.over { border-color: var(--danger); }
+.fsb-pct-sym { font-size: 12px; color: var(--sand-dark); font-weight: 600; }
+.fsb-cap {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--command-green);
+  white-space: nowrap;
+  margin-left: 2px;
+}
+.fsb-cap.done { color: var(--danger); }
+.fsb-remove-task {
+  background: none;
+  border: none;
+  color: var(--sand-dark);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.fsb-remove-task:disabled { color: transparent; cursor: default; }
+.fsb-remove-task:hover:not(:disabled) { color: var(--danger); }
+.fsb-add-task {
+  align-self: flex-start;
+  background: none;
+  border: 1.5px dashed rgba(28, 24, 20, 0.3);
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0.8;
+  margin-top: 4px;
+}
+.fsb-add-task:hover { opacity: 1; border-color: var(--command-green); color: var(--command-green); }
+
 .jd-gate-modal .jd-gate-sub {
   font-size: 12px;
   color: var(--sand-dark);
