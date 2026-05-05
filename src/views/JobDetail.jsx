@@ -56,6 +56,7 @@ export default function JobDetail() {
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState(null)
+  const [showGateModal, setShowGateModal] = useState(false)
 
   // sub-data
   const [assignments, setAssignments] = useState([])
@@ -279,8 +280,11 @@ export default function JobDetail() {
             <span className="jd-ready-count">{readyCount} of 3 ready</span>
             <button
               className={`jh-confirm-btn${!allReady ? ' disabled' : ''}`}
-              disabled={!allReady}
               onClick={async () => {
+                if (!allReady) {
+                  setShowGateModal(true)
+                  return
+                }
                 await updateJobField(job.job_id, 'status', 'Scheduled', changedBy)
                 if (job.call_log_id) {
                   await updateCallLogStage(job.call_log_id, 'Scheduled', changedBy)
@@ -290,6 +294,43 @@ export default function JobDetail() {
             >
               Send Job Plan to Schedule
             </button>
+          </div>
+        </div>
+      )}
+
+      {showGateModal && (
+        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowGateModal(false) }}>
+          <div className="mdl jd-gate-modal">
+            <h3>Job Plan Not Ready</h3>
+            <p className="jd-gate-sub">Finish these before sending to Schedule:</p>
+            <div className="jd-gate-list">
+              {!scheduleReady && (
+                <button className="jd-gate-row" onClick={() => { setTab('schedule'); setShowGateModal(false) }}>
+                  <span className="jd-gate-icon">○</span>
+                  <span className="jd-gate-label">Schedule</span>
+                  <span className="jd-gate-detail">No crew assigned — drag crew onto this job</span>
+                </button>
+              )}
+              {!(materialsReady && materialsDecided) && (
+                <button className="jd-gate-row" onClick={() => { setTab('materials'); setShowGateModal(false) }}>
+                  <span className="jd-gate-icon">○</span>
+                  <span className="jd-gate-label">Materials</span>
+                  <span className="jd-gate-detail">
+                    {!materialsDecided ? 'Decide if materials are needed' : 'Add materials or mark not needed'}
+                  </span>
+                </button>
+              )}
+              {!fieldSowReady && (
+                <button className="jd-gate-row" onClick={() => { setTab('fieldsow'); setShowGateModal(false) }}>
+                  <span className="jd-gate-icon">○</span>
+                  <span className="jd-gate-label">Field SOW</span>
+                  <span className="jd-gate-detail">Add the field scope of work</span>
+                </button>
+              )}
+            </div>
+            <div className="macts">
+              <button className="app-act-btn" onClick={() => setShowGateModal(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}

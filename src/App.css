@@ -3251,7 +3251,54 @@
 
 .jh-confirm-btn.disabled {
   opacity: 0.4;
-  cursor: not-allowed;
+  cursor: pointer;
+}
+
+.jd-gate-modal .jd-gate-sub {
+  font-size: 12px;
+  color: var(--sand-dark);
+  margin: 4px 0 12px;
+}
+.jd-gate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.jd-gate-row {
+  display: grid;
+  grid-template-columns: 24px 100px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  width: 100%;
+}
+.jd-gate-row:hover {
+  border-color: var(--command-green);
+  background: rgba(91, 189, 63, 0.06);
+}
+.jd-gate-icon {
+  font-size: 16px;
+  color: var(--sand-dark);
+  text-align: center;
+}
+.jd-gate-label {
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+}
+.jd-gate-detail {
+  font-size: 12px;
+  color: var(--sand-dark);
 }
 
 .jh-confirm-btn {
