@@ -288,60 +288,66 @@ export default function Jobs() {
             />
           </div>
 
-          {/* date filter */}
-          <div className="jh-filter-bar">
-            <div className="jh-filter-pills">
-              {FILTER_OPTIONS.map(f => (
-                <button
-                  key={f.key}
-                  className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-                  onClick={() => setDateFilter(f.key)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            {dateFilter === 'custom' && (
-              <div className="jh-custom-range">
-                <input
-                  type="date"
-                  className="jh-date-input"
-                  value={customFrom}
-                  onChange={e => setCustomFrom(e.target.value)}
-                />
-                <span className="jh-range-sep">to</span>
-                <input
-                  type="date"
-                  className="jh-date-input"
-                  value={customTo}
-                  onChange={e => setCustomTo(e.target.value)}
-                />
+          {/* date filter — hidden on Pipeline (parked jobs always shown regardless of date) */}
+          {activeTab !== 'pipeline' && (
+            <div className="jh-filter-bar">
+              <div className="jh-filter-pills">
+                {FILTER_OPTIONS.map(f => (
+                  <button
+                    key={f.key}
+                    className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
+                    onClick={() => setDateFilter(f.key)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
               </div>
-            )}
-          </div>
-
-          {/* scoreboard + bin */}
-          <div className="jh-scores-row">
-            <div className="jh-scores">
-              {parkedCount > 0 && (
-                <div className="jh-score pk">
-                  <div className="jh-score-num">{parkedCount}</div>
-                  <div className="jh-score-lbl">Parked</div>
+              {dateFilter === 'custom' && (
+                <div className="jh-custom-range">
+                  <input
+                    type="date"
+                    className="jh-date-input"
+                    value={customFrom}
+                    onChange={e => setCustomFrom(e.target.value)}
+                  />
+                  <span className="jh-range-sep">to</span>
+                  <input
+                    type="date"
+                    className="jh-date-input"
+                    value={customTo}
+                    onChange={e => setCustomTo(e.target.value)}
+                  />
                 </div>
               )}
-              <div className="jh-score og">
-                <div className="jh-score-num">{activeCount}</div>
-                <div className="jh-score-lbl">Active</div>
-              </div>
-              <div className="jh-score oh">
-                <div className="jh-score-num">{onHoldCount}</div>
-                <div className="jh-score-lbl">On Hold</div>
-              </div>
-              <div className="jh-score cp">
-                <div className="jh-score-num">{completeCount}</div>
-                <div className="jh-score-lbl">Complete</div>
-              </div>
             </div>
+          )}
+
+          {/* scoreboard + bin — Pipeline shows Bin only (cross-stage counts are noise on a single-stage view) */}
+          <div className="jh-scores-row">
+            {activeTab !== 'pipeline' ? (
+              <div className="jh-scores">
+                {parkedCount > 0 && (
+                  <div className="jh-score pk">
+                    <div className="jh-score-num">{parkedCount}</div>
+                    <div className="jh-score-lbl">Parked</div>
+                  </div>
+                )}
+                <div className="jh-score og">
+                  <div className="jh-score-num">{activeCount}</div>
+                  <div className="jh-score-lbl">Active</div>
+                </div>
+                <div className="jh-score oh">
+                  <div className="jh-score-num">{onHoldCount}</div>
+                  <div className="jh-score-lbl">On Hold</div>
+                </div>
+                <div className="jh-score cp">
+                  <div className="jh-score-num">{completeCount}</div>
+                  <div className="jh-score-lbl">Complete</div>
+                </div>
+              </div>
+            ) : (
+              <div className="jh-scores" />
+            )}
             <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
           </div>
         </>
