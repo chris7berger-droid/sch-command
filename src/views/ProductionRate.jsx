@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { loadRecentPRTs } from '../lib/queries'
 import PRTDetail from '../components/PRTDetail'
 
@@ -24,6 +25,7 @@ function taskRateSummary(tasks) {
 }
 
 export default function ProductionRate() {
+  const navigate = useNavigate()
   const [prts, setPrts] = useState([])
   const [loading, setLoading] = useState(true)
   const [openId, setOpenId] = useState(null)
@@ -51,6 +53,9 @@ export default function ProductionRate() {
 
   return (
     <div className="pr-wrap">
+      <div className="jh-back-bar">
+        <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
+      </div>
       <div className="pr-header">
         <h2 className="pr-title">Production Rate</h2>
         <div className="pr-sub">Recent field reports across all jobs — last 14 days</div>

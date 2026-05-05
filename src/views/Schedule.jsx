@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -102,6 +103,7 @@ function gTagClass(t) {
 
 export default function Schedule() {
   const user = useUser()
+  const navigate = useNavigate()
   const changedBy = user?.name || changedBy
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
@@ -899,6 +901,9 @@ export default function Schedule() {
 
   return (
     <div className="sch-layout">
+      <div className="jh-back-bar">
+        <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
+      </div>
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
         <div className="sch-pool">
