@@ -1,4 +1,8 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+
+const safeName = m => m.product || m.name || 'Unnamed material'
+const safeKit  = m => m.kit_size || m.kit || ''
+const safeId   = m => String(m.id)
 
 const newTask = () => ({ id: Date.now() + Math.random(), description: '', pct_complete: 0 })
 const newDay = (idx) => ({
@@ -40,39 +44,31 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     } : d
   ))
 
-  const matKey = (m) => String(m.material_id ?? m.wtc_material_id ?? m.name ?? '')
-
   const addMaterialToDay = (dayId, source) => update(days.map(d => {
     if (d.id !== dayId) return d
-    const existing = d.materials || []
-    const entry = source
-      ? {
-          wtc_material_id: source.id != null ? String(source.id) : null,
-          material_id: source.id ?? null,
-          name: source.product || source.name || 'Unnamed material',
-          kit_size: source.kit_size || source.kit || '',
-          qty_planned: 0, mils: 0, coverage_rate: source.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
-        }
-      : {
-          material_id: null,
-          name: '',
-          kit_size: '',
-          qty_planned: 0, mils: 0, coverage_rate: '', mix_time: 0, mix_speed: '', cure_time: '',
-        }
-    return { ...d, materials: [...existing, entry] }
+    const entry = {
+      wtc_material_id: safeId(source),
+      material_id: null,
+      name: safeName(source),
+      kit_size: safeKit(source),
+      qty_planned: 0, mils: 0, coverage_rate: source.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
+    }
+    return { ...d, materials: [...(d.materials || []), entry] }
   }))
 
-  const removeMaterialFromDay = (dayId, idx) => update(days.map(d =>
-    d.id === dayId ? { ...d, materials: (d.materials || []).filter((_, i) => i !== idx) } : d
+  const removeMaterialFromDay = (dayId, wtcId) => update(days.map(d =>
+    d.id === dayId ? { ...d, materials: (d.materials || []).filter(m => String(m.wtc_material_id) !== String(wtcId)) } : d
   ))
 
-  const updateMaterialField = (dayId, idx, key, val) => update(days.map(d => {
+  const updateMaterialField = (dayId, wtcId, key, val) => update(days.map(d => {
     if (d.id !== dayId) return d
     const numericKeys = ['qty_planned', 'mils', 'mix_time']
     const next = numericKeys.includes(key) ? (parseFloat(val) || 0) : val
     return {
       ...d,
-      materials: (d.materials || []).map((m, i) => i === idx ? { ...m, [key]: next } : m),
+      materials: (d.materials || []).map(m =>
+        String(m.wtc_material_id) === String(wtcId) ? { ...m, [key]: next } : m
+      ),
     }
   }))
 
@@ -234,10 +230,10 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
 
           <DayMaterials
             day={day}
-            availableMaterials={availableMaterials}
+            wtcMaterials={availableMaterials}
             onAdd={(src) => addMaterialToDay(day.id, src)}
-            onRemove={(idx) => removeMaterialFromDay(day.id, idx)}
-            onUpdate={(idx, key, val) => updateMaterialField(day.id, idx, key, val)}
+            onRemove={(wtcId) => removeMaterialFromDay(day.id, wtcId)}
+            onUpdate={(wtcId, key, val) => updateMaterialField(day.id, wtcId, key, val)}
           />
         </div>
       ))}
@@ -245,92 +241,131 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   )
 }
 
-function DayMaterials({ day, availableMaterials, onAdd, onRemove, onUpdate }) {
-  const [pickerOpen, setPickerOpen] = useState(false)
-  const matName = m => m.product || m.name || ''
-  const usedNames = new Set((day.materials || []).map(m => (m.name || '').toLowerCase()).filter(Boolean))
-  const pickable = (availableMaterials || []).filter(m => m && matName(m) && !usedNames.has(matName(m).toLowerCase()))
+function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
+  const [open, setOpen] = useState(false)
+  const [dropUp, setDropUp] = useState(false)
+  const ref = useRef(null)
+  const btnRef = useRef(null)
+
+  useEffect(() => {
+    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleOpen = () => {
+    if (btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect()
+      setDropUp(window.innerHeight - rect.bottom < 240)
+    }
+    setOpen(o => !o)
+  }
+
+  const safeMaterials = (wtcMaterials || []).filter(m => m && m.id != null)
+  const selectedIds = new Set((day.materials || []).map(m => String(m.wtc_material_id)))
+  const available = safeMaterials.filter(m => !selectedIds.has(safeId(m)))
+
+  const dayMats = (day.materials || []).filter(m => m && m.wtc_material_id != null)
+
+  const specInput = (m, key, placeholder, type = 'text') => (
+    <input
+      type={type}
+      className="fsb-input"
+      value={m[key] ?? ''}
+      placeholder={placeholder}
+      onChange={e => onUpdate(m.wtc_material_id, key, e.target.value)}
+    />
+  )
+
+  const btnRect = btnRef.current?.getBoundingClientRect()
+  const pickerStyle = btnRect ? {
+    position: 'fixed',
+    left: btnRect.left,
+    ...(dropUp
+      ? { bottom: window.innerHeight - btnRect.top + 4 }
+      : { top: btnRect.bottom + 4 }),
+  } : { position: 'fixed' }
+
+  let btnLabel
+  if (safeMaterials.length === 0) btnLabel = 'No proposal materials on this job'
+  else if (available.length === 0) btnLabel = '✓ All materials added'
+  else btnLabel = '+ Add material from this job'
 
   return (
     <div className="fsb-mats">
       <div className="fsb-mats-label">Materials for this day</div>
-      {(day.materials || []).length > 0 && (
+      {dayMats.length > 0 && (
         <div className="fsb-mats-list">
-          {(day.materials || []).map((m, idx) => (
-            <div key={idx} className="fsb-mat-card">
+          {dayMats.map(m => (
+            <div key={String(m.wtc_material_id)} className="fsb-mat-card">
               <div className="fsb-mat-head">
-                <input
-                  type="text"
-                  className="fsb-input fsb-mat-name"
-                  placeholder="Material name"
-                  value={m.name || ''}
-                  onChange={e => onUpdate(idx, 'name', e.target.value)}
-                />
+                <span className="fsb-mat-name">{m.name}</span>
                 {m.kit_size && <span className="fsb-mat-kit">{m.kit_size}</span>}
-                <button className="fsb-remove-task" onClick={() => onRemove(idx)} title="Remove material">×</button>
+                <button className="fsb-remove-task" onClick={() => onRemove(m.wtc_material_id)} title="Remove material">×</button>
               </div>
               <div className="fsb-mat-grid">
                 <div className="fsb-mat-field">
-                  <label className="fsb-label">Qty</label>
-                  <input type="number" className="fsb-input fsb-input-num" value={m.qty_planned || ''}
-                    onChange={e => onUpdate(idx, 'qty_planned', e.target.value)} placeholder="0" />
+                  <label className="fsb-label">Qty Planned</label>
+                  <div className="fsb-mat-spec">
+                    {specInput(m, 'qty_planned', '0', 'number')}
+                    <span className="fsb-mat-suffix">kits</span>
+                  </div>
                 </div>
                 <div className="fsb-mat-field">
                   <label className="fsb-label">Mils</label>
-                  <input type="number" className="fsb-input fsb-input-num" value={m.mils || ''}
-                    onChange={e => onUpdate(idx, 'mils', e.target.value)} placeholder="0" />
-                </div>
-                <div className="fsb-mat-field fsb-mat-field-grow">
-                  <label className="fsb-label">Coverage</label>
-                  <input type="text" className="fsb-input" value={m.coverage_rate || ''}
-                    onChange={e => onUpdate(idx, 'coverage_rate', e.target.value)} placeholder="e.g. 200 sqft/gal" />
+                  <div className="fsb-mat-spec">
+                    {specInput(m, 'mils', '0', 'number')}
+                    <span className="fsb-mat-suffix">mil</span>
+                  </div>
                 </div>
                 <div className="fsb-mat-field">
+                  <label className="fsb-label">Coverage Rate</label>
+                  {specInput(m, 'coverage_rate', 'e.g. 200 sqft/gal')}
+                </div>
+              </div>
+              <div className="fsb-mat-grid" style={{ marginTop: 8 }}>
+                <div className="fsb-mat-field">
                   <label className="fsb-label">Mix Time</label>
-                  <input type="number" className="fsb-input fsb-input-num" value={m.mix_time || ''}
-                    onChange={e => onUpdate(idx, 'mix_time', e.target.value)} placeholder="min" />
+                  <div className="fsb-mat-spec">
+                    {specInput(m, 'mix_time', '0', 'number')}
+                    <span className="fsb-mat-suffix">min</span>
+                  </div>
                 </div>
-                <div className="fsb-mat-field fsb-mat-field-grow">
+                <div className="fsb-mat-field">
                   <label className="fsb-label">Mix Speed</label>
-                  <input type="text" className="fsb-input" value={m.mix_speed || ''}
-                    onChange={e => onUpdate(idx, 'mix_speed', e.target.value)} placeholder="e.g. Low" />
+                  {specInput(m, 'mix_speed', 'e.g. Low')}
                 </div>
-                <div className="fsb-mat-field fsb-mat-field-grow">
+                <div className="fsb-mat-field">
                   <label className="fsb-label">Cure Time</label>
-                  <input type="text" className="fsb-input" value={m.cure_time || ''}
-                    onChange={e => onUpdate(idx, 'cure_time', e.target.value)} placeholder="e.g. 24 hrs" />
+                  {specInput(m, 'cure_time', 'e.g. 24 hrs')}
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
-      <div className="fsb-mat-add-wrap">
+      <div className="fsb-mat-add-wrap" ref={ref}>
         <button
+          ref={btnRef}
           className="fsb-add-task"
-          onClick={() => setPickerOpen(o => !o)}
+          onClick={handleOpen}
+          disabled={available.length === 0}
         >
-          {pickerOpen ? '− Close' : '+ Add Material'}
+          {btnLabel}
         </button>
-        {pickerOpen && (
-          <div className="fsb-mat-picker">
-            <div className="fsb-mat-picker-hdr">From proposal materials</div>
-            {pickable.length === 0 && (
-              <div className="fsb-mat-picker-empty">
-                {(availableMaterials || []).length === 0
-                  ? 'No proposal materials on this job — use Custom below.'
-                  : 'All proposal materials added to this day.'}
-              </div>
-            )}
-            {pickable.map(m => (
-              <button key={m.id} className="fsb-mat-picker-row" onClick={() => { onAdd(m); setPickerOpen(false) }}>
-                <span>{matName(m)}</span>
-                {(m.kit_size || m.kit) && <span className="fsb-mat-picker-kit">{m.kit_size || m.kit}</span>}
+        {open && available.length > 0 && (
+          <div className="fsb-mat-picker" style={pickerStyle}>
+            <div className="fsb-mat-picker-hdr">FROM PROPOSAL MATERIALS</div>
+            {available.map(m => (
+              <button
+                key={safeId(m)}
+                className="fsb-mat-picker-row"
+                onMouseDown={() => { onAdd(m); setOpen(false) }}
+              >
+                <span>{safeName(m)}</span>
+                {safeKit(m) && <span className="fsb-mat-picker-kit">{safeKit(m)}</span>}
               </button>
             ))}
-            <button className="fsb-mat-picker-row fsb-mat-picker-custom" onClick={() => { onAdd(null); setPickerOpen(false) }}>
-              + Custom material…
-            </button>
           </div>
         )}
       </div>

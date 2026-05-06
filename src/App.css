@@ -3442,17 +3442,20 @@
 .fsb-mat-name { flex: 1; font-weight: 700; }
 .fsb-mat-grid {
   display: grid;
-  grid-template-columns: 80px 80px 1fr 90px 1fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px 10px;
 }
 .fsb-mat-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .fsb-mat-field input { width: 100%; box-sizing: border-box; }
 .fsb-mat-field-grow input { width: 100%; }
+.fsb-mat-spec { display: flex; align-items: center; gap: 4px; }
+.fsb-mat-suffix {
+  font-size: 11px;
+  color: var(--sand-dark);
+  white-space: nowrap;
+}
 .fsb-mat-add-wrap { position: relative; display: inline-block; }
 .fsb-mat-picker {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
   background: var(--bg-card);
   border: 1.5px solid rgba(28, 24, 20, 0.25);
   border-radius: 8px;
@@ -3460,9 +3463,11 @@
   min-width: 280px;
   max-height: 240px;
   overflow-y: auto;
-  z-index: 100;
+  z-index: 9999;
 }
 .fsb-mat-picker-hdr {
+  position: sticky;
+  top: 0;
   padding: 6px 12px;
   font-size: 9px;
   font-weight: 700;
@@ -3509,12 +3514,6 @@
   padding: 1px 7px;
   white-space: nowrap;
 }
-.fsb-mat-picker-custom {
-  font-style: italic;
-  color: var(--command-green);
-  font-weight: 600;
-}
-
 .jd-gate-modal .jd-gate-sub {
   font-size: 12px;
   color: var(--sand-dark);
