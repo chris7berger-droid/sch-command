@@ -79,6 +79,12 @@ Sales just enters it for the field crew to see.
      plus this session's 4 commits. 14 files changed, 1225 +/187.
    - Production live on schedulecommand.com.
 
+6. chore: delete dead JobCrewScheduler (3fe9414, direct to main)
+   - Removed src/components/JobCrewScheduler.jsx (its import in
+     JobDetail.jsx, and ~530 lines of orphan .jcs-* CSS in App.css).
+   - 934 lines deleted total. Component was unreferenced since v7's
+     embedded Schedule view in Job Planning replaced it.
+
 ===============================================================================
 ARCHITECTURE NOTES (NEW — record so they don't drift)
 ===============================================================================
@@ -137,21 +143,17 @@ OPEN THREADS (in priority order)
    an empty scoreboard slot. Decide: keep, hide, or move next to search.
    (Was v7 thread #3.)
 
-3. **JobCrewScheduler.jsx is dead code.** Kept across v7 in case the
-   embedded Schedule view in Job Planning was rejected — it wasn't.
-   Safe to delete now. (Was v7 thread #4.)
-
-4. **JobDetail tab persistence across job navigation.** When tab state
+3. **JobDetail tab persistence across job navigation.** When tab state
    carries from a non-parked job (Billing) to a parked job (Management
    group hidden), user lands on a tab with no nav buttons. Clamp tab to
    a planning tab when status === 'Parked'. (Was v7 thread #5.)
 
-5. **Conflict marking on the Schedule grid itself** (not just the modal).
+4. **Conflict marking on the Schedule grid itself** (not just the modal).
    Modal warns on assign, but the existing crew-row day cells in the grid
    don't visibly flag double-bookings. Worth adding to match. (Was v7
    thread #6.)
 
-6. **Field crew → team_members migration.** Per the field crew filtering
+5. **Field crew → team_members migration.** Per the field crew filtering
    memory: Ramirez, Little, Loomis, etc. are only in `crew` table, not
    `team_members`. Need team_members rows + Supabase Auth accounts before
    real Field Command deployment. Also unblocks per-crew PowerSync sync
@@ -179,9 +181,8 @@ NEXT SESSION FIRST MOVES
 
 1. Verify schedulecommand.com prod loads cleanly (look at the Field SOW
    tab on a Parked job — both catalog and custom add).
-2. Pick one of the open threads. #3 (delete dead JobCrewScheduler.jsx)
-   is the cheapest cleanup; #1 (Sales pull-back guard) is the highest-
-   value if Chris is going to start moving Schedule edits to production
-   soon.
-3. If field deployment is the next theme: open thread #6 (team_members
+2. Pick one of the open threads. #1 (Sales pull-back guard) is the
+   highest-value if Chris is going to start moving Schedule edits to
+   production soon; #2 (Bin button placement) is the cheapest UI call.
+3. If field deployment is the next theme: open thread #5 (team_members
    backfill + Auth accounts for the field crew) is the gating work.
