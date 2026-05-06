@@ -47,13 +47,16 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     const existing = d.materials || []
     const entry = source
       ? {
+          wtc_material_id: source.id != null ? String(source.id) : null,
           material_id: source.id ?? null,
-          name: source.name || 'Unnamed material',
-          qty_planned: 0, mils: 0, coverage_rate: '', mix_time: 0, mix_speed: '', cure_time: '',
+          name: source.product || source.name || 'Unnamed material',
+          kit_size: source.kit_size || source.kit || '',
+          qty_planned: 0, mils: 0, coverage_rate: source.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
         }
       : {
           material_id: null,
           name: '',
+          kit_size: '',
           qty_planned: 0, mils: 0, coverage_rate: '', mix_time: 0, mix_speed: '', cure_time: '',
         }
     return { ...d, materials: [...existing, entry] }
@@ -244,8 +247,9 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
 
 function DayMaterials({ day, availableMaterials, onAdd, onRemove, onUpdate }) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  const matName = m => m.product || m.name || ''
   const usedNames = new Set((day.materials || []).map(m => (m.name || '').toLowerCase()).filter(Boolean))
-  const pickable = (availableMaterials || []).filter(m => m && m.name && !usedNames.has(m.name.toLowerCase()))
+  const pickable = (availableMaterials || []).filter(m => m && matName(m) && !usedNames.has(matName(m).toLowerCase()))
 
   return (
     <div className="fsb-mats">
@@ -262,6 +266,7 @@ function DayMaterials({ day, availableMaterials, onAdd, onRemove, onUpdate }) {
                   value={m.name || ''}
                   onChange={e => onUpdate(idx, 'name', e.target.value)}
                 />
+                {m.kit_size && <span className="fsb-mat-kit">{m.kit_size}</span>}
                 <button className="fsb-remove-task" onClick={() => onRemove(idx)} title="Remove material">×</button>
               </div>
               <div className="fsb-mat-grid">
@@ -309,17 +314,18 @@ function DayMaterials({ day, availableMaterials, onAdd, onRemove, onUpdate }) {
         </button>
         {pickerOpen && (
           <div className="fsb-mat-picker">
-            <div className="fsb-mat-picker-hdr">From job materials</div>
+            <div className="fsb-mat-picker-hdr">From proposal materials</div>
             {pickable.length === 0 && (
               <div className="fsb-mat-picker-empty">
                 {(availableMaterials || []).length === 0
-                  ? 'No materials added to this job yet — use Custom below.'
-                  : 'All job materials added to this day.'}
+                  ? 'No proposal materials on this job — use Custom below.'
+                  : 'All proposal materials added to this day.'}
               </div>
             )}
             {pickable.map(m => (
               <button key={m.id} className="fsb-mat-picker-row" onClick={() => { onAdd(m); setPickerOpen(false) }}>
-                <span>{m.name}</span>
+                <span>{matName(m)}</span>
+                {(m.kit_size || m.kit) && <span className="fsb-mat-picker-kit">{m.kit_size || m.kit}</span>}
               </button>
             ))}
             <button className="fsb-mat-picker-row fsb-mat-picker-custom" onClick={() => { onAdd(null); setPickerOpen(false) }}>

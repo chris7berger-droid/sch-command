@@ -63,6 +63,7 @@ export default function JobDetail() {
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
   const [materials, setMaterials] = useState([])
+  const [proposalMaterials, setProposalMaterials] = useState([])
   const [changes, setChanges] = useState([])
   const [fieldCrew, setFieldCrew] = useState([])
   const [prts, setPrts] = useState([])
@@ -92,21 +93,31 @@ export default function JobDetail() {
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
     if (clId) {
-      const [{ data: fcData }, prtRes, dlRes, tmRes] = await Promise.all([
+      const [{ data: fcData }, prtRes, dlRes, tmRes, pwRes] = await Promise.all([
         supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId),
         loadPRTsForJob(clId),
         loadDailyLogsForJob(clId),
         loadTeamMemberMap(),
+        supabase
+          .from('proposal_wtc')
+          .select('id, materials, proposals!inner(call_log_id)')
+          .eq('proposals.call_log_id', clId),
       ])
       setFieldCrew(fcData || [])
       setPrts(prtRes.data || [])
       setDailyLogs(dlRes.data || [])
       setTeamMap(tmRes.data || {})
+      const flat = []
+      ;(pwRes.data || []).forEach(w => (w.materials || []).forEach(m => {
+        if (m && m.id != null) flat.push({ ...m, _wtc_id: w.id })
+      }))
+      setProposalMaterials(flat)
     } else {
       setFieldCrew([])
       setPrts([])
       setDailyLogs([])
       setTeamMap({})
+      setProposalMaterials([])
     }
     setLoading(false)
   }, [jobId])
@@ -570,7 +581,7 @@ export default function JobDetail() {
               key={job.job_id}
               value={job.field_sow}
               saving={false}
-              availableMaterials={materials}
+              availableMaterials={proposalMaterials}
               onSave={async (next) => {
                 await updateJobField(job.job_id, 'field_sow', next, changedBy)
                 setJob(prev => ({ ...prev, field_sow: next }))
