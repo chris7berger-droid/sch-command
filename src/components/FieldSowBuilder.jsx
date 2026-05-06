@@ -4,6 +4,14 @@ const safeName = m => m.product || m.name || 'Unnamed material'
 const safeKit  = m => m.kit_size || m.kit || ''
 const safeId   = m => String(m.id)
 
+const newCustomId = () => {
+  const rand = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  return `custom_${rand}`
+}
+const isCustomId = (id) => String(id || '').startsWith('custom_')
+
 const newTask = () => ({ id: Date.now() + Math.random(), description: '', pct_complete: 0 })
 const newDay = (idx) => ({
   id: Date.now() + Math.random(),
@@ -52,6 +60,18 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
       name: safeName(source),
       kit_size: safeKit(source),
       qty_planned: 0, mils: 0, coverage_rate: source.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
+    }
+    return { ...d, materials: [...(d.materials || []), entry] }
+  }))
+
+  const addCustomMaterialToDay = (dayId) => update(days.map(d => {
+    if (d.id !== dayId) return d
+    const entry = {
+      wtc_material_id: newCustomId(),
+      material_id: null,
+      name: '',
+      kit_size: '',
+      qty_planned: 0, mils: 0, coverage_rate: '', mix_time: 0, mix_speed: '', cure_time: '',
     }
     return { ...d, materials: [...(d.materials || []), entry] }
   }))
@@ -232,6 +252,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
             day={day}
             wtcMaterials={availableMaterials}
             onAdd={(src) => addMaterialToDay(day.id, src)}
+            onAddCustom={() => addCustomMaterialToDay(day.id)}
             onRemove={(wtcId) => removeMaterialFromDay(day.id, wtcId)}
             onUpdate={(wtcId, key, val) => updateMaterialField(day.id, wtcId, key, val)}
           />
@@ -241,7 +262,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   )
 }
 
-function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
+function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdate }) {
   const [open, setOpen] = useState(false)
   const [dropUp, setDropUp] = useState(false)
   const ref = useRef(null)
@@ -287,8 +308,8 @@ function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
   } : { position: 'fixed' }
 
   let btnLabel
-  if (safeMaterials.length === 0) btnLabel = 'No proposal materials on this job'
-  else if (available.length === 0) btnLabel = '✓ All materials added'
+  if (safeMaterials.length === 0) btnLabel = '+ Add custom material'
+  else if (available.length === 0) btnLabel = '+ Add material (custom only)'
   else btnLabel = '+ Add material from this job'
 
   return (
@@ -296,11 +317,31 @@ function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
       <div className="fsb-mats-label">Materials for this day</div>
       {dayMats.length > 0 && (
         <div className="fsb-mats-list">
-          {dayMats.map(m => (
+          {dayMats.map(m => {
+            const isCustom = isCustomId(m.wtc_material_id)
+            return (
             <div key={String(m.wtc_material_id)} className="fsb-mat-card">
               <div className="fsb-mat-head">
-                <span className="fsb-mat-name">{m.name}</span>
-                {m.kit_size && <span className="fsb-mat-kit">{m.kit_size}</span>}
+                {isCustom ? (
+                  <input
+                    className="fsb-input fsb-mat-name-input"
+                    placeholder="Material name"
+                    value={m.name || ''}
+                    onChange={e => onUpdate(m.wtc_material_id, 'name', e.target.value)}
+                  />
+                ) : (
+                  <span className="fsb-mat-name">{m.name}</span>
+                )}
+                {isCustom ? (
+                  <input
+                    className="fsb-input fsb-mat-kit-input"
+                    placeholder="Kit size"
+                    value={m.kit_size || ''}
+                    onChange={e => onUpdate(m.wtc_material_id, 'kit_size', e.target.value)}
+                  />
+                ) : (
+                  m.kit_size && <span className="fsb-mat-kit">{m.kit_size}</span>
+                )}
                 <button className="fsb-remove-task" onClick={() => onRemove(m.wtc_material_id)} title="Remove material">×</button>
               </div>
               <div className="fsb-mat-grid">
@@ -341,7 +382,7 @@ function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
                 </div>
               </div>
             </div>
-          ))}
+          )})}
         </div>
       )}
       <div className="fsb-mat-add-wrap" ref={ref}>
@@ -349,13 +390,14 @@ function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
           ref={btnRef}
           className="fsb-add-task"
           onClick={handleOpen}
-          disabled={available.length === 0}
         >
           {btnLabel}
         </button>
-        {open && available.length > 0 && (
+        {open && (
           <div className="fsb-mat-picker" style={pickerStyle}>
-            <div className="fsb-mat-picker-hdr">FROM PROPOSAL MATERIALS</div>
+            {available.length > 0 && (
+              <div className="fsb-mat-picker-hdr">FROM PROPOSAL MATERIALS</div>
+            )}
             {available.map(m => (
               <button
                 key={safeId(m)}
@@ -366,6 +408,12 @@ function DayMaterials({ day, wtcMaterials, onAdd, onRemove, onUpdate }) {
                 {safeKit(m) && <span className="fsb-mat-picker-kit">{safeKit(m)}</span>}
               </button>
             ))}
+            <button
+              className="fsb-mat-picker-row fsb-mat-picker-custom"
+              onMouseDown={() => { onAddCustom(); setOpen(false) }}
+            >
+              + Custom material…
+            </button>
           </div>
         )}
       </div>

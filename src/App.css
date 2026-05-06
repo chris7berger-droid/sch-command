@@ -3440,6 +3440,8 @@
   margin-bottom: 8px;
 }
 .fsb-mat-name { flex: 1; font-weight: 700; }
+.fsb-mat-name-input { flex: 1; font-weight: 700; }
+.fsb-mat-kit-input { width: 110px; font-size: 11px; }
 .fsb-mat-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -3513,6 +3515,12 @@
   border-radius: 4px;
   padding: 1px 7px;
   white-space: nowrap;
+}
+.fsb-mat-picker-custom {
+  font-style: italic;
+  color: var(--command-green);
+  font-weight: 600;
+  border-top: 1px solid rgba(28, 24, 20, 0.18);
 }
 .jd-gate-modal .jd-gate-sub {
   font-size: 12px;
