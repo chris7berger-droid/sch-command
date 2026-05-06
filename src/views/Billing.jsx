@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField as auditUpdateJobField, updateJobFields } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -76,6 +77,7 @@ function workTypeTags(wt) {
 
 export default function Billing() {
   const user = useUser()
+  const navigate = useNavigate()
   const changedBy = user?.name || changedBy
   const [wkStart, setWkStart] = useState(() => getMonday(new Date()))
   const [jobs, setJobs] = useState([])
@@ -618,6 +620,9 @@ export default function Billing() {
 
   return (
     <div className="rtb-wrap">
+      <div className="jh-back-bar">
+        <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
+      </div>
       {/* Week nav */}
       <div className="rtb-wknav">
         <button className="app-act-btn" onClick={() => navWeek(-1)}>Prev</button>

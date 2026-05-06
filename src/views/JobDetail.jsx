@@ -4,7 +4,9 @@ import { supabase } from '../lib/supabase'
 import { loadJob, updateJobField, updateJobFields, updateCallLogStage, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import JobCrewScheduler from '../components/JobCrewScheduler'
+import Schedule from './Schedule'
 import PRTDetail from '../components/PRTDetail'
+import FieldSowBuilder from '../components/FieldSowBuilder'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -55,11 +57,13 @@ export default function JobDetail() {
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState(null)
+  const [showGateModal, setShowGateModal] = useState(false)
 
   // sub-data
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
   const [materials, setMaterials] = useState([])
+  const [proposalMaterials, setProposalMaterials] = useState([])
   const [changes, setChanges] = useState([])
   const [fieldCrew, setFieldCrew] = useState([])
   const [prts, setPrts] = useState([])
@@ -89,21 +93,31 @@ export default function JobDetail() {
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
     if (clId) {
-      const [{ data: fcData }, prtRes, dlRes, tmRes] = await Promise.all([
+      const [{ data: fcData }, prtRes, dlRes, tmRes, pwRes] = await Promise.all([
         supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId),
         loadPRTsForJob(clId),
         loadDailyLogsForJob(clId),
         loadTeamMemberMap(),
+        supabase
+          .from('proposal_wtc')
+          .select('id, materials, proposals!inner(call_log_id)')
+          .eq('proposals.call_log_id', clId),
       ])
       setFieldCrew(fcData || [])
       setPrts(prtRes.data || [])
       setDailyLogs(dlRes.data || [])
       setTeamMap(tmRes.data || {})
+      const flat = []
+      ;(pwRes.data || []).forEach(w => (w.materials || []).forEach(m => {
+        if (m && m.id != null) flat.push({ ...m, _wtc_id: w.id })
+      }))
+      setProposalMaterials(flat)
     } else {
       setFieldCrew([])
       setPrts([])
       setDailyLogs([])
       setTeamMap({})
+      setProposalMaterials([])
     }
     setLoading(false)
   }, [jobId])
@@ -199,7 +213,7 @@ export default function JobDetail() {
           </div>
         </div>
         )}
-        {mode !== 'planning' && (
+        {mode !== 'planning' && job.status !== 'Parked' && (
         <div className="jd-tab-group">
           <div className="jd-tab-group-label">JOB MANAGEMENT</div>
           <div className="jd-tabs">
@@ -278,8 +292,11 @@ export default function JobDetail() {
             <span className="jd-ready-count">{readyCount} of 3 ready</span>
             <button
               className={`jh-confirm-btn${!allReady ? ' disabled' : ''}`}
-              disabled={!allReady}
               onClick={async () => {
+                if (!allReady) {
+                  setShowGateModal(true)
+                  return
+                }
                 await updateJobField(job.job_id, 'status', 'Scheduled', changedBy)
                 if (job.call_log_id) {
                   await updateCallLogStage(job.call_log_id, 'Scheduled', changedBy)
@@ -289,6 +306,43 @@ export default function JobDetail() {
             >
               Send Job Plan to Schedule
             </button>
+          </div>
+        </div>
+      )}
+
+      {showGateModal && (
+        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowGateModal(false) }}>
+          <div className="mdl jd-gate-modal">
+            <h3>Job Plan Not Ready</h3>
+            <p className="jd-gate-sub">Finish these before sending to Schedule:</p>
+            <div className="jd-gate-list">
+              {!scheduleReady && (
+                <button className="jd-gate-row" onClick={() => { setTab('schedule'); setShowGateModal(false) }}>
+                  <span className="jd-gate-icon">○</span>
+                  <span className="jd-gate-label">Schedule</span>
+                  <span className="jd-gate-detail">No crew assigned — drag crew onto this job</span>
+                </button>
+              )}
+              {!(materialsReady && materialsDecided) && (
+                <button className="jd-gate-row" onClick={() => { setTab('materials'); setShowGateModal(false) }}>
+                  <span className="jd-gate-icon">○</span>
+                  <span className="jd-gate-label">Materials</span>
+                  <span className="jd-gate-detail">
+                    {!materialsDecided ? 'Decide if materials are needed' : 'Add materials or mark not needed'}
+                  </span>
+                </button>
+              )}
+              {!fieldSowReady && (
+                <button className="jd-gate-row" onClick={() => { setTab('fieldsow'); setShowGateModal(false) }}>
+                  <span className="jd-gate-icon">○</span>
+                  <span className="jd-gate-label">Field SOW</span>
+                  <span className="jd-gate-detail">Add the field scope of work</span>
+                </button>
+              )}
+            </div>
+            <div className="macts">
+              <button className="app-act-btn" onClick={() => setShowGateModal(false)}>Close</button>
+            </div>
           </div>
         </div>
       )}
@@ -448,7 +502,7 @@ export default function JobDetail() {
         {/* ── Schedule (crew scheduler) ──────────────────── */}
         {tab === 'schedule' && (
           <div className="jd-section">
-            <JobCrewScheduler job={job} onAssignmentsChange={setAssignments} />
+            <Schedule embedded />
           </div>
         )}
 
@@ -523,39 +577,23 @@ export default function JobDetail() {
         {/* ── Field SOW ──────────────────────────────────── */}
         {tab === 'fieldsow' && (
           <div className="jd-section">
-            {(!job.field_sow || job.field_sow.length === 0) ? (
-              <div className="jh-empty">No Field SOW data</div>
-            ) : (
-              <div className="jd-sow-list">
-                {job.field_sow.map((day, i) => (
-                  <div key={i} className="jd-sow-card">
-                    <div className="jd-sow-day">{day.day_label || `Day ${i + 1}`}</div>
-                    {day.tasks && day.tasks.map((task, ti) => (
-                      <div key={ti} className="jd-sow-task">
-                        {typeof task === 'string' ? task : task.description || ''}
-                        {task.pct_complete ? <span className="jd-sow-pct">{task.pct_complete}%</span> : null}
-                      </div>
-                    ))}
-                    {day.materials && day.materials.length > 0 && (
-                      <div className="jd-sow-materials">
-                        {day.materials.map((mat, mi) => (
-                          <div key={mi} className="jd-sow-mat">
-                            {mat.name}{mat.qty_planned ? ` x${mat.qty_planned}` : ''}{mat.mils ? ` @ ${mat.mils} mils` : ''}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {day.crew_count ? <div className="jd-sow-meta">Crew: {day.crew_count}</div> : null}
-                    {day.hours_planned ? <div className="jd-sow-meta">Hours: {day.hours_planned}</div> : null}
-                  </div>
-                ))}
-              </div>
-            )}
+            <FieldSowBuilder
+              key={job.job_id}
+              value={job.field_sow}
+              saving={false}
+              availableMaterials={proposalMaterials}
+              onSave={async (next) => {
+                await updateJobField(job.job_id, 'field_sow', next, changedBy)
+                setJob(prev => ({ ...prev, field_sow: next }))
+              }}
+            />
             {job.sow && (
-              <div className="jd-sales-sow">
-                <span className="jd-label">Sales SOW</span>
-                <pre className="jd-sow-text">{job.sow}</pre>
-              </div>
+              <details className="jd-sales-sow-collapse" style={{ marginTop: 20 }}>
+                <summary style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--sand-dark)', cursor: 'pointer' }}>
+                  Sales SOW (read-only reference)
+                </summary>
+                <pre className="jd-sow-text" style={{ marginTop: 8 }}>{job.sow}</pre>
+              </details>
             )}
           </div>
         )}

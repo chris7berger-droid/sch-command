@@ -267,12 +267,14 @@ export default function JobCardList({ jobs, allJobs, setJobs, billingLog, setBil
                   >
                     Job Planning
                   </button>
-                  <button
-                    className="jh-view-btn"
-                    onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
-                  >
-                    Job Management
-                  </button>
+                  {status !== 'Parked' && (
+                    <button
+                      className="jh-view-btn"
+                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
+                    >
+                      Job Management
+                    </button>
+                  )}
                   <button
                     className="jh-del-btn"
                     onClick={e => { e.stopPropagation(); softDelete(j.job_id, `${j.job_num} - ${j.job_name}`) }}

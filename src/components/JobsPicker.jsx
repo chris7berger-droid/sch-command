@@ -50,6 +50,7 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
   const navigate = useNavigate()
   const goTab = (key) => onPick ? onPick(key) : navigate(`/jobs?tab=${key}`)
   const goSchedule = () => navigate('/schedule')
+  const goBilling = () => navigate('/billing')
   const goProductionRate = () => navigate('/production-rate')
 
   return (
@@ -73,7 +74,7 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
           </div>
         </button>
 
-        <button className="jh-tile jh-tile-ready" onClick={() => goTab('ready')}>
+        <button className="jh-tile jh-tile-ready" onClick={goSchedule}>
           <div className="jh-tile-head">
             <div className="jh-tile-name"><span className="jh-tile-dot" />Ready</div>
             <div className="jh-tile-count">{counts.scheduled}</div>
@@ -97,7 +98,7 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
           </div>
         </button>
 
-        <button className="jh-tile jh-tile-billing" onClick={() => goTab('billing')}>
+        <button className="jh-tile jh-tile-billing" onClick={goBilling}>
           <div className="jh-tile-head">
             <div className="jh-tile-name"><span className="jh-tile-dot" />Billing</div>
             <div className="jh-tile-count">{counts.complete}</div>

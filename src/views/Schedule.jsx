@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -100,8 +101,9 @@ function gTagClass(t) {
   return ''
 }
 
-export default function Schedule() {
+export default function Schedule({ embedded = false } = {}) {
   const user = useUser()
+  const navigate = useNavigate()
   const changedBy = user?.name || changedBy
   const [jobs, setJobs] = useState([])
   const [crew, setCrew] = useState([])
@@ -310,10 +312,8 @@ export default function Schedule() {
     const hasRange = !!(effStart(job) || effEnd(job))
     if (!hasRange) return
     const existing = crewJobDays(jobId, name)
-    const inRange = dates.filter(d => jobInRange(job, d))
-    // Pre-select: existing days + all in-range days not yet assigned
-    const preSelected = [...new Set([...existing, ...inRange])]
-    setAssignModal({ name, jobId, selectedDays: preSelected, job })
+    // Pre-select only existing assignments — user opts in to new days
+    setAssignModal({ name, jobId, selectedDays: [...existing], job })
   }
 
   function toggleAssignDay(ds) {
@@ -899,11 +899,22 @@ export default function Schedule() {
 
   return (
     <div className="sch-layout">
+      {!embedded && (
+        <div className="jh-back-bar">
+          <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
+        </div>
+      )}
       <div className="sch-wrap">
         {/* Crew pool sidebar */}
         <div className="sch-pool">
           <div className="sch-ptitle">
-            Crew <span className="sch-ptitle-av">{availCount} avail</span>
+            Crew <span className="sch-ptitle-av">{availCount} free this week</span>
+          </div>
+          <div className="sch-legend">
+            <span className="sch-legend-item"><span className="sch-dot sch-dot-av" />Free</span>
+            <span className="sch-legend-item"><span className="sch-dot sch-dot-as" />Booked</span>
+            <span className="sch-legend-item"><span className="sch-dot sch-dot-si" />Sick</span>
+            <span className="sch-legend-item"><span className="sch-dot sch-dot-of" />Off</span>
           </div>
           {crewByTeam.teamKeys.map(tk => (
             <div key={tk}>
@@ -1001,14 +1012,28 @@ export default function Schedule() {
               {dates.map((ds, i) => {
                 const inRange = assignModal.job ? jobInRange(assignModal.job, ds) : false
                 if (!inRange) return <div key={ds} className="sch-modal-day" style={{ opacity: 0.3 }}>{DAYS_LONG[i]}</div>
+                const conflictJobs = assignments
+                  .filter(a => a.crew_name === assignModal.name && a.date === ds && String(a.job_id) !== String(assignModal.jobId))
+                  .map(a => {
+                    const j = jobs.find(jj => String(jj.job_id) === String(a.job_id))
+                    return j ? j.job_num : `Job ${a.job_id}`
+                  })
+                const dayStatus = getCSt(assignModal.name, ds)
+                const isOut = dayStatus !== 'available'
+                const hasConflict = conflictJobs.length > 0 || isOut
+                const conflictLabel = isOut ? dayStatus : conflictJobs.join(', ')
                 return (
                   <div
                     key={ds}
-                    className={`sch-modal-day${assignModal.selectedDays.includes(ds) ? ' sch-modal-day-on' : ''}`}
+                    className={`sch-modal-day${assignModal.selectedDays.includes(ds) ? ' sch-modal-day-on' : ''}${hasConflict ? ' sch-modal-day-conflict' : ''}`}
                     onClick={() => toggleAssignDay(ds)}
+                    title={hasConflict ? `Conflict: ${conflictLabel}` : ''}
                   >
                     {DAYS_LONG[i]}
                     <div style={{ fontSize: 8, opacity: 0.7 }}>{ds.split('-')[2]}</div>
+                    {hasConflict && (
+                      <div className="sch-modal-day-conflict-lbl">{conflictLabel}</div>
+                    )}
                   </div>
                 )
               })}
