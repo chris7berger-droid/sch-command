@@ -167,12 +167,20 @@ export default function Schedule({ embedded = false } = {}) {
     loadStatic()
   }, [])
 
-  // Load week-scoped data whenever week changes
-  const loadWeekData = useCallback(async () => {
+  // Load week-scoped data whenever week changes.
+  // Split into fetch + apply so the auto-load effect can guard against stale
+  // responses (deep-link triggers two rapid weekOffset changes → two in-flight
+  // requests; without the guard the slower empty-week response can overwrite
+  // the valid data).
+  const fetchWeekData = useCallback(async () => {
     const [asgnRes, csRes] = await Promise.all([
       supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
       supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
     ])
+    return { asgnRes, csRes }
+  }, [wsStr, weStr])
+
+  const applyWeekData = useCallback(({ asgnRes, csRes }) => {
     if (asgnRes.error || csRes.error) {
       setError((asgnRes.error || csRes.error).message)
       return
@@ -184,9 +192,17 @@ export default function Schedule({ embedded = false } = {}) {
     }
     setCrewStatus(csMap)
     setLoading(false)
-  }, [wsStr, weStr])
+  }, [])
 
-  useEffect(() => { loadWeekData() }, [loadWeekData])
+  const loadWeekData = useCallback(async () => {
+    applyWeekData(await fetchWeekData())
+  }, [fetchWeekData, applyWeekData])
+
+  useEffect(() => {
+    let stale = false
+    fetchWeekData().then(result => { if (!stale) applyWeekData(result) })
+    return () => { stale = true }
+  }, [fetchWeekData, applyWeekData])
 
   const getCSt = useCallback((name, dateStr) => {
     return crewStatus[name + '|' + dateStr] || 'available'
