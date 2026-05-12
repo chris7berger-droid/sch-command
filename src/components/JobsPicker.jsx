@@ -1,16 +1,7 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-
-function getJobStatus(j) {
-  if (!j || !j.status) return 'Ongoing'
-  const s = j.status.toLowerCase().trim()
-  if (s === 'parked') return 'Parked'
-  if (s === 'scheduled') return 'Scheduled'
-  if (s === 'in progress') return 'In Progress'
-  if (s === 'on hold' || s === 'hold') return 'On Hold'
-  if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
-  return 'Ongoing'
-}
+import { getJobStatus } from '../lib/jobStatus'
+import { getJobMultiWeekAlert } from '../lib/queries'
 
 function getMonday(d) {
   const dt = new Date(d)
@@ -29,23 +20,30 @@ function isThisWeek(dateStr, today) {
   return d >= mon && d <= sun
 }
 
-export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
+export default function JobsPicker({ jobs = [], assignments = [], today = new Date(), onPick }) {
   const counts = useMemo(() => {
-    const buckets = { Parked: 0, Scheduled: 0, 'In Progress': 0, Complete: 0, 'On Hold': 0, Ongoing: 0 }
+    const buckets = { Scheduled: 0, 'In Progress': 0, Complete: 0, 'On Hold': 0, Ongoing: 0 }
     jobs.forEach(j => { buckets[getJobStatus(j)] = (buckets[getJobStatus(j)] || 0) + 1 })
     const startingThisWeek = jobs.filter(j => {
       if (getJobStatus(j) !== 'Scheduled') return false
       return isThisWeek(j.scheduled_start || j.start_date, today)
     }).length
     return {
-      parked: buckets.Parked,
       scheduled: buckets.Scheduled,
       inProgress: buckets['In Progress'],
       complete: buckets.Complete,
+      onHold: buckets['On Hold'],
       total: jobs.length,
       startingThisWeek,
     }
   }, [jobs, today])
+
+  const multiWeekAlertCount = useMemo(() =>
+    jobs.filter(j =>
+      getJobStatus(j) === 'Scheduled' &&
+      getJobMultiWeekAlert(j, assignments, today) > 0
+    ).length
+  , [jobs, assignments, today])
 
   const navigate = useNavigate()
   const goTab = (key) => onPick ? onPick(key) : navigate(`/jobs?tab=${key}`)
@@ -62,26 +60,18 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
 
       <div className="jh-picker-grid">
 
-        <button className="jh-tile jh-tile-parked" onClick={() => goTab('pipeline')}>
+        <button className="jh-tile jh-tile-scheduled" onClick={() => goTab('scheduled')}>
           <div className="jh-tile-head">
-            <div className="jh-tile-name"><span className="jh-tile-dot" />Parked</div>
-            <div className="jh-tile-count">{counts.parked}</div>
-          </div>
-          <div className="jh-tile-desc">Inquiries waiting on readiness — permits, materials, deposit, crew, date.</div>
-          <div className="jh-tile-foot">
-            <span className="jh-tile-attn">— ready to schedule</span>
-            <span className="jh-tile-arrow">→</span>
-          </div>
-        </button>
-
-        <button className="jh-tile jh-tile-ready" onClick={goSchedule}>
-          <div className="jh-tile-head">
-            <div className="jh-tile-name"><span className="jh-tile-dot" />Ready</div>
+            <div className="jh-tile-name"><span className="jh-tile-dot" />Scheduled</div>
             <div className="jh-tile-count">{counts.scheduled}</div>
           </div>
-          <div className="jh-tile-desc">Date set, crew assigned, good to go. Kickoff upcoming.</div>
+          <div className="jh-tile-desc">Date set, materials decided. Awaiting crew assignment + kickoff.</div>
           <div className="jh-tile-foot">
-            <span className="jh-tile-attn">{counts.startingThisWeek} starting this week</span>
+            <span className="jh-tile-attn">
+              {multiWeekAlertCount > 0
+                ? `${multiWeekAlertCount} multi-week need crew`
+                : `${counts.startingThisWeek} starting this week`}
+            </span>
             <span className="jh-tile-arrow">→</span>
           </div>
         </button>
@@ -94,6 +84,18 @@ export default function JobsPicker({ jobs = [], today = new Date(), onPick }) {
           <div className="jh-tile-desc">Production in progress. Daily PRTs, photos, and progress tracking.</div>
           <div className="jh-tile-foot">
             <span className="jh-tile-attn">— behind target</span>
+            <span className="jh-tile-arrow">→</span>
+          </div>
+        </button>
+
+        <button className="jh-tile jh-tile-on-hold" onClick={() => goTab('on-hold')}>
+          <div className="jh-tile-head">
+            <div className="jh-tile-name"><span className="jh-tile-dot" />On Hold</div>
+            <div className="jh-tile-count">{counts.onHold}</div>
+          </div>
+          <div className="jh-tile-desc">Paused mid-pipeline. Resume back to Scheduled when ready.</div>
+          <div className="jh-tile-foot">
+            <span className="jh-tile-attn">— return path</span>
             <span className="jh-tile-arrow">→</span>
           </div>
         </button>

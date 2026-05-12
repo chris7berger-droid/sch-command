@@ -1,8 +1,9 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField } from '../lib/queries'
 import { useUser } from '../lib/user'
+import { getJobStatus } from '../lib/jobStatus'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -117,11 +118,30 @@ export default function Schedule({ embedded = false } = {}) {
   const [workTypes, setWorkTypes] = useState([])
   const [wtOpen, setWtOpen] = useState({})
 
+  // URL-param deep-link from JobDetail: /schedule?job=<id>&week=<YYYY-MM-DD>
+  const [searchParams] = useSearchParams()
+  const focusJobId = searchParams.get('job')
+  const focusWeek = searchParams.get('week')
+  const focusedJobRowRef = useRef(null)
+  const didHandleFocusRef = useRef(false)
+
   const monday = useMemo(() => {
     const m = getMonday(new Date())
     m.setDate(m.getDate() + weekOffset * 7)
     return m
   }, [weekOffset])
+
+  // On first render with ?week=, snap weekOffset to the target Monday.
+  useEffect(() => {
+    if (!focusWeek || didHandleFocusRef.current) return
+    const target = new Date(focusWeek + 'T00:00:00')
+    if (Number.isNaN(target.getTime())) return
+    const todayMonday = getMonday(new Date())
+    const diffDays = Math.round((target - todayMonday) / (1000 * 60 * 60 * 24))
+    const offset = Math.round(diffDays / 7)
+    setWeekOffset(offset)
+    didHandleFocusRef.current = true
+  }, [focusWeek])
 
   const dates = useMemo(() => wkDates(monday), [monday])
   const wsStr = dates[0]
@@ -147,12 +167,20 @@ export default function Schedule({ embedded = false } = {}) {
     loadStatic()
   }, [])
 
-  // Load week-scoped data whenever week changes
-  const loadWeekData = useCallback(async () => {
+  // Load week-scoped data whenever week changes.
+  // Split into fetch + apply so the auto-load effect can guard against stale
+  // responses (deep-link triggers two rapid weekOffset changes → two in-flight
+  // requests; without the guard the slower empty-week response can overwrite
+  // the valid data).
+  const fetchWeekData = useCallback(async () => {
     const [asgnRes, csRes] = await Promise.all([
       supabase.from('assignments').select('*').gte('date', wsStr).lte('date', weStr),
       supabase.from('crew_status').select('*').gte('date', wsStr).lte('date', weStr),
     ])
+    return { asgnRes, csRes }
+  }, [wsStr, weStr])
+
+  const applyWeekData = useCallback(({ asgnRes, csRes }) => {
     if (asgnRes.error || csRes.error) {
       setError((asgnRes.error || csRes.error).message)
       return
@@ -164,9 +192,17 @@ export default function Schedule({ embedded = false } = {}) {
     }
     setCrewStatus(csMap)
     setLoading(false)
-  }, [wsStr, weStr])
+  }, [])
 
-  useEffect(() => { loadWeekData() }, [loadWeekData])
+  const loadWeekData = useCallback(async () => {
+    applyWeekData(await fetchWeekData())
+  }, [fetchWeekData, applyWeekData])
+
+  useEffect(() => {
+    let stale = false
+    fetchWeekData().then(result => { if (!stale) applyWeekData(result) })
+    return () => { stale = true }
+  }, [fetchWeekData, applyWeekData])
 
   const getCSt = useCallback((name, dateStr) => {
     return crewStatus[name + '|' + dateStr] || 'available'
@@ -236,11 +272,16 @@ export default function Schedule({ embedded = false } = {}) {
     return r
   }
 
-  // Week jobs: active jobs overlapping current week
+  // Week jobs: active jobs overlapping current week.
+  // Uses getJobStatus() so legacy 'Parked'-status rows (normalized to
+  // 'Scheduled') appear here too. Without this, the JobDetail deep-link
+  // can land on /schedule for a legacy Parked job and the row won't render.
   const weekJobs = useMemo(() => {
-    return jobs.filter(j =>
-      (j.status === 'Ongoing' || j.status === 'Scheduled' || j.status === 'In Progress' || j.status === 'On Hold') && jobOverlapsWeek(j, wsStr, weStr)
-    )
+    return jobs.filter(j => {
+      const s = getJobStatus(j)
+      const active = s === 'Scheduled' || s === 'In Progress' || s === 'On Hold' || s === 'Ongoing'
+      return active && jobOverlapsWeek(j, wsStr, weStr)
+    })
   }, [jobs, wsStr, weStr])
 
   const { scheduled, unscheduled } = useMemo(() => {
@@ -253,6 +294,36 @@ export default function Schedule({ embedded = false } = {}) {
     }
     return { scheduled: sched, unscheduled: unsched }
   }, [weekJobs, assignments])
+
+  // Multi-week alert per plan §6.4: pulse Prev/Next when any visible job has
+  // zero crew assigned for any of its days in the adjacent week.
+  function weekHasUnassignedDaysFor(j, weekMonday, asgns) {
+    const start = effStart(j), end = effEnd(j)
+    if (!start || !end) return false
+    const wkDts = wkDates(weekMonday)
+    const jobDaysInWeek = wkDts.filter(d => d >= start && d <= end)
+    if (jobDaysInWeek.length === 0) return false
+    return !asgns.some(a => a.job_id === j.job_id && jobDaysInWeek.includes(a.date))
+  }
+
+  const prevWeekAlert = useMemo(() => {
+    const prev = new Date(monday); prev.setDate(prev.getDate() - 7)
+    return scheduled.some(j => weekHasUnassignedDaysFor(j, prev, assignments))
+  }, [scheduled, monday, assignments])
+
+  const nextWeekAlert = useMemo(() => {
+    const next = new Date(monday); next.setDate(next.getDate() + 7)
+    return scheduled.some(j => weekHasUnassignedDaysFor(j, next, assignments))
+  }, [scheduled, monday, assignments])
+
+  // Scroll the focused job row into view once the board is rendered.
+  useEffect(() => {
+    if (!focusJobId) return
+    const el = focusedJobRowRef.current
+    if (!el) return
+    const t = setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
+    return () => clearTimeout(t)
+  }, [focusJobId, weekJobs])
 
   // Stats: available and out counts per day
   const stats = useMemo(() => {
@@ -508,11 +579,20 @@ export default function Schedule({ embedded = false } = {}) {
     const expanded = expandedJobs[String(j.job_id)]
     const ddays = j.deferred_days ? String(j.deferred_days).split(',').filter(Boolean) : []
 
+    const isFocused = focusJobId && String(j.job_id) === String(focusJobId)
+
     return (
-      <div key={j.job_id} className="sch-board-row-wrap">
+      <div
+        key={j.job_id}
+        className="sch-board-row-wrap"
+        ref={isFocused ? focusedJobRowRef : null}
+      >
         {/* Job label + 6 day cells */}
         <div className="sch-board-row" style={dimmed ? { opacity: 0.45 } : undefined}>
-          <div className="sch-brd-job-label" onClick={() => toggleJob(j.job_id)}>
+          <div
+            className={`sch-brd-job-label${isFocused ? ' sch-label-focused' : ''}`}
+            onClick={() => toggleJob(j.job_id)}
+          >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
@@ -933,9 +1013,9 @@ export default function Schedule({ embedded = false } = {}) {
         {/* Main board */}
         <div className="sch-main">
           <div className="sch-wknav">
-            <button className="sch-btn" onClick={() => setWeekOffset(w => w - 1)}>Prev</button>
+            <button className={`sch-btn${prevWeekAlert ? ' pulse' : ''}`} onClick={() => setWeekOffset(w => w - 1)}>Prev</button>
             <div className="sch-wklbl">{fmtWk(monday)}</div>
-            <button className="sch-btn" onClick={() => setWeekOffset(w => w + 1)}>Next</button>
+            <button className={`sch-btn${nextWeekAlert ? ' pulse' : ''}`} onClick={() => setWeekOffset(w => w + 1)}>Next</button>
             <button className="sch-btn" onClick={() => setWeekOffset(0)}>This Week</button>
           </div>
 

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJob, updateJobField, updateJobFields, updateCallLogStage, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
+import { loadJob, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
-import Schedule from './Schedule'
+import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
 import FieldSowBuilder from '../components/FieldSowBuilder'
 
@@ -56,7 +56,6 @@ export default function JobDetail() {
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState(null)
-  const [showGateModal, setShowGateModal] = useState(false)
 
   // sub-data
   const [assignments, setAssignments] = useState([])
@@ -82,8 +81,9 @@ export default function JobDetail() {
     ])
     if (jobRes.data) {
       setJob(jobRes.data)
-      // Default tab based on mode param or job status
-      setTab(prev => prev || (mode === 'management' ? 'overview' : mode === 'planning' ? 'schedule' : jobRes.data.status === 'Parked' ? 'schedule' : 'overview'))
+      // Default tab: planning → fieldsow (top of planning tab list), else overview.
+      // The legacy 'schedule' tab is gone; the planning tab now starts at Field SOW.
+      setTab(prev => prev || (mode === 'planning' ? 'fieldsow' : 'overview'))
     }
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
@@ -130,46 +130,23 @@ export default function JobDetail() {
 
   const amount = job?.amount ? parseFloat(job.amount) : 0
 
-  // Readiness checks
-  const scheduleReady = assignments.length > 0
-  const materialsReady = job?.materials_needed === false || (job?.materials_needed === true && materials.length > 0)
-  const materialsDecided = job?.materials_needed !== null && job?.materials_needed !== undefined
-  const fieldSowReady = job?.field_sow && job.field_sow.length > 0
-  const readyCount = [scheduleReady, materialsReady && materialsDecided, fieldSowReady].filter(Boolean).length
-  const allReady = readyCount === 3
-
-  // Schedule summary
-  const crewNames = [...new Set(assignments.map(a => a.crew_name))]
-  const scheduleDays = [...new Set(assignments.map(a => a.date))].length
-  const soldCrewCount = job?.field_sow?.length > 0
-    ? Math.max(...job.field_sow.map(d => d.crew_count || 0))
-    : null
-  const crewMismatch = soldCrewCount && crewNames.length !== soldCrewCount
-  const scheduleSummary = scheduleReady
-    ? `${crewNames.length} man crew, ${scheduleDays} day${scheduleDays !== 1 ? 's' : ''}${crewMismatch ? ` (sold as ${soldCrewCount} man crew job)` : ''}`
-    : 'No crew assigned'
-
-  // Materials summary
-  const materialsSummary = !materialsDecided
-    ? 'Not decided'
-    : job.materials_needed === false
-      ? 'No materials needed'
-      : materials.length === 0
-        ? 'Needed — none added'
-        : `${materials.length} item${materials.length !== 1 ? 's' : ''}${materials.some(m => m.status === 'Not Ordered') ? `, ${materials.filter(m => m.status === 'Not Ordered').length} not ordered` : ''}`
-
-  // Field SOW summary
-  const fieldSowSummary = fieldSowReady
-    ? `${job.field_sow.length} day${job.field_sow.length !== 1 ? 's' : ''} planned`
-    : 'No Field SOW data'
-
   if (loading) return <div className="jd-wrap"><div className="jh-empty">Loading...</div></div>
   if (!job) return <div className="jd-wrap"><div className="jh-empty">Job not found</div></div>
 
+  // "Schedule this job" deep-link target: Monday of the job's start week.
+  const startForLink = effectiveStart(job)
+  let weekMonday = null
+  if (startForLink) {
+    const d = new Date(startForLink + 'T00:00:00')
+    const day = d.getDay()
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+    d.setHours(0, 0, 0, 0)
+    weekMonday = fmtD(d)
+  }
+
   const PLANNING_TABS = [
-    { key: 'schedule', label: 'Schedule' },
-    { key: 'materials', label: 'Materials' },
     { key: 'fieldsow', label: 'Field SOW' },
+    { key: 'materials', label: 'Materials' },
   ]
 
   const MANAGEMENT_TABS = [
@@ -188,9 +165,17 @@ export default function JobDetail() {
         <div className="jd-title-row">
           <span className="jd-num">{job.job_num}</span>
           <span className="jd-name">{job.job_name}</span>
-          <span className={`jh-status-badge ${job.status === 'Parked' ? 'pk' : job.status === 'Complete' ? 'cp' : job.status === 'On Hold' ? 'oh' : 'og'}`}>
-            {job.status}
+          <span className={`jh-status-badge ${getStatusBadgeClass(getJobStatus(job))}`}>
+            {getJobStatus(job)}
           </span>
+          {weekMonday && (
+            <button
+              className="jd-sched-link"
+              onClick={() => navigate(`/schedule?job=${job.job_id}&week=${weekMonday}`)}
+            >
+              Schedule this job →
+            </button>
+          )}
         </div>
       </div>
 
@@ -212,7 +197,7 @@ export default function JobDetail() {
           </div>
         </div>
         )}
-        {mode !== 'planning' && job.status !== 'Parked' && (
+        {mode !== 'planning' && (
         <div className="jd-tab-group">
           <div className="jd-tab-group-label">JOB MANAGEMENT</div>
           <div className="jd-tabs">
@@ -229,122 +214,6 @@ export default function JobDetail() {
         </div>
         )}
       </div>
-
-      {/* Readiness Checklist — Parked jobs only, planning mode */}
-      {job.status === 'Parked' && mode !== 'management' && (
-        <div className="jd-readiness">
-          <div className="jd-readiness-items">
-            <div className={`jd-ready-item${scheduleReady ? ' done' : ''}`} onClick={() => setTab('schedule')}>
-              <span className="jd-ready-check">{scheduleReady ? '\u2713' : '\u25CB'}</span>
-              <span className="jd-ready-label">Schedule</span>
-              <span className="jd-ready-summary">{scheduleSummary}</span>
-            </div>
-            <div className={`jd-ready-item${materialsReady && materialsDecided ? ' done' : ''}`}>
-              <span className="jd-ready-check">{materialsReady && materialsDecided ? '\u2713' : '\u25CB'}</span>
-              <span className="jd-ready-label">Materials</span>
-              {!materialsDecided ? (
-                <span className="jd-ready-toggle">
-                  <button
-                    className="jd-mat-toggle-btn yes"
-                    onClick={async () => {
-                      await updateJobField(job.job_id, 'materials_needed', true, changedBy)
-                      setJob(prev => ({ ...prev, materials_needed: true }))
-                      setTab('materials')
-                    }}
-                  >
-                    Needed
-                  </button>
-                  <button
-                    className="jd-mat-toggle-btn no"
-                    onClick={async () => {
-                      await updateJobField(job.job_id, 'materials_needed', false, changedBy)
-                      setJob(prev => ({ ...prev, materials_needed: false }))
-                    }}
-                  >
-                    Not Needed
-                  </button>
-                </span>
-              ) : (
-                <span className="jd-ready-summary">
-                  {materialsSummary}
-                  <button
-                    className="jd-mat-change"
-                    onClick={async () => {
-                      const newVal = !job.materials_needed
-                      await updateJobField(job.job_id, 'materials_needed', newVal, changedBy)
-                      setJob(prev => ({ ...prev, materials_needed: newVal }))
-                      if (newVal) setTab('materials')
-                    }}
-                  >
-                    change
-                  </button>
-                </span>
-              )}
-            </div>
-            <div className={`jd-ready-item${fieldSowReady ? ' done' : ''}`} onClick={() => setTab('fieldsow')}>
-              <span className="jd-ready-check">{fieldSowReady ? '\u2713' : '\u25CB'}</span>
-              <span className="jd-ready-label">Field SOW</span>
-              <span className="jd-ready-summary">{fieldSowSummary}</span>
-            </div>
-          </div>
-          <div className="jd-readiness-footer">
-            <span className="jd-ready-count">{readyCount} of 3 ready</span>
-            <button
-              className={`jh-confirm-btn${!allReady ? ' disabled' : ''}`}
-              onClick={async () => {
-                if (!allReady) {
-                  setShowGateModal(true)
-                  return
-                }
-                await updateJobField(job.job_id, 'status', 'Scheduled', changedBy)
-                if (job.call_log_id) {
-                  await updateCallLogStage(job.call_log_id, 'Scheduled', changedBy)
-                }
-                setJob(prev => ({ ...prev, status: 'Scheduled' }))
-              }}
-            >
-              Send Job Plan to Schedule
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showGateModal && (
-        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowGateModal(false) }}>
-          <div className="mdl jd-gate-modal">
-            <h3>Job Plan Not Ready</h3>
-            <p className="jd-gate-sub">Finish these before sending to Schedule:</p>
-            <div className="jd-gate-list">
-              {!scheduleReady && (
-                <button className="jd-gate-row" onClick={() => { setTab('schedule'); setShowGateModal(false) }}>
-                  <span className="jd-gate-icon">○</span>
-                  <span className="jd-gate-label">Schedule</span>
-                  <span className="jd-gate-detail">No crew assigned — drag crew onto this job</span>
-                </button>
-              )}
-              {!(materialsReady && materialsDecided) && (
-                <button className="jd-gate-row" onClick={() => { setTab('materials'); setShowGateModal(false) }}>
-                  <span className="jd-gate-icon">○</span>
-                  <span className="jd-gate-label">Materials</span>
-                  <span className="jd-gate-detail">
-                    {!materialsDecided ? 'Decide if materials are needed' : 'Add materials or mark not needed'}
-                  </span>
-                </button>
-              )}
-              {!fieldSowReady && (
-                <button className="jd-gate-row" onClick={() => { setTab('fieldsow'); setShowGateModal(false) }}>
-                  <span className="jd-gate-icon">○</span>
-                  <span className="jd-gate-label">Field SOW</span>
-                  <span className="jd-gate-detail">Add the field scope of work</span>
-                </button>
-              )}
-            </div>
-            <div className="macts">
-              <button className="app-act-btn" onClick={() => setShowGateModal(false)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Tab content */}
       <div className="jd-content">
@@ -495,13 +364,6 @@ export default function JobDetail() {
                 <p>{job.notes}</p>
               </div>
             )}
-          </div>
-        )}
-
-        {/* ── Schedule (crew scheduler) ──────────────────── */}
-        {tab === 'schedule' && (
-          <div className="jd-section">
-            <Schedule embedded />
           </div>
         )}
 

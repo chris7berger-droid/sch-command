@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
 import { useUser } from '../lib/user'
+import { getJobStatus } from '../lib/jobStatus'
+import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -13,17 +15,6 @@ function fmtD(d) {
 
 function isPW(j) {
   return j && (j.prevailing_wage === 'Yes' || j.prevailing_wage === true)
-}
-
-function getJobStatus(j) {
-  if (!j || !j.status) return 'Ongoing'
-  const s = j.status.toLowerCase().trim()
-  if (s === 'parked') return 'Parked'
-  if (s === 'scheduled') return 'Scheduled'
-  if (s === 'in progress') return 'In Progress'
-  if (s === 'on hold' || s === 'hold') return 'On Hold'
-  if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
-  return 'Ongoing'
 }
 
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -172,11 +163,17 @@ export default function JobCardList({ jobs, allJobs, setJobs, billingLog, setBil
               <div className="jh-card-left">
                 <span className={`jh-status-badge ${statusClass}`}>{status}</span>
                 <div className="jh-card-title">
-                  <span className="jh-card-num">{j.job_num}</span>
-                  <span className="jh-card-name">{j.job_name}</span>
+                  <span className="jh-card-name">{getCardTitle(j, j._wtcs)}</span>
                   {j.is_change_order && <span className="jh-co-tag">CO{j.co_number || ''}</span>}
                   {j.proposal_number && <span className="jh-proposal-tag">P{j.proposal_number}</span>}
                 </div>
+                {getWtcChips(j._wtcs).length > 0 && (
+                  <div className="sch-wtc-chips">
+                    {getWtcChips(j._wtcs).map(c => (
+                      <span key={c} className="sch-wtc-chip">{c}</span>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="jh-card-right">
                 {daysLeft !== null && status !== 'Complete' && (
@@ -228,13 +225,12 @@ export default function JobCardList({ jobs, allJobs, setJobs, billingLog, setBil
                 <div className="jh-detail-actions">
                   <select
                     className="jh-status-sel"
-                    value={j.status || 'Ongoing'}
+                    value={status}
                     onChange={e => updateStatus(j.job_id, e.target.value)}
                     onClick={e => e.stopPropagation()}
                   >
                     <option value="Scheduled">Scheduled</option>
                     <option value="In Progress">In Progress</option>
-                    <option value="Ongoing">Ongoing</option>
                     <option value="On Hold">On Hold</option>
                     <option value="Complete">Complete</option>
                   </select>
@@ -267,14 +263,12 @@ export default function JobCardList({ jobs, allJobs, setJobs, billingLog, setBil
                   >
                     Job Planning
                   </button>
-                  {status !== 'Parked' && (
-                    <button
-                      className="jh-view-btn"
-                      onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
-                    >
-                      Job Management
-                    </button>
-                  )}
+                  <button
+                    className="jh-view-btn"
+                    onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
+                  >
+                    Job Management
+                  </button>
                   <button
                     className="jh-del-btn"
                     onClick={e => { e.stopPropagation(); softDelete(j.job_id, `${j.job_num} - ${j.job_name}`) }}
