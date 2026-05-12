@@ -21,9 +21,23 @@ function _dedupeName(name) {
   return name
 }
 
+// Some legacy / call_log-driven rows store `job_num` as the full composite
+// label (e.g. "10031 - Testing push from SC to SCH C") instead of just "10031".
+// When that happens, ${num} - ${name} doubles the name. Detect and strip.
+function _cleanNum(num, name) {
+  if (!num) return ''
+  if (!name) return num
+  const parts = String(num).split(/\s+-\s+/)
+  if (parts.length > 1 && parts.slice(1).join(' - ').trim() === String(name).trim()) {
+    return parts[0]
+  }
+  return num
+}
+
 function _jobLabelPrefix(job) {
-  const num = job?.job_num ?? ''
+  const rawNum = job?.job_num ?? ''
   const name = _dedupeName(job?.job_name ?? '')
+  const num = _cleanNum(rawNum, name)
   if (num && name) return `${num} - ${name}`
   return num || name || ''
 }
