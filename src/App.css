@@ -5479,10 +5479,27 @@
   animation: mw-pulse 2s ease-in-out infinite;
 }
 
-.sch-row-focused {
-  outline: 2px solid var(--command-green, #5BBD3F);
-  outline-offset: 2px;
-  border-radius: 6px;
+.sch-label-focused {
+  background: #30cfac !important;
+  color: var(--header-dark, #1c1814) !important;
+  box-shadow: inset 0 0 0 2px #1c1814;
+  position: relative;
+}
+.sch-label-focused .sch-brd-job-name,
+.sch-label-focused .sch-brd-job-meta {
+  color: var(--header-dark, #1c1814);
+}
+.sch-label-focused::after {
+  content: '◀ FOCUS';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-family: var(--font-display, 'Barlow Condensed');
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--header-dark, #1c1814);
+  opacity: 0.85;
 }
 
 .oh-resume-row {

@@ -568,12 +568,15 @@ export default function Schedule({ embedded = false } = {}) {
     return (
       <div
         key={j.job_id}
-        className={`sch-board-row-wrap${isFocused ? ' sch-row-focused' : ''}`}
+        className="sch-board-row-wrap"
         ref={isFocused ? focusedJobRowRef : null}
       >
         {/* Job label + 6 day cells */}
         <div className="sch-board-row" style={dimmed ? { opacity: 0.45 } : undefined}>
-          <div className="sch-brd-job-label" onClick={() => toggleJob(j.job_id)}>
+          <div
+            className={`sch-brd-job-label${isFocused ? ' sch-label-focused' : ''}`}
+            onClick={() => toggleJob(j.job_id)}
+          >
             <div className="sch-brd-job-name">{j.job_num} - {j.job_name}</div>
             <div className="sch-brd-job-meta">
               {j.work_type && String(j.work_type).split(',').map(t => t.trim()).filter(Boolean).map(t => (
