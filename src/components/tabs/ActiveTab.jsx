@@ -1,16 +1,6 @@
 import { useMemo } from 'react'
 import JobCardList from '../JobCardList'
-
-function getJobStatus(j) {
-  if (!j || !j.status) return 'Ongoing'
-  const s = j.status.toLowerCase().trim()
-  if (s === 'parked') return 'Parked'
-  if (s === 'scheduled') return 'Scheduled'
-  if (s === 'in progress') return 'In Progress'
-  if (s === 'on hold' || s === 'hold') return 'On Hold'
-  if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
-  return 'Ongoing'
-}
+import { getJobStatus } from '../../lib/jobStatus'
 
 // Active = jobs the field crew is currently producing on (status = In Progress).
 // M2's approval queue lands here when built — DPR/PRT review for in-flight jobs.

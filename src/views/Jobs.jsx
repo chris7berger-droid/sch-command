@@ -2,14 +2,18 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs } from '../lib/queries'
-import PipelineTab from '../components/tabs/PipelineTab'
 import ActiveTab from '../components/tabs/ActiveTab'
 import JobsPicker from '../components/JobsPicker'
 import JobCardList from '../components/JobCardList'
+import ScheduledCardList from '../components/ScheduledCardList'
+import OnHoldCardList from '../components/OnHoldCardList'
+import { getJobStatus } from '../lib/jobStatus'
 
-const VALID_TABS = ['pipeline', 'active', 'all']
-// Old/removed tab slugs redirect to their canonical destination page.
+const VALID_TABS = ['scheduled', 'active', 'on-hold', 'all']
+// Old/removed tab slugs redirect to their canonical destination.
+// 'pipeline' is the old Parked-bucket tab; legacy bookmarks land on Scheduled.
 const TAB_REDIRECTS = {
+  pipeline: '/jobs?tab=scheduled',
   ready: '/schedule',
   schedule: '/schedule',
   billing: '/billing',
@@ -43,17 +47,6 @@ function getQuarterEnd(d) {
   return new Date(dt.getFullYear(), q + 1, 0)
 }
 
-function getJobStatus(j) {
-  if (!j || !j.status) return 'Ongoing'
-  const s = j.status.toLowerCase().trim()
-  if (s === 'parked') return 'Parked'
-  if (s === 'scheduled') return 'Scheduled'
-  if (s === 'in progress') return 'In Progress'
-  if (s === 'on hold' || s === 'hold') return 'On Hold'
-  if (s === 'complete' || s === 'completed' || s === 'done') return 'Complete'
-  return 'Ongoing'
-}
-
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
 
@@ -74,11 +67,21 @@ function daysBetween(dateStr, refDate) {
 
 function urgencyScore(job, billingLog, today) {
   const status = getJobStatus(job)
+  // Plan §4 row 15(f): replace legacy "Parked → -5000" with a softer pin for
+  // Scheduled jobs whose kickoff isn't imminent, so they still float to the top
+  // of "All Jobs" without the old hard-pin semantic.
   let score = 0
-  if (status === 'Parked') score = -5000
-  else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') score = 0
-  else if (status === 'On Hold') score = 10000
-  else score = 20000
+  const startDate = effectiveStart(job)
+  const startDaysFromNow = startDate ? daysBetween(startDate, today) : null
+  if (status === 'Scheduled' && (startDaysFromNow === null || startDaysFromNow > 14)) {
+    score = -2500
+  } else if (status === 'Scheduled' || status === 'In Progress' || status === 'Ongoing') {
+    score = 0
+  } else if (status === 'On Hold') {
+    score = 10000
+  } else {
+    score = 20000
+  }
 
   const endDate = effectiveEnd(job)
   if (endDate) {
@@ -146,7 +149,7 @@ export default function Jobs() {
   const loadData = useCallback(async () => {
     setLoading(true)
     const [jobsRes, assignRes, billRes, tmRes] = await Promise.all([
-      loadJobs(),
+      loadJobs({ withWTCs: true }),
       supabase.from('assignments').select('*'),
       supabase.from('billing_log').select('*'),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
@@ -204,7 +207,6 @@ export default function Jobs() {
 
     if (dateRange) {
       list = list.filter(j => {
-        if (getJobStatus(j) === 'Parked') return true
         const start = effectiveStart(j)
         const end = effectiveEnd(j)
         if (!start && !end) return true
@@ -226,11 +228,11 @@ export default function Jobs() {
     return list
   }, [jobs, search, dateRange, billingLog, today])
 
-  // scoreboard buckets
-  const parkedCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Parked').length, [filteredJobs])
+  // scoreboard buckets (Parked is gone — legacy Parked rows normalize to Scheduled)
+  const scheduledCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Scheduled').length, [filteredJobs])
   const activeCount = useMemo(() => filteredJobs.filter(j => {
     const s = getJobStatus(j)
-    return s === 'Ongoing' || s === 'Scheduled' || s === 'In Progress'
+    return s === 'Ongoing' || s === 'In Progress'
   }).length, [filteredJobs])
   const onHoldCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold').length, [filteredJobs])
   const completeCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Complete').length, [filteredJobs])
@@ -288,73 +290,63 @@ export default function Jobs() {
             />
           </div>
 
-          {/* date filter — hidden on Pipeline (parked jobs always shown regardless of date) */}
-          {activeTab !== 'pipeline' && (
-            <div className="jh-filter-bar">
-              <div className="jh-filter-pills">
-                {FILTER_OPTIONS.map(f => (
-                  <button
-                    key={f.key}
-                    className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-                    onClick={() => setDateFilter(f.key)}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              {dateFilter === 'custom' && (
-                <div className="jh-custom-range">
-                  <input
-                    type="date"
-                    className="jh-date-input"
-                    value={customFrom}
-                    onChange={e => setCustomFrom(e.target.value)}
-                  />
-                  <span className="jh-range-sep">to</span>
-                  <input
-                    type="date"
-                    className="jh-date-input"
-                    value={customTo}
-                    onChange={e => setCustomTo(e.target.value)}
-                  />
-                </div>
-              )}
+          <div className="jh-filter-bar">
+            <div className="jh-filter-pills">
+              {FILTER_OPTIONS.map(f => (
+                <button
+                  key={f.key}
+                  className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
+                  onClick={() => setDateFilter(f.key)}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
-          )}
-
-          {/* scoreboard + bin — Pipeline shows Bin only (cross-stage counts are noise on a single-stage view) */}
-          <div className="jh-scores-row">
-            {activeTab !== 'pipeline' ? (
-              <div className="jh-scores">
-                {parkedCount > 0 && (
-                  <div className="jh-score pk">
-                    <div className="jh-score-num">{parkedCount}</div>
-                    <div className="jh-score-lbl">Parked</div>
-                  </div>
-                )}
-                <div className="jh-score og">
-                  <div className="jh-score-num">{activeCount}</div>
-                  <div className="jh-score-lbl">Active</div>
-                </div>
-                <div className="jh-score oh">
-                  <div className="jh-score-num">{onHoldCount}</div>
-                  <div className="jh-score-lbl">On Hold</div>
-                </div>
-                <div className="jh-score cp">
-                  <div className="jh-score-num">{completeCount}</div>
-                  <div className="jh-score-lbl">Complete</div>
-                </div>
+            {dateFilter === 'custom' && (
+              <div className="jh-custom-range">
+                <input
+                  type="date"
+                  className="jh-date-input"
+                  value={customFrom}
+                  onChange={e => setCustomFrom(e.target.value)}
+                />
+                <span className="jh-range-sep">to</span>
+                <input
+                  type="date"
+                  className="jh-date-input"
+                  value={customTo}
+                  onChange={e => setCustomTo(e.target.value)}
+                />
               </div>
-            ) : (
-              <div className="jh-scores" />
             )}
+          </div>
+
+          <div className="jh-scores-row">
+            <div className="jh-scores">
+              <div className="jh-score og">
+                <div className="jh-score-num">{scheduledCount}</div>
+                <div className="jh-score-lbl">Scheduled</div>
+              </div>
+              <div className="jh-score og">
+                <div className="jh-score-num">{activeCount}</div>
+                <div className="jh-score-lbl">Active</div>
+              </div>
+              <div className="jh-score oh">
+                <div className="jh-score-num">{onHoldCount}</div>
+                <div className="jh-score-lbl">On Hold</div>
+              </div>
+              <div className="jh-score cp">
+                <div className="jh-score-num">{completeCount}</div>
+                <div className="jh-score-lbl">Complete</div>
+              </div>
+            </div>
             <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
           </div>
         </>
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} today={today} onPick={setActiveTab} />
+        <JobsPicker jobs={jobs} assignments={assignments} today={today} onPick={setActiveTab} />
       )}
 
       {!showPicker && (
@@ -363,26 +355,34 @@ export default function Jobs() {
             <button className="jh-back-btn" onClick={goToPicker}>← All stages</button>
             <span className="jh-back-context">
               Viewing <b>{
-                activeTab === 'pipeline' ? 'Pipeline' :
+                activeTab === 'scheduled' ? 'Scheduled' :
                 activeTab === 'active' ? 'Active' :
+                activeTab === 'on-hold' ? 'On Hold' :
                 activeTab === 'all' ? 'All Jobs' : ''
               }</b>
             </span>
           </div>
 
-          {activeTab === 'pipeline' && (
-            <PipelineTab
+          {activeTab === 'scheduled' && (
+            <ScheduledCardList
+              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled')}
+              assignments={assignments}
+              today={today}
+              emptyText="No scheduled jobs in this date range"
+            />
+          )}
+          {activeTab === 'active' && (
+            <ActiveTab
               filteredJobs={filteredJobs}
               jobs={jobs}
               setJobs={setJobs}
               billingLog={billingLog}
               setBillingLog={setBillingLog}
               today={today}
-              reload={loadData}
             />
           )}
-          {activeTab === 'active' && (
-            <ActiveTab
+          {activeTab === 'on-hold' && (
+            <OnHoldCardList
               filteredJobs={filteredJobs}
               jobs={jobs}
               setJobs={setJobs}

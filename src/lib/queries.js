@@ -25,6 +25,7 @@ const CALL_LOG_SELECT = `
 // Shared fields prefer call_log when available, fall back to jobs (legacy rows)
 function normalizeJob(row) {
   const cl = row.call_log || {}
+  const wtcs = Array.isArray(row.job_wtcs) ? row.job_wtcs : []
   return {
     ...row,
     // shared fields — call_log is source of truth
@@ -46,15 +47,25 @@ function normalizeJob(row) {
     show_cents:         cl.show_cents          || false,
     // keep raw call_log for detail views
     _call_log: cl,
+    // per-WTC attributes (empty for legacy rows; readers fall back to
+    // jobs.field_sow / jobs.material_status when this is empty)
+    _wtcs: wtcs,
   }
 }
 
 // ── Load jobs with call_log join ────────────────────────────────────────────
 // Replaces: supabase.from('jobs').select('*')
-export async function loadJobs({ includeDeleted = false } = {}) {
+//
+// withWTCs: when true, also left-joins job_wtcs and attaches j._wtcs.
+// Legacy rows have zero job_wtcs children — _wtcs comes back as [].
+export async function loadJobs({ includeDeleted = false, withWTCs = false } = {}) {
+  const sel = withWTCs
+    ? `*, ${CALL_LOG_SELECT}, job_wtcs(*)`
+    : `*, ${CALL_LOG_SELECT}`
+
   let query = supabase
     .from('jobs')
-    .select(`*, ${CALL_LOG_SELECT}`)
+    .select(sel)
 
   if (!includeDeleted) {
     query = query.or('deleted.is.null,deleted.eq.No')
@@ -70,6 +81,18 @@ export async function loadJob(jobId) {
   const { data, error } = await supabase
     .from('jobs')
     .select(`*, ${CALL_LOG_SELECT}`)
+    .eq('job_id', jobId)
+    .single()
+
+  if (error) return { data: null, error }
+  return { data: normalizeJob(data), error: null }
+}
+
+// ── Load a single job with its job_wtcs children ────────────────────────────
+export async function loadJobWithWTCs(jobId) {
+  const { data, error } = await supabase
+    .from('jobs')
+    .select(`*, ${CALL_LOG_SELECT}, job_wtcs(*)`)
     .eq('job_id', jobId)
     .single()
 
@@ -220,6 +243,55 @@ export async function loadTeamMemberMap({ refresh = false } = {}) {
   for (const m of (data || [])) map[m.id] = m
   _teamMemberMapCache = map
   return { data: map, error: null }
+}
+
+// ── Multi-week alert (M6 tightening) ────────────────────────────────────────
+// Returns the count of weeks AFTER the job's start week that the job spans
+// where this specific job has zero crew assignments. 0 = no alert.
+// See plan §6.1 for the criterion and §6.5 for the perf envelope.
+
+function _fmtD(d) {
+  const dt = d instanceof Date ? d : new Date(d)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
+function _getMonday(d) {
+  const dt = d instanceof Date ? new Date(d) : new Date(d)
+  const day = dt.getDay()
+  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))
+  dt.setHours(0, 0, 0, 0)
+  return dt
+}
+
+export function getJobMultiWeekAlert(job, assignments, today) {
+  const start = job?.scheduled_start || job?.start_date
+  const end = job?.scheduled_end || job?.end_date
+  if (!start || !end) return 0
+
+  const startD = new Date(start + 'T00:00:00')
+  const endD = new Date(end + 'T00:00:00')
+  const startMonday = _getMonday(startD)
+  const endMonday = _getMonday(endD)
+  if (startMonday.getTime() === endMonday.getTime()) return 0
+
+  let alerts = 0
+  const cursor = new Date(startMonday)
+  cursor.setDate(cursor.getDate() + 7)  // skip start week
+
+  while (cursor.getTime() <= endMonday.getTime()) {
+    const daysInWeek = []
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(cursor); d.setDate(d.getDate() + i)
+      const ds = _fmtD(d)
+      if (ds >= start && ds <= end) daysInWeek.push(ds)
+    }
+    const hasAsgn = (assignments || []).some(a =>
+      a.job_id === job.job_id && daysInWeek.includes(a.date)
+    )
+    if (!hasAsgn) alerts++
+    cursor.setDate(cursor.getDate() + 7)
+  }
+  return alerts
 }
 
 // ── Update call_log stage with audit logging ────────────────────────────────

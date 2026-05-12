@@ -5176,14 +5176,15 @@
 }
 
 /* Per-stage accent — left border + dot + count color */
-.jh-tile-parked   { border-left-color: #d4a017; }
-.jh-tile-parked   .jh-tile-dot { background: #d4a017; }
-.jh-tile-parked   .jh-tile-count { color: #d4a017; }
-.jh-tile-parked   .jh-tile-attn { color: #d4a017; }
+.jh-tile-scheduled { border-left-color: var(--warning); }
+.jh-tile-scheduled .jh-tile-dot { background: var(--warning); }
+.jh-tile-scheduled .jh-tile-count { color: var(--warning); }
+.jh-tile-scheduled .jh-tile-attn { color: var(--warning); }
 
-.jh-tile-ready    { border-left-color: var(--warning); }
-.jh-tile-ready    .jh-tile-dot { background: var(--warning); }
-.jh-tile-ready    .jh-tile-count { color: var(--warning); }
+.jh-tile-on-hold  { border-left-color: #d4a017; }
+.jh-tile-on-hold  .jh-tile-dot { background: #d4a017; }
+.jh-tile-on-hold  .jh-tile-count { color: #d4a017; }
+.jh-tile-on-hold  .jh-tile-attn { color: #d4a017; }
 
 .jh-tile-active   { border-left-color: var(--command-green); }
 .jh-tile-active   .jh-tile-dot { background: var(--command-green); }
@@ -5402,3 +5403,131 @@
 }
 
 .jh-back-context b { color: var(--text-primary); font-weight: 700; }
+
+/* ── Jobs IA refactor: Scheduled list, On Hold list, WTC chips, multi-week ── */
+
+.sch-card {
+  background: var(--linen-card, #c8bcaa);
+  border: 1px solid rgba(28,24,20,0.18);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+.sch-card-body { padding-top: 6px; }
+
+.sch-card-title-text {
+  font-family: var(--font-display, 'Barlow Condensed');
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.sch-wtc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 4px 0;
+}
+
+.sch-wtc-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: var(--linen-deep, #a89b88);
+  color: var(--text-primary);
+  border: 1px solid rgba(28,24,20,0.18);
+  border-radius: 12px;
+}
+
+.sch-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-light, #6b6358);
+  padding-top: 4px;
+}
+
+.sch-meta-item { white-space: nowrap; }
+
+.jh-mw-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #fff;
+  background: #e67e22;
+  border-radius: 10px;
+  box-shadow: 0 0 0 0 rgba(230, 126, 34, 0.6);
+  animation: mw-pulse 2s ease-in-out infinite;
+}
+
+@keyframes mw-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(230, 126, 34, 0.55); }
+  70%  { box-shadow: 0 0 0 6px rgba(230, 126, 34, 0.00); }
+  100% { box-shadow: 0 0 0 0   rgba(230, 126, 34, 0.00); }
+}
+
+.sch-btn.pulse {
+  box-shadow: 0 0 0 0 rgba(230, 126, 34, 0.55);
+  animation: mw-pulse 2s ease-in-out infinite;
+}
+
+.sch-row-focused {
+  outline: 2px solid var(--command-green, #5BBD3F);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.oh-resume-row {
+  font-size: 11px;
+  color: var(--text-light, #6b6358);
+  margin: 0 0 8px 0;
+  letter-spacing: 0.03em;
+}
+
+.oh-card-wrap {
+  position: relative;
+}
+
+.oh-resume-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  font-family: var(--font-display, 'Barlow Condensed');
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  color: var(--text-primary);
+  background: var(--linen-deep, #a89b88);
+  border: 1px solid rgba(28,24,20,0.18);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.oh-resume-btn:hover { background: var(--command-green, #5BBD3F); color: #fff; }
+
+.jd-sched-link {
+  margin-left: 10px;
+  font-family: var(--font-display, 'Barlow Condensed');
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  color: #fff;
+  background: var(--command-green, #5BBD3F);
+  border: 1px solid var(--command-green, #5BBD3F);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.jd-sched-link:hover { filter: brightness(0.95); }
+
