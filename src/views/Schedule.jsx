@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField } from '../lib/queries'
 import { useUser } from '../lib/user'
+import { getJobStatus } from '../lib/jobStatus'
 
 const DAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const DAYS_LONG = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -255,11 +256,16 @@ export default function Schedule({ embedded = false } = {}) {
     return r
   }
 
-  // Week jobs: active jobs overlapping current week
+  // Week jobs: active jobs overlapping current week.
+  // Uses getJobStatus() so legacy 'Parked'-status rows (normalized to
+  // 'Scheduled') appear here too. Without this, the JobDetail deep-link
+  // can land on /schedule for a legacy Parked job and the row won't render.
   const weekJobs = useMemo(() => {
-    return jobs.filter(j =>
-      (j.status === 'Ongoing' || j.status === 'Scheduled' || j.status === 'In Progress' || j.status === 'On Hold') && jobOverlapsWeek(j, wsStr, weStr)
-    )
+    return jobs.filter(j => {
+      const s = getJobStatus(j)
+      const active = s === 'Scheduled' || s === 'In Progress' || s === 'On Hold' || s === 'Ongoing'
+      return active && jobOverlapsWeek(j, wsStr, weStr)
+    })
   }, [jobs, wsStr, weStr])
 
   const { scheduled, unscheduled } = useMemo(() => {

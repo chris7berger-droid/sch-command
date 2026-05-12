@@ -7,11 +7,31 @@
 // Legacy rows (no job_wtcs children) fall back to splitting job.work_type
 // on commas, which preserves the pre-refactor display.
 
+// Defensive: some legacy rows arrive with job_name doubled like "X - X"
+// (data weirdness from earlier import paths). De-duplicate at display time.
+function _dedupeName(name) {
+  if (!name) return name
+  const parts = String(name).split(/\s+-\s+/)
+  const half = parts.length / 2
+  if (Number.isInteger(half) && half > 0) {
+    const first = parts.slice(0, half).join(' - ')
+    const second = parts.slice(half).join(' - ')
+    if (first === second) return first
+  }
+  return name
+}
+
 function _jobLabelPrefix(job) {
   const num = job?.job_num ?? ''
-  const name = job?.job_name ?? ''
+  const name = _dedupeName(job?.job_name ?? '')
   if (num && name) return `${num} - ${name}`
   return num || name || ''
+}
+
+// True if `suffix` is already substring-contained in `prefix` (case-insensitive).
+function _alreadyIn(prefix, suffix) {
+  if (!suffix) return false
+  return String(prefix).toLowerCase().includes(String(suffix).toLowerCase())
 }
 
 export function getCardTitle(job, wtcs) {
@@ -21,7 +41,8 @@ export function getCardTitle(job, wtcs) {
   if (list.length === 1) {
     const w = list[0]
     const wtype = w?.work_type_name || ''
-    return wtype ? `${prefix} - ${wtype}` : prefix
+    if (!wtype || _alreadyIn(prefix, wtype)) return prefix
+    return `${prefix} - ${wtype}`
   }
 
   if (list.length > 1) {
@@ -30,7 +51,10 @@ export function getCardTitle(job, wtcs) {
 
   // Legacy fallback: split jobs.work_type on commas.
   const legacy = (job?.work_type || '').split(',').map(s => s.trim()).filter(Boolean)
-  if (legacy.length === 1) return `${prefix} - ${legacy[0]}`
+  if (legacy.length === 1) {
+    if (_alreadyIn(prefix, legacy[0])) return prefix
+    return `${prefix} - ${legacy[0]}`
+  }
   if (legacy.length > 1) return `${prefix} - ${legacy.length} work types`
   return prefix
 }
