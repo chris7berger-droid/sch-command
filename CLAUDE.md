@@ -1,5 +1,27 @@
 # Schedule Command
 
+## RESUME ALERT (set 2026-05-14 from sales-command session)
+
+**Read before any `supabase db push` on this repo.**
+
+1. **Ledger reconciliation required.** On 2026-05-12, two timestamps were reverted from the prod `supabase_migrations.schema_migrations` ledger: `20260512120000_jobs_material_status_additive` and `20260512120100_job_wtcs_create`. Local files for both still exist in `supabase/migrations/`. The DDL is believed live on prod via dashboard/db-query bypass. **Before any further `db push` in this repo, run:**
+   ```
+   supabase migration repair --status applied 20260512120000 20260512120100
+   ```
+   Otherwise `db push` will see them in the ledger as not-applied locally, skip them silently, and any code expecting the schema will look fine but downstream pushes drift.
+
+2. **Sales-command is mid-sprint on Multi-GC Allocation.** Branch `feat/multi-gc-allocation`, pushing migrations to the shared Supabase project `pbgvgjjuhnpsumnowuym`. Item **O7 (T1, open)** in `~/sales-command/docs/BACKLOG.md` covers cross-repo timestamp coordination — it has not shipped yet. Until it does, **before drafting any migration timestamp in this repo**, query the prod ledger and pick a clear-of-everything value:
+   ```
+   SELECT version FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 20;
+   ```
+   Migration 1a already collided once (2026-05-12) and had to be renamed.
+
+3. **Sibling audit (non-blocking, ~15min).** Sales-command's Multi-GC plan adds a `'Signed'` proposal status (`~/sales-command/docs/plans/multi_gc_allocation.md`). Confirm any sch-command UI that reads `proposals.status` default-renders unknown statuses. Worth a sweep before sales-command ships that part; not a blocker for sch-command work.
+
+Last shipped here: v7+v8 to prod 2026-05-06. Working tree was clean at alert-time. Resume by clearing items 1–3 above, then proceed.
+
+---
+
 ## What This Is
 Schedule Command is a React + Vite web app for managing construction crew scheduling. Part of the Command Suite (Sales, Schedule, Field, AR) under the Sub Con Command brand. Replaces a live Google Apps Script version used daily by office staff. The Apps Script stays live until v2 reaches full parity.
 
