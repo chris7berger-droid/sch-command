@@ -113,6 +113,7 @@ timestamp collisions across repos sharing the same Supabase project. If it
 reports a collision, rename your migration file to the next free timestamp.
 If the ledger is unreachable, re-auth with `supabase login` and
 `supabase link --project-ref pbgvgjjuhnpsumnowuym`.
+Canonical convention doc: `~/sales-command/docs/plans/o7_migration_coordination.md`.
 
 ## Design System (Command Suite)
 
