@@ -6,6 +6,8 @@ import { existsSync, appendFileSync } from "fs";
 import { join } from "path";
 
 const MIGRATION_DIR = "supabase/migrations";
+// Intentionally stricter than the Supabase CLI's permissive ^([0-9]+)_(.*)\.sql$
+// — we require exactly 14 digits + non-empty slug. Do NOT relax: malformed = HALT.
 const SHAPE_RE = /^\d{14}_.+\.sql$/;
 const SKIP_FLAG = process.argv.includes("--skip-collision-check");
 
