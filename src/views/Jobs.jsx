@@ -9,7 +9,7 @@ import ScheduledCardList from '../components/ScheduledCardList'
 import OnHoldCardList from '../components/OnHoldCardList'
 import { getJobStatus } from '../lib/jobStatus'
 
-const VALID_TABS = ['scheduled', 'active', 'on-hold', 'all']
+const VALID_TABS = ['scheduled', 'active', 'on-hold', 'complete', 'all']
 // Old/removed tab slugs redirect to their canonical destination.
 // 'pipeline' is the old Parked-bucket tab; legacy bookmarks land on Scheduled.
 const TAB_REDIRECTS = {
@@ -346,7 +346,7 @@ export default function Jobs() {
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} assignments={assignments} today={today} onPick={setActiveTab} />
+        <JobsPicker jobs={jobs} assignments={assignments} billingLog={billingLog} today={today} onPick={setActiveTab} />
       )}
 
       {!showPicker && (
@@ -355,9 +355,10 @@ export default function Jobs() {
             <button className="jh-back-btn" onClick={goToPicker}>← All stages</button>
             <span className="jh-back-context">
               Viewing <b>{
-                activeTab === 'scheduled' ? 'Scheduled' :
+                activeTab === 'scheduled' ? 'Ready' :
                 activeTab === 'active' ? 'Active' :
                 activeTab === 'on-hold' ? 'On Hold' :
+                activeTab === 'complete' ? 'Production Complete' :
                 activeTab === 'all' ? 'All Jobs' : ''
               }</b>
             </span>
@@ -389,6 +390,17 @@ export default function Jobs() {
               billingLog={billingLog}
               setBillingLog={setBillingLog}
               today={today}
+            />
+          )}
+          {activeTab === 'complete' && (
+            <JobCardList
+              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Complete')}
+              allJobs={jobs}
+              setJobs={setJobs}
+              billingLog={billingLog}
+              setBillingLog={setBillingLog}
+              today={today}
+              emptyText="No production-complete jobs in this date range"
             />
           )}
           {activeTab === 'all' && (

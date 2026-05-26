@@ -5082,6 +5082,22 @@
   color: var(--text-light);
 }
 
+.jh-picker-section {
+  margin-bottom: 32px;
+}
+
+.jh-picker-section-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+}
+
 .jh-picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -5201,9 +5217,21 @@
 .jh-tile-schedule .jh-tile-dot { background: #30cfac; }
 .jh-tile-schedule .jh-tile-count { color: #30cfac; }
 
+.jh-tile-complete { border-left-color: #4a9eff; }
+.jh-tile-complete .jh-tile-dot { background: #4a9eff; }
+.jh-tile-complete .jh-tile-count { color: #4a9eff; }
+
 .jh-tile-rate    { border-left-color: #b86bff; }
 .jh-tile-rate    .jh-tile-dot { background: #b86bff; }
 .jh-tile-rate    .jh-tile-count { color: #b86bff; }
+
+.jh-tile-budget  { border-left-color: #e0a030; }
+.jh-tile-budget  .jh-tile-dot { background: #e0a030; }
+.jh-tile-budget  .jh-tile-count { color: #e0a030; }
+
+.jh-tile-daily   { border-left-color: #7ec8a0; }
+.jh-tile-daily   .jh-tile-dot { background: #7ec8a0; }
+.jh-tile-daily   .jh-tile-count { color: #7ec8a0; }
 
 /* ── Daily Log (Field Command entries on JobDetail) ───────────────── */
 .jd-dl-list {

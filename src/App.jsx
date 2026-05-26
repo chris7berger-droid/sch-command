@@ -14,6 +14,7 @@ import Calendar from './views/Calendar'
 import Daily from './views/Daily'
 import Schedules from './views/Schedules'
 import ProductionRate from './views/ProductionRate'
+import Budget from './views/Budget'
 import JobDetail from './views/JobDetail'
 import StatsBar from './components/StatsBar'
 import Login from './views/Login'
@@ -313,6 +314,7 @@ function AppShell({ session, teamMember }) {
           <Route path="/daily" element={<Daily />} />
           <Route path="/schedules" element={<Schedules />} />
           <Route path="/production-rate" element={<ProductionRate />} />
+          <Route path="/budget" element={<Budget />} />
         </Routes>
       </main>
 
