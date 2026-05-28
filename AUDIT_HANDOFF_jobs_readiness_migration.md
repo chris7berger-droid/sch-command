@@ -9,7 +9,8 @@ Staged/Ready cards are dead in prod because `jobs.ready_confirmed_at` / `hold_re
 
 ## Artifact
 
-- **Branch:** `feat/staged-ready-cards`
+- **Repo:** `chris7berger-droid/sch-command` (NOT sales-command — Command Suite has separate repos sharing one Supabase DB). Clone/cd: `~/sch-command`.
+- **Branch:** `feat/staged-ready-cards` (origin tip `a71c408`; migration commit `f8ddcaf` is its parent)
 - **File:** `supabase/migrations/20260528120000_jobs_ready_confirmed_hold_reason_triggers.sql`
 - **Commit:** `f8ddcaf`
 - **Source of truth:** `docs/plans/staged_ready_card_design.md` §3.11 + §3.12 (LOCKED)
@@ -18,7 +19,9 @@ Staged/Ready cards are dead in prod because `jobs.ready_confirmed_at` / `hold_re
 
 1. **Transcription faithfulness** — SQL matches plan §3.11/§3.12 exactly: base-checklist fn, WHEN-gated BEFORE clear trigger, AFTER demote-audit trigger (source encoding), the 3+3 `FOR EACH STATEMENT` child triggers with correct transition tables (INSERT=new_rows, DELETE=old_rows, UPDATE=both), and the trigger fire-order note.
 
-2. **Push procedure** — the ledger-repair precondition is real and correct: `supabase migration repair --status applied 20260512120000 20260512120100` must run **before** `npm run db:push`. Confirm timestamp `20260528120000` is collision-free and the branch is current vs `main`.
+2. **Push procedure** — ledger-repair precondition. **[AUDIT 2026-05-28: corrected to THREE timestamps.]** `db push` applies all ledger-absent local migrations in order; `20260503190000_daily_log_update_policy` is also live-but-absent and non-idempotent (bare create/drop policy) → would abort on 42710 before this migration. Run before `npm run db:push`:
+   `supabase migration repair --status applied 20260503190000 20260512120000 20260512120100`
+   Timestamp `20260528120000` collision-free and branch current vs `main` — confirmed.
 
 3. **Cross-repo trigger reach** — the SECURITY DEFINER recheck triggers fire on `job_crew` / `materials` writes from **Field Command via PowerSync** (plan §496) and any sales-command path. Confirm the tenant-scoping (`get_user_tenant_id()` → NULL = service-role escape hatch) will not (a) wrongly clear `ready_confirmed_at` on sibling-originated writes, or (b) error on PowerSync writes. Confirm `get_user_tenant_id()` + `call_log.tenant_id` exist live (used by `20260512120100_job_wtcs_create.sql`).
 

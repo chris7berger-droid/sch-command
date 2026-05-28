@@ -19,8 +19,11 @@
 --   public.get_user_tenant_id()   — canonical tenant helper (CLAUDE_RLS.md)
 --   public.call_log.tenant_id     — used by existing RLS / job_wtcs migration
 --
--- PUSH PRECONDITION (CLAUDE.md RESUME ALERT): repair the reverted ledger first
---   supabase migration repair --status applied 20260512120000 20260512120100
+-- PUSH PRECONDITION (CLAUDE.md RESUME ALERT + audit 2026-05-28): repair the
+-- THREE reverted-but-live, ledger-absent migrations first — otherwise db push
+-- applies 20260503190000 (non-idempotent bare create/drop policy) and aborts
+-- on 42710 before reaching this one:
+--   supabase migration repair --status applied 20260503190000 20260512120000 20260512120100
 -- then push via:  npm run db:push   (collision-check wrapper, NOT raw push)
 -- ============================================================
 BEGIN;
