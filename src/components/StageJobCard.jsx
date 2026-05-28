@@ -251,9 +251,13 @@ function PlanningPanel({ job, crewRows, matRows, onSowClick, onCrewClick, onMtrl
   )
 }
 
-function ManagementPanel({ job, billingLog, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
+function ManagementPanel({ job, stage, logsCount = 0, billingLog, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
   const amount = job.amount ? parseFloat(job.amount) : 0
   const billedPct = getBilledTotal(billingLog, job.job_id)
+  const billedClass = billedPct >= 100 ? 'sjc-score-ok'
+    : billedPct > 0 ? 'sjc-score-warn'
+    : stage === 'complete' && amount > 0 ? 'sjc-score-bad'
+    : 'sjc-score-neutral'
 
   return (
     <div className="sjc-panel sjc-panel-management">
@@ -263,7 +267,7 @@ function ManagementPanel({ job, billingLog, prtMap, onBilledClick, onPrtClick, o
           <span className="sjc-score-label">PROP</span>
           <span className="sjc-score-val">{amount > 0 ? fmtMoney(amount) : '—'}</span>
         </div>
-        <div className={`sjc-score sjc-score-click ${billedPct >= 100 ? 'sjc-score-ok' : billedPct > 0 ? 'sjc-score-warn' : 'sjc-score-neutral'}`} onClick={onBilledClick}>
+        <div className={`sjc-score sjc-score-click ${billedClass}`} onClick={onBilledClick}>
           <span className="sjc-score-icon">{'📊'}</span>
           <span className="sjc-score-label">BILLED</span>
           <span className="sjc-score-val">{amount > 0 ? `${Math.round(billedPct)}%` : '—'}</span>
@@ -282,7 +286,7 @@ function ManagementPanel({ job, billingLog, prtMap, onBilledClick, onPrtClick, o
         <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onLogsClick}>
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">LOGS</span>
-          <span className="sjc-score-val">—</span>
+          <span className="sjc-score-val">{logsCount > 0 ? logsCount : '—'}</span>
         </div>
         <div className="sjc-score sjc-score-stub" title="Coming soon — attachments">
           <span className="sjc-score-icon">{'📎'}</span>
@@ -331,7 +335,7 @@ function DetailsPanel({ job, crewRows }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -343,6 +347,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const crewRows = crewByCallLog[job.call_log_id] || []
   const matRows = matsByJobId[job.job_id] || []
+  const logsCount = logsByCallLog[job.call_log_id] || 0
 
   const togglePanel = useCallback((key) => {
     setPanels(prev => ({ ...prev, [key]: !prev[key] }))
@@ -431,6 +436,8 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
       {panels.management && (
         <ManagementPanel
           job={job}
+          stage={stage}
+          logsCount={logsCount}
           billingLog={billingLog}
           prtMap={prtMap}
           onBilledClick={() => navigate('/billing')}

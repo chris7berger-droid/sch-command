@@ -132,6 +132,7 @@ export default function Jobs() {
   const [teamMembers, setTeamMembers] = useState([])
   const [jobCrew, setJobCrew] = useState([])
   const [materials, setMaterials] = useState([])
+  const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
   const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -150,9 +151,18 @@ export default function Jobs() {
   const today = useMemo(() => new Date(), [])
   const loadIdRef = useRef(0)
 
+  const teamNameById = useMemo(
+    () => Object.fromEntries(teamMembers.map(t => [t.id, t.name])),
+    [teamMembers]
+  )
+
   const crewByCallLog = useMemo(() => jobCrew.reduce((m, r) => {
-    (m[r.job_id] ||= []).push(r); return m
-  }, {}), [jobCrew])
+    (m[r.job_id] ||= []).push({ ...r, name: teamNameById[r.team_member_id] || null }); return m
+  }, {}), [jobCrew, teamNameById])
+
+  const logsByCallLog = useMemo(() => dailyLogs.reduce((m, r) => {
+    m[r.job_id] = (m[r.job_id] || 0) + 1; return m
+  }, {}), [dailyLogs])
 
   const matsByJobId = useMemo(() => materials.reduce((m, r) => {
     (m[r.job_id] ||= []).push(r); return m
@@ -161,13 +171,14 @@ export default function Jobs() {
   const loadData = useCallback(async () => {
     const thisLoad = ++loadIdRef.current
     setLoading(true)
-    const [jobsRes, assignRes, billRes, tmRes, crewRes, matsRes] = await Promise.all([
+    const [jobsRes, assignRes, billRes, tmRes, crewRes, matsRes, logsRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
       supabase.from('assignments').select('*'),
       supabase.from('billing_log').select('*'),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
       loadAllRows('job_crew', 'id, job_id, team_member_id', { orderBy: 'id' }),
       loadAllRows('materials', 'id, job_id, status', { orderBy: 'id' }),
+      loadAllRows('daily_log_entries', 'id, job_id', { orderBy: 'id' }),
     ])
     if (thisLoad !== loadIdRef.current) return
     if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
@@ -177,7 +188,8 @@ export default function Jobs() {
     setTeamMembers(tmRes.data || [])
     setJobCrew(crewRes.data || [])
     setMaterials(matsRes.data || [])
-    setSyncWarning(crewRes.partial || matsRes.partial ? 'Counts may be stale — partial data loaded' : null)
+    setDailyLogs(logsRes.data || [])
+    setSyncWarning(crewRes.partial || matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
 
     const loadedJobs = jobsRes.data || []
     const activeCallLogIds = loadedJobs
@@ -417,6 +429,7 @@ export default function Jobs() {
               jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled' && !isReady(j, crewByCallLog, matsByJobId))}
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
@@ -429,6 +442,7 @@ export default function Jobs() {
               stage="ready"
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
@@ -444,6 +458,7 @@ export default function Jobs() {
               stage="active"
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
               billingLog={billingLog}
               prtMap={prtMap}
               today={today}
@@ -461,6 +476,7 @@ export default function Jobs() {
               today={today}
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
               prtMap={prtMap}
               onJobUpdate={loadData}
             />
@@ -471,6 +487,7 @@ export default function Jobs() {
               stage="complete"
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
