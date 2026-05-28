@@ -5,6 +5,7 @@ import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
+import MaterialsModal from './MaterialsModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -343,6 +344,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const [panels, setPanels] = useState({ planning: false, management: false, details: false })
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
+  const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -390,9 +392,6 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   }, [navigate])
 
   // Scorecard click handlers — navigate to JobDetail with the right tab
-  const goJobTab = useCallback((tab) => {
-    navigate(`/jobs/${job.job_id}?mode=planning&tab=${tab}`)
-  }, [navigate, job.job_id])
   const goManagementTab = useCallback((tab) => {
     navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
   }, [navigate, job.job_id])
@@ -428,7 +427,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           crewRows={crewRows}
           matRows={matRows}
           onSowClick={() => setShowSowModal(true)}
-          onMtrlClick={() => goJobTab('materials')}
+          onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={() => navigate(`/jobs/${job.job_id}?mode=planning`)}
           onDateClick={() => goSchedule()}
         />
@@ -486,6 +485,14 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
             />
           </div>
         </div>
+      )}
+
+      {showMtrlModal && (
+        <MaterialsModal
+          job={job}
+          onClose={() => setShowMtrlModal(false)}
+          onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
+        />
       )}
     </div>
   )
