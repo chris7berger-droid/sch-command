@@ -82,7 +82,7 @@ const readyCount   = jobs.filter(j => getJobStatus(j) === 'Scheduled' &&  isRead
 
 **Pagination required for both new loads.** PostgREST caps at 1000 rows (per [[supabase-row-limit]] memory and `CLAUDE.md`). Implement via `.range()` in a paginating helper that auto-orders, doesn't throw, and signals partial loads:
 
-**Loader signature corrected** (round-3 D2): the previous draft reused one PostgREST builder across page iterations. PostgREST builders are not idempotent under chained `.range()` calls — re-applying `.range()` to a builder that already has one set produces undefined behavior in `@supabase/supabase-js` v2 and, in practice, repeats the first page forever (infinite loop past row 1000). Each page must rebuild from scratch.
+**Loader signature corrected** (round-3 D2 + round-4 F2): the previous round-3 fix over-corrected by rebuilding the entire builder (filter + order) per page. The actual fix needed is just to call `.range()` on a fresh chain per page — `.select()`, `.order()`, and filter chains are idempotent in `@supabase/postgrest-js` v2 and can be reused across iterations. `.range()` mutates internal request state and must be the last call.
 
 ```js
 // in src/lib/queries.js
@@ -94,12 +94,20 @@ export async function loadAllRows(tableName, selectStr, {
   if (!orderBy) throw new Error(`loadAllRows(${tableName}): orderBy is required`)
   const PAGE = 1000
   const all = []
+  // Build the filter+order chain once; rebuild only the .range() per page.
+  // Round-4 F2: snapshotting outside the loop avoids reapplying filterFn
+  // (which could carry side effects in callers).
+  let chain = supabase.from(tableName).select(selectStr)
+  if (filterFn) chain = filterFn(chain)
+  chain = chain.order(orderBy, { ascending: orderAsc })
+
   for (let from = 0; ; from += PAGE) {
-    let builder = supabase.from(tableName).select(selectStr)
-    if (filterFn) builder = filterFn(builder)
-    builder = builder.order(orderBy, { ascending: orderAsc })
-    const { data, error } = await builder.range(from, from + PAGE - 1)
-    if (error) return { data: all, error, partial: true }   // return last-known + error
+    // VERIFY against @supabase/postgrest-js v2: if reused-chain .range()
+    // turns out to repeat the first page (round-3 D2's concern), revert
+    // to per-page rebuild. Add a dev-only assertion on chunk 2 that
+    // first row's PK differs from chunk 1's first row.
+    const { data, error } = await chain.range(from, from + PAGE - 1)
+    if (error) return { data: all, error, partial: true }
     all.push(...(data || []))
     if (!data || data.length < PAGE) break
   }
@@ -137,12 +145,12 @@ function isReady(job) {
 
 Reduces per-job lookup to O(1).
 
-**Realtime debounce — required.** Per §9, `JobsPicker`'s realtime channels (`jobs`, `job_crew`, `materials`) all invoke `loadData()` on any change. A CSV import of 500 materials would fire 500 channel events in rapid succession; without debouncing, the browser tab freezes. Debounce `loadData` at 300ms inside the channel handler:
+**Realtime debounce + stale-bail (round-4 F3) — required.** Per §9, `JobsPicker`'s realtime channels (`jobs`, `job_crew`, `materials`) all invoke `loadData()` on any change. A CSV import of 500 materials would fire 500 channel events in rapid succession; without debouncing, the browser tab freezes. The debounce alone isn't enough — concurrent in-flight loadData calls race their `setState`s and the pre-indexed Maps end up half-rebuilt. Add request-id pattern to cancel stale loads:
 
 ```js
-import { useMemo } from 'react'
+import { useMemo, useRef, useCallback } from 'react'
 
-// Inside JobsPicker / Jobs.jsx — small inline debounce, no lib dependency.
+// Debounce helper — no lib dependency.
 function useDebounced(fn, ms) {
   return useMemo(() => {
     let t
@@ -150,14 +158,25 @@ function useDebounced(fn, ms) {
   }, [fn, ms])
 }
 
+// Inside JobsPicker / Jobs.jsx
+const reqIdRef = useRef(0)
+const loadData = useCallback(async () => {
+  const reqId = ++reqIdRef.current
+  const [jobsRes, jobCrewRes, materialsRes, ...] = await Promise.all([...])
+  if (reqId !== reqIdRef.current) return     // a newer load started; bail
+  setJobs(jobsRes.data || [])
+  setJobCrew(jobCrewRes.data || [])
+  setMaterials(materialsRes.data || [])
+  // …rebuild pre-indexed Maps from the fresh data
+}, [])
 const debouncedLoad = useDebounced(loadData, 300)
 // then in each channel:
 .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, debouncedLoad)
 ```
 
-300ms is the lower bound that absorbs a CSV burst without making single-row edits feel laggy.
+300ms is the lower bound that absorbs a CSV burst without making single-row edits feel laggy. Request-id pattern ensures that even if two loadData calls overlap (e.g., one fired by debounce, one by initial mount, one by a route change), only the latest writes state.
 
-**Audit-pass scope creep**: the existing three loads in `Jobs.jsx:149-157` (`assignments`, `billing_log`, `team_members`) and `JobsPicker`'s `jobs` load all use raw `.select('*')` without `.range()`. They are unpaginated today and would silently truncate at 1000 rows. Treat that as a separate audit fix outside this loop; surface as backlog item `T2 — paginate sch-command load paths` (see §9.7).
+**Existing loads — known divergence at >1000 rows** (round-4 F5): the existing three loads in `Jobs.jsx:149-157` (`assignments`, `billing_log`, `team_members`) and `JobsPicker`'s `jobs` load all use raw `.select('*')` without `.range()`. They are unpaginated today and would silently truncate at 1000 rows. **Without paginating them in this loop, Staged/Ready tile counts can diverge from per-card display** once any of those tables exceeds 1000 rows: tile counts use the same loadData (capped at 1000), but per-card iteration walks `filteredJobs` which is also capped — so the divergence is consistent in the truncated view, but real prod state above the cap is invisible to both. Documented contract: **tile counts are accurate for the first 1000 jobs only**; backlog item `T2 — paginate sch-command load paths` must ship before HDSP exceeds that threshold. (Today's HDSP volume is well under 1000.) Backlog item also in §10 Q7.
 
 ### §2.5 Staged tile sub-line copy [LOCKED]
 
@@ -351,7 +370,7 @@ Rendered below the panels regardless of which panels are open. One button per st
 | Staged | `[ Promote to Ready ]` | all four base checklist items pass (§2.2) — else disabled/greyed | **Writes `now()` to `jobs.ready_confirmed_at`**. Card moves to Ready tile. Manual promotion chosen over auto so office has a beat to review before promoting. See §3.12 for column + clearing rules |
 | Ready | `[ Kickoff ]` | always | Sets `jobs.status = 'In Progress'`. Card moves to Active tile |
 | Active | *(no button)* | — | Promotion to Complete is driven by Field Command finishing the job |
-| On Hold | `[ Resume ]` | always | Sets `jobs.status = 'Scheduled'` **AND** sets `ready_confirmed_at = NULL` in the same `updateJobFields` call. Card returns to Staged for re-confirmation, even if the four base items still pass. Rationale: time has passed; office should re-verify before promoting |
+| On Hold | `[ Resume ]` | always | Sets `jobs.status = 'Scheduled'` **AND** sets `ready_confirmed_at = NULL` in the same `updateJobFields` call. Card returns to Staged for re-confirmation, even if the four base items still pass. Rationale: time has passed; office should re-verify before promoting. **Audit deduplication (round-4 B3)**: the `updateJobFields` audit loop must EXCLUDE `ready_confirmed_at` from its per-field audit insert when bundled with a status change away from `'On Hold'` — the AFTER trigger (§3.12) writes a single `'on_hold_resume'` row, which is the canonical record. Without the exclusion, one Resume click produces 3 `job_changes` rows (status + ready_confirmed_at app-layer + trigger). Implement in `queries.js` as a per-call skip-list passed to the audit helper |
 | Production Complete | `[ Send to Billing ]` | always | Hands off to billing pipeline. Existing flow — confirm exact behavior with existing `/billing` integration |
 
 **No "Open Job" button.** Card header (Job # + name) is clickable to navigate to existing `/jobs/:jobId?mode=management` view, which now serves only as a deep-history/audit-log surface. The card itself replaces the previous Planning + Management button row.
@@ -365,36 +384,57 @@ Source: per-job PRT data. Today only the single-job loader `loadPRTsForJob()` ex
 ```js
 // in src/lib/queries.js — mirrors loadPRTsForJob (queries.js:187)
 export async function loadPRTsForCallLogIds(callLogIds) {
-  if (!callLogIds || callLogIds.length === 0) return { data: new Map(), error: null }
-  const CHUNK = 100  // PostgREST URL length cap — `.in('id', [...])` serializes to GET params
+  if (!callLogIds || callLogIds.length === 0) {
+    return { data: new Map(), error: null, partial: false }
+  }
+  const CHUNK = 100  // PostgREST URL cap — UNVERIFIED, see RPC fallback below
   const chunks = []
   for (let i = 0; i < callLogIds.length; i += CHUNK) {
     chunks.push(callLogIds.slice(i, i + CHUNK))
   }
-  // Same SELECT as queries.js:191, same .order(), same .eq→.in swap
-  const results = await Promise.all(chunks.map(ids =>
+  // Round-4 F1: Promise.allSettled, not Promise.all. Bail-on-first-error
+  // discards every successful chunk; allSettled lets us return partial data
+  // with a sync warning. Matches the loadAllRows {data, error, partial} contract.
+  const settled = await Promise.allSettled(chunks.map(ids =>
     supabase
       .from('daily_production_reports')
       .select('id, job_id, wtc_id, report_date, submitted_by, tasks, materials_used, hours_regular, hours_ot, photos, notes, status, approved_by, approved_at, created_at, tenant_id, team_members:submitted_by(id, name)')
-      .in('job_id', ids)                                        // job_id = call_log.id per queries.js:184 comment
+      .in('job_id', ids)
       .order('report_date', { ascending: false })
   ))
-  const errors = results.filter(r => r.error)
-  if (errors.length) return { data: new Map(), error: errors[0].error }
-  // Merge into Map<callLogId, PRT[]>, preserving the desc report_date order
   const byCallLogId = new Map()
-  for (const { data } of results) {
-    for (const row of (data || [])) {
-      const arr = byCallLogId.get(row.job_id) || []
-      arr.push(row)
-      byCallLogId.set(row.job_id, arr)
+  let firstError = null
+  let rejected = 0
+  for (const r of settled) {
+    if (r.status === 'fulfilled' && !r.value.error) {
+      for (const row of (r.value.data || [])) {
+        const arr = byCallLogId.get(row.job_id) || []
+        arr.push(row)
+        byCallLogId.set(row.job_id, arr)
+      }
+    } else {
+      rejected++
+      if (!firstError) firstError = r.status === 'fulfilled' ? r.value.error : r.reason
     }
   }
-  return { data: byCallLogId, error: null }
+  // Round-4 F6: defensive re-sort. Per-chunk ordering is preserved by PostgREST,
+  // but merge order across chunks is parallel-arrival-order, not report_date desc.
+  // Cheap correctness insurance — at most ~N log N per parent on PRT-heavy jobs.
+  for (const [k, arr] of byCallLogId) {
+    arr.sort((a, b) => (b.report_date || '').localeCompare(a.report_date || ''))
+    byCallLogId.set(k, arr)
+  }
+  return { data: byCallLogId, error: firstError, partial: rejected > 0 }
 }
 ```
 
 Use `job.call_log_id` as the lookup key (per `queries.js:184` comment: "daily_production_reports.job_id is FK to call_log.id, NOT jobs.job_id"). O(1) per-card lookup.
+
+**Chunk-100 URL length cap is unverified (round-4 F4).** Two acceptable resolutions:
+- **Measure once in dev**: `console.log(builder.url.toString().length)` on a real chunk-100 call against PRT data. PostgREST caps at ~8KB for some proxies, lower for others. 100 UUIDs at 36 chars + JSON formatting + base URL ≈ 4–5KB; should be safe but verify on actual deploy infrastructure.
+- **Switch to RPC** (preferred long-term): define `prts_for_call_logs(ids uuid[]) RETURNS SETOF daily_production_reports` and call `supabase.rpc('prts_for_call_logs', { ids: [...] })`. POST body has no URL cap; eliminates chunking entirely. Worth the migration for any list view that might exceed 100 active jobs.
+
+Defer the RPC migration to the implementation loop; ship chunk-100 + verification measurement for v1.
 
 Threshold rule (3+ PRTs):
 ```
@@ -513,10 +553,12 @@ END;
 $$;
 
 -- ── 2. BEFORE UPDATE trigger on jobs: clear ready_confirmed_at if checklist
--- now fails. Gated by WHEN so it ONLY fires when the row already had a
--- timestamp AND the new row still has one — i.e. on real mutations of other
--- fields. A Promote SET write (OLD.ready_confirmed_at IS NULL) bypasses
--- entirely; this prevents the user's own click from being nulled.
+-- now fails. Gated by WHEN so it ONLY fires when the column itself is NOT
+-- being touched by the UPDATE statement (round-4 B1 hardening). Without
+-- the IS NOT DISTINCT FROM clause, a re-Promote-with-same-value or
+-- concurrent SET race could self-null. The flag set via SET LOCAL gives
+-- the AFTER trigger (§3.12.2 step 3) a way to distinguish auto-demote
+-- from manual_clear (round-4 B2).
 CREATE OR REPLACE FUNCTION public.jobs_clear_ready_confirmed_at()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -525,6 +567,9 @@ SET search_path = public, pg_temp
 AS $$
 BEGIN
   IF NOT public.job_base_checklist_passes(NEW) THEN
+    -- Flag the auto-demote for the AFTER trigger (round-4 B2).
+    -- SET LOCAL is transaction-scoped; auto-clears at commit/rollback.
+    PERFORM set_config('my.auto_demote', 'true', true);
     NEW.ready_confirmed_at := NULL;
   END IF;
   RETURN NEW;
@@ -536,14 +581,19 @@ BEFORE UPDATE ON public.jobs
 FOR EACH ROW
 WHEN (
   OLD.ready_confirmed_at IS NOT NULL
-  AND NEW.ready_confirmed_at IS NOT NULL          -- skip explicit clears + Promote SETs
+  AND NEW.ready_confirmed_at IS NOT NULL
+  AND NEW.ready_confirmed_at IS NOT DISTINCT FROM OLD.ready_confirmed_at   -- round-4 B1
 )
 EXECUTE FUNCTION public.jobs_clear_ready_confirmed_at();
 
--- ── 3. AFTER UPDATE audit trigger on jobs: log when ready_confirmed_at
--- transitions non-NULL → NULL via either (a) the BEFORE trigger above or
--- (b) an explicit clear (e.g. On Hold → Resume). Source is recorded so the
--- distinction survives in job_changes.
+-- ── 3. AFTER UPDATE audit trigger on jobs: log every ready_confirmed_at
+-- transition. Sources distinguished (round-4 B2 + D2):
+--   'trigger_set'           — service-role direct SET (no app-layer audit)
+--   'trigger_auto_demote'   — BEFORE clear trigger fired (flag set via SET LOCAL)
+--   'on_hold_resume'        — bundled status change from 'On Hold'
+--   'manual_clear'          — explicit NULL write w/o status change or auto-flag
+-- Actor role recorded alongside sub (round-4 D1) so JWT-forwarding edge fns
+-- and service-role writes are auditable separately.
 CREATE OR REPLACE FUNCTION public.jobs_log_ready_demote()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -551,26 +601,34 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-  v_actor uuid;
-  v_source text;
+  v_actor       uuid;
+  v_actor_role  text;
+  v_source      text;
+  v_auto_demote boolean;
 BEGIN
-  -- Best-effort actor from JWT claims; falls back to NULL for service-role.
+  -- Actor sub + role from JWT claims; both can be NULL for service-role.
   BEGIN
-    v_actor := (current_setting('request.jwt.claims', true)::jsonb ->> 'sub')::uuid;
+    v_actor      := (current_setting('request.jwt.claims', true)::jsonb ->> 'sub')::uuid;
+    v_actor_role := current_setting('request.jwt.claims', true)::jsonb ->> 'role';
   EXCEPTION WHEN OTHERS THEN
-    v_actor := NULL;
+    v_actor      := NULL;
+    v_actor_role := NULL;
   END;
 
-  -- If the actor explicitly cleared the column via an UPDATE that touched
-  -- ready_confirmed_at, treat as a manual demote. Otherwise it was the BEFORE
-  -- trigger (auto demote).
+  -- Read the BEFORE-trigger auto-demote flag (round-4 B2). Missing = false.
+  BEGIN
+    v_auto_demote := current_setting('my.auto_demote', true)::boolean;
+  EXCEPTION WHEN OTHERS THEN
+    v_auto_demote := false;
+  END;
+
+  -- Transition: non-NULL → NULL (demote path)
   IF NEW.ready_confirmed_at IS NULL
      AND OLD.ready_confirmed_at IS NOT NULL THEN
     v_source := CASE
-      WHEN (NEW IS DISTINCT FROM OLD)
-        AND NEW.status <> OLD.status
-        AND OLD.status = 'On Hold' THEN 'on_hold_resume'
-      ELSE 'trigger_auto_demote'
+      WHEN v_auto_demote THEN 'trigger_auto_demote'
+      WHEN NEW.status <> OLD.status AND OLD.status = 'On Hold' THEN 'on_hold_resume'
+      ELSE 'manual_clear'
     END;
     INSERT INTO public.job_changes (job_id, call_log_id, field, old_value, new_value, changed_by, source)
     VALUES (
@@ -580,7 +638,24 @@ BEGIN
       OLD.ready_confirmed_at::text,
       NULL,
       COALESCE(v_actor::text, 'system'),
-      v_source
+      v_source || ':' || COALESCE(v_actor_role, 'service_role')   -- round-4 D1: encode role in source
+    );
+
+  -- Transition: NULL → non-NULL (SET path — round-4 D2)
+  -- App-layer Promote also writes its own job_changes row via updateJobField.
+  -- This trigger row is bypass-proof: a direct service-role SET still gets
+  -- audit-logged here even when the app-layer write doesn't fire.
+  ELSIF NEW.ready_confirmed_at IS NOT NULL
+        AND OLD.ready_confirmed_at IS NULL THEN
+    INSERT INTO public.job_changes (job_id, call_log_id, field, old_value, new_value, changed_by, source)
+    VALUES (
+      NEW.job_id,
+      NEW.call_log_id,
+      'ready_confirmed_at',
+      NULL,
+      NEW.ready_confirmed_at::text,
+      COALESCE(v_actor::text, 'system'),
+      'trigger_set:' || COALESCE(v_actor_role, 'service_role')
     );
   END IF;
   RETURN NULL;
@@ -597,39 +672,98 @@ EXECUTE FUNCTION public.jobs_log_ready_demote();
 -- One re-eval per affected parent per statement, regardless of row count.
 -- A 500-material CSV import fires N parent re-evals where N = DISTINCT job_id
 -- in the import, not 500.
+--
+-- Round-4 C1: transition tables are only available for the matching event.
+-- A DELETE-statement trigger can't reference new_rows; an INSERT-statement
+-- trigger can't reference old_rows. Body must branch on TG_OP.
+--
+-- Round-4 C2: tenant scoping — if called from an authenticated session,
+-- only affect parents in the caller's tenant. Service-role path is the
+-- escape hatch (PowerSync, sales-command edge fns) and logs source so
+-- audit can filter.
 CREATE OR REPLACE FUNCTION public.job_crew_recheck_parents()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+  v_caller_tenant uuid;
 BEGIN
-  -- job_crew.job_id is call_log.id
-  WITH affected AS (
-    SELECT DISTINCT job_id AS call_log_id FROM new_rows
-    UNION
-    SELECT DISTINCT job_id AS call_log_id FROM old_rows
-  ),
-  parents AS (
-    SELECT j.* FROM public.jobs j
-     JOIN affected a ON a.call_log_id = j.call_log_id
-    WHERE j.ready_confirmed_at IS NOT NULL
-  )
-  UPDATE public.jobs j
-     SET ready_confirmed_at = NULL
-    FROM parents p
-   WHERE j.job_id = p.job_id
-     AND NOT public.job_base_checklist_passes(p);
+  v_caller_tenant := public.get_user_tenant_id();   -- NULL for service-role
+
+  IF TG_OP = 'INSERT' THEN
+    WITH affected AS (
+      SELECT DISTINCT job_id AS call_log_id FROM new_rows
+    ),
+    parents AS (
+      SELECT j.* FROM public.jobs j
+       JOIN affected a ON a.call_log_id = j.call_log_id
+       JOIN public.call_log cl ON cl.id = j.call_log_id
+      WHERE j.ready_confirmed_at IS NOT NULL
+        AND (v_caller_tenant IS NULL OR cl.tenant_id = v_caller_tenant)
+    )
+    UPDATE public.jobs j
+       SET ready_confirmed_at = NULL
+      FROM parents p
+     WHERE j.job_id = p.job_id
+       AND NOT public.job_base_checklist_passes(p);
+
+  ELSIF TG_OP = 'DELETE' THEN
+    WITH affected AS (
+      SELECT DISTINCT job_id AS call_log_id FROM old_rows
+    ),
+    parents AS (
+      SELECT j.* FROM public.jobs j
+       JOIN affected a ON a.call_log_id = j.call_log_id
+       JOIN public.call_log cl ON cl.id = j.call_log_id
+      WHERE j.ready_confirmed_at IS NOT NULL
+        AND (v_caller_tenant IS NULL OR cl.tenant_id = v_caller_tenant)
+    )
+    UPDATE public.jobs j
+       SET ready_confirmed_at = NULL
+      FROM parents p
+     WHERE j.job_id = p.job_id
+       AND NOT public.job_base_checklist_passes(p);
+
+  ELSE   -- UPDATE: both tables available
+    WITH affected AS (
+      SELECT DISTINCT job_id AS call_log_id FROM new_rows
+      UNION
+      SELECT DISTINCT job_id AS call_log_id FROM old_rows
+    ),
+    parents AS (
+      SELECT j.* FROM public.jobs j
+       JOIN affected a ON a.call_log_id = j.call_log_id
+       JOIN public.call_log cl ON cl.id = j.call_log_id
+      WHERE j.ready_confirmed_at IS NOT NULL
+        AND (v_caller_tenant IS NULL OR cl.tenant_id = v_caller_tenant)
+    )
+    UPDATE public.jobs j
+       SET ready_confirmed_at = NULL
+      FROM parents p
+     WHERE j.job_id = p.job_id
+       AND NOT public.job_base_checklist_passes(p);
+  END IF;
   RETURN NULL;
 END;
 $$;
 
+-- Three triggers — one per event, each with the matching transition table.
 CREATE TRIGGER job_crew_recheck_ready_insert_trg
 AFTER INSERT ON public.job_crew
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT EXECUTE FUNCTION public.job_crew_recheck_parents();
+
+CREATE TRIGGER job_crew_recheck_ready_update_trg
+AFTER UPDATE ON public.job_crew
 REFERENCING NEW TABLE AS new_rows OLD TABLE AS old_rows
-FOR EACH STATEMENT
-EXECUTE FUNCTION public.job_crew_recheck_parents();
--- (Repeat REFERENCING+FOR EACH STATEMENT triggers for UPDATE and DELETE on job_crew.)
+FOR EACH STATEMENT EXECUTE FUNCTION public.job_crew_recheck_parents();
+
+CREATE TRIGGER job_crew_recheck_ready_delete_trg
+AFTER DELETE ON public.job_crew
+REFERENCING OLD TABLE AS old_rows
+FOR EACH STATEMENT EXECUTE FUNCTION public.job_crew_recheck_parents();
 
 CREATE OR REPLACE FUNCTION public.materials_recheck_parents()
 RETURNS trigger
@@ -637,32 +771,82 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+  v_caller_tenant uuid;
 BEGIN
-  WITH affected AS (
-    SELECT DISTINCT job_id FROM new_rows
-    UNION
-    SELECT DISTINCT job_id FROM old_rows
-  ),
-  parents AS (
-    SELECT j.* FROM public.jobs j
-     JOIN affected a ON a.job_id = j.job_id
-    WHERE j.ready_confirmed_at IS NOT NULL
-  )
-  UPDATE public.jobs j
-     SET ready_confirmed_at = NULL
-    FROM parents p
-   WHERE j.job_id = p.job_id
-     AND NOT public.job_base_checklist_passes(p);
+  v_caller_tenant := public.get_user_tenant_id();   -- NULL for service-role
+
+  IF TG_OP = 'INSERT' THEN
+    WITH affected AS (SELECT DISTINCT job_id FROM new_rows),
+    parents AS (
+      SELECT j.* FROM public.jobs j
+       JOIN affected a ON a.job_id = j.job_id
+       JOIN public.call_log cl ON cl.id = j.call_log_id
+      WHERE j.ready_confirmed_at IS NOT NULL
+        AND (v_caller_tenant IS NULL OR cl.tenant_id = v_caller_tenant)
+    )
+    UPDATE public.jobs j SET ready_confirmed_at = NULL
+      FROM parents p
+     WHERE j.job_id = p.job_id AND NOT public.job_base_checklist_passes(p);
+
+  ELSIF TG_OP = 'DELETE' THEN
+    WITH affected AS (SELECT DISTINCT job_id FROM old_rows),
+    parents AS (
+      SELECT j.* FROM public.jobs j
+       JOIN affected a ON a.job_id = j.job_id
+       JOIN public.call_log cl ON cl.id = j.call_log_id
+      WHERE j.ready_confirmed_at IS NOT NULL
+        AND (v_caller_tenant IS NULL OR cl.tenant_id = v_caller_tenant)
+    )
+    UPDATE public.jobs j SET ready_confirmed_at = NULL
+      FROM parents p
+     WHERE j.job_id = p.job_id AND NOT public.job_base_checklist_passes(p);
+
+  ELSE   -- UPDATE
+    WITH affected AS (
+      SELECT DISTINCT job_id FROM new_rows
+      UNION
+      SELECT DISTINCT job_id FROM old_rows
+    ),
+    parents AS (
+      SELECT j.* FROM public.jobs j
+       JOIN affected a ON a.job_id = j.job_id
+       JOIN public.call_log cl ON cl.id = j.call_log_id
+      WHERE j.ready_confirmed_at IS NOT NULL
+        AND (v_caller_tenant IS NULL OR cl.tenant_id = v_caller_tenant)
+    )
+    UPDATE public.jobs j SET ready_confirmed_at = NULL
+      FROM parents p
+     WHERE j.job_id = p.job_id AND NOT public.job_base_checklist_passes(p);
+  END IF;
   RETURN NULL;
 END;
 $$;
 
 CREATE TRIGGER materials_recheck_ready_insert_trg
 AFTER INSERT ON public.materials
+REFERENCING NEW TABLE AS new_rows
+FOR EACH STATEMENT EXECUTE FUNCTION public.materials_recheck_parents();
+
+CREATE TRIGGER materials_recheck_ready_update_trg
+AFTER UPDATE ON public.materials
 REFERENCING NEW TABLE AS new_rows OLD TABLE AS old_rows
-FOR EACH STATEMENT
-EXECUTE FUNCTION public.materials_recheck_parents();
--- (Repeat REFERENCING+FOR EACH STATEMENT triggers for UPDATE and DELETE on materials.)
+FOR EACH STATEMENT EXECUTE FUNCTION public.materials_recheck_parents();
+
+CREATE TRIGGER materials_recheck_ready_delete_trg
+AFTER DELETE ON public.materials
+REFERENCING OLD TABLE AS old_rows
+FOR EACH STATEMENT EXECUTE FUNCTION public.materials_recheck_parents();
+
+-- ── 5. Trigger fire order (round-4 H1): document explicitly. PG fires
+-- triggers in alphabetical order by name within the same event timing.
+-- Current order on jobs UPDATE:
+--   BEFORE: jobs_clear_ready_confirmed_at_trg (gate via WHEN)
+--           jobs_set_updated_at_trg
+--   AFTER:  jobs_log_ready_demote_trg (gate via WHEN OF column)
+-- The set_updated_at trigger fires AFTER the clear trigger because 'c' < 's'.
+-- This is intentional — clear runs first so updated_at reflects the post-clear state.
+-- If a future migration adds e.g. 'jobs_aaa_*', re-verify ordering.
 ```
 
 **Why `SECURITY DEFINER`**: the recheck triggers UPDATE `jobs.ready_confirmed_at` on rows the calling user may not own (e.g., PowerSync sync from a field crew triggers an office-tenant parent re-eval). Definer-mode runs as the migration owner with the explicit tenant filter as the safety net. The locked `search_path = public, pg_temp` prevents a tenant-installed function-shadow attack.
@@ -968,10 +1152,24 @@ Files live in a single shared `job-attachments` bucket. Path schema embeds the t
 Three round-3 audit hardenings folded in: (C3) the actual prod DELETE policy name is `"Authenticated can delete job-attachments"` (quoted, with spaces) — DROP unconditional, no `IF EXISTS` (silent-no-op risk if the name doesn't match). (A3) UPDATE policy dropped entirely; rename/move ops are out of scope and the policy only adds attack surface. (A5) Bucket is created + asserted private inside the migration.
 
 ```sql
--- ── 1. Create bucket (private) + assert privacy.
+-- ── 0. Connection-role guard (round-4 E3). The Supabase pooler can run
+-- migrations under unexpected roles in some recovery / branch / preview
+-- scenarios. Fail loudly rather than silently mis-apply storage state.
+DO $$
+BEGIN
+  IF current_user <> 'postgres' THEN
+    RAISE EXCEPTION 'job-attachments bucket migration requires postgres role (got: %)', current_user;
+  END IF;
+END $$;
+
+-- ── 1. Create bucket (private). DO NOTHING on conflict (round-4 E1) — if
+-- the bucket already exists with public=true, the upsert version silently
+-- flipped it to false, neutering the assertion below. With DO NOTHING the
+-- assertion catches a pre-existing public bucket and forces operator
+-- intervention.
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('job-attachments', 'job-attachments', false)
-ON CONFLICT (id) DO UPDATE SET public = false;
+ON CONFLICT (id) DO NOTHING;
 
 DO $$
 DECLARE
@@ -982,10 +1180,10 @@ BEGIN
          (SELECT public FROM storage.buckets WHERE id = 'job-attachments')
     INTO v_exists, v_public;
   IF NOT v_exists THEN
-    RAISE EXCEPTION 'job-attachments bucket missing after upsert';
+    RAISE EXCEPTION 'job-attachments bucket missing after insert';
   END IF;
   IF v_public IS DISTINCT FROM false THEN
-    RAISE EXCEPTION 'job-attachments bucket must be private (public=%)', v_public;
+    RAISE EXCEPTION 'job-attachments bucket is public=% — manual fix required before re-running migration', v_public;
   END IF;
 END $$;
 
@@ -1027,6 +1225,18 @@ CREATE POLICY job_attachments_storage_delete
 
 `(storage.foldername(name))[1]` returns the first `/`-separated segment of the object path. Cast to `text` because `get_user_tenant_id()` returns `uuid`.
 
+#### §7.3a Per-job authorization contract [LOCKED]
+
+Round-4 E2 forces this decision. Two options, must pick:
+
+**Option I (chosen for v1) — tenant-wide office sharing.** Anyone authenticated in tenant T can SELECT / INSERT / DELETE attachments for ANY job in tenant T. The path schema's `{tenant_id}` segment is the only gate. Matches today's `job_changes` / `materials` / `assignments` semantics — sch-command has never had per-job ACLs.
+
+**Option II — per-job authorization via call_log JOIN.** Tighten the storage policies to also verify the second path segment (`{call_log_id}`) against a per-user authorization table. Requires designing that table; out of scope for this loop.
+
+Documented choice: **Option I**. The 3 storage policies in §7.3 already implement this. If office staff later need per-job access control (e.g., subcontractor-specific job folders), tighten via Option II in a follow-up loop without changing the path schema.
+
+Spelled out so reviewers / future loops don't assume per-job security where there is none.
+
 #### §7.4 Build scope [DESIGN-OPEN]
 
 - Migration writes both the table (§7.1) + the storage policies (§7.3) atomically.
@@ -1043,12 +1253,31 @@ CREATE POLICY job_attachments_storage_delete
 
 Not part of this design loop; sketched here to inform whoever picks up the build loop.
 
-1. **Migrations — split into 3 separate timestamps** (round-3 F5). A single bundled migration that fails mid-apply produces the exact manual ledger surgery the CLAUDE.md RESUME ALERT was burned by. Split:
-   - **`<ts>+0_jobs_columns.sql`** — `ALTER TABLE jobs ADD updated_at` (if absent), `ADD hold_reason`, `ADD ready_confirmed_at`. Pure column additions; reversible by `DROP COLUMN`.
-   - **`<ts>+1_jobs_fns_and_triggers.sql`** — `tg_set_updated_at()` fn, `jobs_set_updated_at_trg`, `job_base_checklist_passes()` fn (with SECURITY DEFINER + locked search_path + tenant filter per §3.12), `jobs_clear_ready_confirmed_at()` fn, `jobs_clear_ready_confirmed_at_trg` (with WHEN clause per §3.12 C2), `jobs_log_ready_demote()` fn, `jobs_log_ready_demote_trg`.
-   - **`<ts>+2_child_triggers.sql`** — `job_crew_recheck_parents()` fn + 3 statement-triggers on `job_crew`, `materials_recheck_parents()` fn + 3 statement-triggers on `materials`.
+1. **Migrations — re-bundled to ONE transactional migration** (round-4 A1, reverses round-3 F5). The split-for-partial-recovery narrative was wrong: `supabase db push` wraps each file in its own transaction, so a mid-file failure on `+1` commits `+0` AND writes it to the ledger — recreating the exact RESUME ALERT drift. Atomicity from a single transaction gives recovery for free: anything fails, whole thing rolls back, ledger stays clean.
 
-   Apply in order via `npm run db:push`. Ledger repair gate (§6.4) runs before the first push.
+   **Three migrations total, in deploy order:**
+
+   1. **Storage migration FIRST** — `<14-digit-ts>_job_attachments_storage.sql` covers §7.1 (table), §7.3 (bucket + privacy assertion + named DROP + 3 storage policies). Runs first so a name-mismatch failure on the DROP doesn't leave jobs-columns half-applied.
+   2. **Jobs migration SECOND** — `<14-digit-ts>_staged_ready_jobs_and_triggers.sql` covers everything in §3.11 + §3.12 in one transaction:
+      - jobs columns: `ready_confirmed_at`, `hold_reason`, `updated_at` (if absent)
+      - SQL functions: `tg_set_updated_at()`, `job_base_checklist_passes()`, `jobs_clear_ready_confirmed_at()`, `jobs_log_ready_demote()`, `job_crew_recheck_parents()`, `materials_recheck_parents()`
+      - Triggers: BEFORE clear (with §3.12 round-4 B1 WHEN gate), AFTER demote-log, set_updated_at, statement-level child triggers on `job_crew` + `materials` (with §3.12 round-4 C1 TG_OP conditionals)
+      - `CHECK (status IN (...))` constraint on `materials.status` to close the JS-whitelist vs SQL-blacklist drift surfaced in §8a (round-4 G1)
+      - `ALTER TABLE job_changes ENABLE ROW LEVEL SECURITY` + tenant-scoped SELECT policy (round-4 D3) — SECURITY DEFINER writers bypass it; reads stay tenant-scoped
+   3. **Mobilizations migration THIRD** — `<14-digit-ts>_job_mobilizations.sql` covers §6.2 (table + 4 RLS policies + indexes). Independent of the others; can ship in same or different release window.
+
+   **14-digit timestamps required** (NOT `+N` suffix). The `+N` prefix collides with `scripts/check-migration-collision.mjs:11` regex. Use the format `YYYYMMDDHHmmss` per existing convention.
+
+   **CROSS-REPO COORDINATION — REQUIRED before push** (round-4 A4):
+
+   `sales-command` owns `supabase/migrations/20260420120000_storage_job_attachments_delete_policy.sql` in git. Any future `db reset` / CI fresh-env / DR seed in any repo re-applies that file → silently re-opens the tenant-wide DELETE hole the §7.3 DROP closed. **Two acceptable paths:**
+
+   - **(a) Deletion migration in sales-command** — same release window, ship a migration in `sales-command/supabase/migrations/` that drops the legacy policy and removes the original file. Timestamp must be coordinated against ledger; cross-repo migration coordination doc is `~/sales-command/docs/plans/o7_migration_coordination.md`.
+   - **(b) Idempotent re-create in sch-command** — sch-command's migration drops the legacy policy AND re-creates a tightened policy under the same name `"Authenticated can delete job-attachments"` (using the §7.3 tenant-segment gate). sales-command's replay would then become a no-op (`CREATE POLICY ... IF NOT EXISTS` semantics don't exist in PG; use `DROP POLICY IF EXISTS ... ; CREATE POLICY ...` pattern in both repos so each is idempotent).
+
+   Recommend **(a)** — single source of truth in sales-command; sch-command stays the consumer. Requires sync with sales-command owner.
+
+   Apply via `npm run db:push`. Ledger repair gate (§6.4) runs before the first push.
 2. **Compute `isReady`** in `queries.js` — `loadAllRows()` helper (§2.4), then `baseChecklistPasses(job, crew, mats)` and `isReady(job)` using pre-indexed Maps. **Do NOT change the `loadJobs({ withWTCs })` default** (round-3 F1). The default stays `false`; only the new call sites (`JobsPicker.jsx` for tile counts, `StageJobCard.jsx` for the SOW row) pass `withWTCs: true` explicitly. Changing the default would silently regress perf and contract on `Calendar.jsx`, `Schedule.jsx`, `Materials.jsx`, `Daily.jsx`, `Billing.jsx`, `Schedules.jsx` — most of which don't render WTC data and don't want the extra join.
 3. **Tile split** in `JobsPicker.jsx` — load `job_crew` + `materials` via paginating helper, add Staged tile before Ready, update Ready tile copy + filter, move Production Complete to Section 2. Counts derive from `isReady`. Surface `{ partial, error }` from §2.4 as a sync-warning chip.
 4. **Card list components** — actual surfaces in the repo today (verified `ls src/components/`):
@@ -1099,7 +1328,16 @@ for (const sow of sowOpts)
 // then assert JS isReady() === SQL SELECT job_base_checklist_passes(j).
 ```
 
-Expected outcome: align the JS to use the blacklist (`!status || ['Ordered', 'In Stock'].includes(status) ||` is wrong — instead `!['Not Ordered', 'Delayed'].includes(status)`), or add a CHECK constraint on `materials.status` that pins the enum. Recommend blacklist alignment in code + the constraint in a follow-up loop.
+Expected outcome: align the JS to use the blacklist (`!status || ['Ordered', 'In Stock'].includes(status) ||` is wrong — instead `!['Not Ordered', 'Delayed'].includes(status)`), or add a CHECK constraint on `materials.status` that pins the enum. The plan adopts BOTH: blacklist alignment in code + the CHECK constraint ships in the same jobs migration (§8 step 1 round-4 G1).
+
+**Runner spec (round-4 G2)**: parity fixture is not optional, must run in CI.
+
+- **Framework**: Vitest (already present in dev deps if `npm test` works; add if not).
+- **Postgres**: local Supabase container via `supabase start` (Docker required). Test file boots schema from `supabase/migrations/`, seeds tenant + call_log + jobs row, runs the fixture matrix.
+- **Test location**: `tests/staged_ready_parity.test.js`.
+- **Per-fixture assertion**: build temp rows → `await supabase.rpc('jb_test', { ... })` returns SQL result for `job_base_checklist_passes(j)` → assert equal to JS `baseChecklistPasses(job, crew, mats)`.
+- **CI gate**: GitHub Actions workflow `.github/workflows/test.yml` runs `npm test` on every PR. Required check on any PR touching `supabase/migrations/` or `src/lib/queries.js`. Use branch protection rule to enforce.
+- **Don't merge §8a-spec without runner**: implementation loop ships the test + the workflow + the branch protection in the same PR as the migration. If the parity test isn't gating CI, the drift it's designed to catch lands in main between test runs.
 
 ---
 
@@ -1144,7 +1382,9 @@ Recommend: ship with all three channels. Strip back only if observability shows 
 | 6 | Should panel toggle state persist across page reloads (per-user pref) or stay session-local? (§3.8) | Chris (revisit post-launch) |
 | 7 | Pagination audit pass on existing sch-command load paths (`Jobs.jsx:149-157`: `jobs`, `assignments`, `billing_log`, `team_members`). All currently unpaginated and would silently truncate at 1000 rows. File as backlog `T2 — paginate sch-command load paths` | Chris (separate backlog item) |
 | 8 | ~~`withWTCs: true` default~~ — withdrawn per round-3 F1; default stays `false`. New call sites opt in explicitly | resolved |
-| 9 | Verify whether `storage_job_attachments_delete_policy` exists today before drafting §7.3's `DROP POLICY IF EXISTS`. If absent, skip the DROP statement | Chris (during attachments loop) |
+| 9 | ~~Verify policy name before DROP~~ — resolved: round-3 C3 confirmed name is `"Authenticated can delete job-attachments"` and DROP is now unconditional | resolved |
+| 10 | **Cross-repo coordination with sales-command owner**: pick path (a) deletion migration in sales-command OR (b) idempotent re-create in sch-command (§8 step 1 round-4 A4). Required before push | Chris + sales-command owner |
+| 11 | **search_path drift** (round-4 H2): new SECURITY DEFINER fns in §3.12 use `SET search_path = public, pg_temp`; sales-command's canonical helpers use `SET search_path = public` (no `pg_temp`). Either align all new fns to drop `pg_temp`, OR file a tracker to update sales-command's helpers to add it. Don't leave silent drift between repos | Chris (decide before push) |
 
 ---
 
@@ -1166,17 +1406,19 @@ For quick scan by the build loop:
 - ✓ No "Open Job" button — card header clickable instead
 - ✓ PRT behind threshold: `actual < target by >10% across last 3 PRTs` (§3.10); bulk `loadPRTsForCallLogIds(ids[])` mirrors single-job SELECT verbatim from `queries.js:191`, chunks `.in()` at 100 UUIDs, preserves `.order('report_date' desc)`; documented behavior at 0/1/2 PRTs
 - ✓ New `jobs.hold_reason` column (§3.11)
-- ✓ New `jobs.ready_confirmed_at` column (§3.12) with **hybrid enforcement**: app-layer SETs via [ Promote to Ready ] (5th arg is string `'manual_promotion'`, not an object — round-3 D3); DB trigger CLEARs on any base-checklist transition true→false. BEFORE trigger gated with `WHEN (OLD.ready_confirmed_at IS NOT NULL AND NEW.ready_confirmed_at IS NOT NULL)` so a Promote SET never self-nulls (round-3 C2). AFTER trigger writes `job_changes` row on any non-NULL→NULL transition with `source='trigger_auto_demote'` or `'on_hold_resume'` so auto-demotes are visible in the audit log (round-3 C1). `job_base_checklist_passes()` declared `SECURITY DEFINER SET search_path = public, pg_temp` with explicit tenant filter via call_log JOIN (round-3 E1). Child-table triggers converted to `FOR EACH STATEMENT` with `REFERENCING NEW TABLE / OLD TABLE` transition tables so CSV imports fire one re-eval per affected parent, not per row (round-3 E3)
+- ✓ New `jobs.ready_confirmed_at` column (§3.12) with **hybrid enforcement**: app-layer SETs via [ Promote to Ready ] (5th arg is string `'manual_promotion'`, not an object — round-3 D3); DB trigger CLEARs on any base-checklist transition true→false. BEFORE trigger gated with `WHEN (OLD ... AND NEW ... AND NEW IS NOT DISTINCT FROM OLD)` so re-Promote-with-same-value, concurrent SET races, and Promote SETs all bypass clearing (round-4 B1). BEFORE trigger sets `SET LOCAL my.auto_demote=true` flag (round-4 B2) read by the AFTER trigger to distinguish `trigger_auto_demote` from `manual_clear` and from `on_hold_resume`. AFTER trigger now logs **both** non-NULL→NULL transitions AND NULL→non-NULL SETs (round-4 D2) with `source='trigger_set:<role>'` for service-role bypass-proofing. JWT role encoded in source string (round-4 D1). `job_base_checklist_passes()` declared `SECURITY DEFINER SET search_path = public, pg_temp` with explicit tenant filter via call_log JOIN (round-3 E1; H2 search_path drift open in §10). Child-table triggers converted to `FOR EACH STATEMENT` with `REFERENCING NEW TABLE / OLD TABLE` transition tables (round-3 E3); function body branches on `TG_OP` (round-4 C1 — DELETE-only triggers can't reference new_rows); tenant-scoped via `get_user_tenant_id()` with service-role escape hatch (round-4 C2). Resume action's `updateJobFields` audit loop skips `ready_confirmed_at` to avoid triple-write (round-4 B3). Trigger fire order documented in §3.12.2 (round-4 H1)
 - ✓ Mobilizations table: Option C hybrid override (§6.2). **Single FK to `jobs.job_id`** — no `call_log_id`, no `tenant_id`. Mirrors `job_wtcs` exactly. RLS scoped via `JOIN jobs ON job_id JOIN call_log`. Closes cross-tenant pollution + UPDATE-loophole attacks. Four-policy RLS spec included. `UNIQUE (job_id, label)` + stable-label policy (deletion leaves gaps, never renumber)
-- ✓ Attachments (§7) fully spec'd despite deferred build: single-FK table, path schema `{tenant_id}/{call_log_id}/{uuid}-{filename}`, **3 storage policies** (SELECT/INSERT/DELETE — UPDATE dropped per round-3 A3, files immutable post-upload), gating on `(storage.foldername(name))[1] = get_user_tenant_id()::text`. Bucket created + asserted private in same migration via `storage.buckets` upsert + `DO $$` privacy check (round-3 A5). Legacy DROP statement is **unconditional** and uses the actual prod policy name `"Authenticated can delete job-attachments"` (round-3 C3) — verify with `SELECT polname FROM pg_policy WHERE polrelid='storage.objects'::regclass` before running
-- ✓ All new loads use `.range()` pagination via `loadAllRows(tableName, selectStr, { orderBy, filterFn })` helper (§2.4). Signature rebuilds the PostgREST builder per page (round-3 D2 — reused-builder pattern infinite-loops past 1000 rows). `orderBy` is **required**, no default (round-3 D4 — silent skip-and-double-count risk on tables without `id`). Returns `{data, error, partial}`, surfaces sync warning on partial. MED audit-pass on existing unpaginated loads filed as backlog
+- ✓ Attachments (§7) fully spec'd despite deferred build: single-FK table, path schema `{tenant_id}/{call_log_id}/{uuid}-{filename}`, **3 storage policies** (SELECT/INSERT/DELETE — UPDATE dropped per round-3 A3, files immutable post-upload), gating on `(storage.foldername(name))[1] = get_user_tenant_id()::text`. Bucket created via `INSERT ... ON CONFLICT DO NOTHING` (round-4 E1 — `DO UPDATE` neutered the privacy assertion); assertion RAISEs on missing or public bucket. Connection-role guard at top of migration (round-4 E3): `IF current_user <> 'postgres' THEN RAISE EXCEPTION` catches Supabase pooler mode-switch failures. Legacy DROP statement is **unconditional** and uses the actual prod policy name `"Authenticated can delete job-attachments"` (round-3 C3). Per-job authorization contract spelled out in §7.3a: **Option I — tenant-wide office sharing** (round-4 E2); per-job ACLs deferred to follow-up loop if needed
+- ✓ All new loads use `.range()` pagination via `loadAllRows(tableName, selectStr, { orderBy, filterFn })` helper (§2.4). Signature now builds filter+order chain ONCE outside the loop and only rebuilds `.range()` per page (round-4 F2 — round-3's full-rebuild over-corrected; reused chain is fine, only `.range()` is mutating). Dev-only assertion on chunk 2 validates the assumption. `orderBy` is **required**, no default (round-3 D4). Returns `{data, error, partial}`, surfaces sync warning on partial. Existing unpaginated loads documented as a known divergence at >1000 rows (round-4 F5): tile counts accurate only for first 1000 jobs; backlog T2 must ship before HDSP exceeds threshold
 - ✓ `isReady` performance: pre-index `jobCrew` + `materials` as `Map<job_id, rows[]>` once per `loadData`; O(1) per-job lookup
-- ✓ Migrations **split into 3 separate timestamps** (round-3 F5): `+0_jobs_columns.sql`, `+1_jobs_fns_and_triggers.sql`, `+2_child_triggers.sql`. Mid-apply failure on one timestamp leaves the others' ledger entries intact. All pushed via `npm run db:push` after ledger repair gate (§6.4)
+- ✓ Migrations **re-bundled to ONE transactional jobs migration** (round-4 A1, reverses round-3 F5 — split actually amplified RESUME ALERT drift). Three migrations total in deploy order: storage FIRST, jobs SECOND, mobilizations THIRD. 14-digit timestamps required (NOT `+N` suffix — collides with `scripts/check-migration-collision.mjs:11` per round-4 A1). All push via `npm run db:push` after ledger repair gate (§6.4). Cross-repo coordination with sales-command owner required before push (round-4 A4 — sales-command owns the legacy storage policy file)
 - ✓ `jobs.updated_at` trigger does **NOT exist today** — ADD `tg_set_updated_at()` fn + `jobs_set_updated_at_trg` in the same migration as `hold_reason` / `ready_confirmed_at`. Reused by `job_mobilizations`
 - ✓ `loadJobs({ withWTCs })` default stays `false` (round-3 F1 reverses prior round-2 decision). Only `JobsPicker` and `StageJobCard` opt in explicitly; Calendar/Schedule/Materials/Daily/Billing/Schedules unaffected
-- ✓ Realtime channels extended: subscribe to `job_crew` + `materials` in addition to `jobs` so Staged/Ready counts don't drift (§9). `loadData` debounced at **300ms** in the channel handler so CSV imports of 500 rows don't freeze the tab (round-3 E5). Fallback contract: eventual consistency ≤30s if realtime cost grows
+- ✓ Realtime channels extended: subscribe to `job_crew` + `materials` in addition to `jobs` so Staged/Ready counts don't drift (§9). `loadData` debounced at **300ms** in the channel handler so CSV imports of 500 rows don't freeze the tab (round-3 E5), AND wrapped in request-id stale-bail (round-4 F3) so concurrent loads can't half-rebuild the pre-indexed Maps. Fallback contract: eventual consistency ≤30s if realtime cost grows
 - ✓ PowerSync sync rules — `job_mobilizations` **BLOCKED from sync rules** until PowerSync is refactored to per-tenant buckets (round-3 C4). Today's broad `SELECT *` patterns would leak mob data cross-tenant. Field Command must NOT query `job_mobilizations` until both ship. Sch-command UI surfaces mobs only in the interim (§6.3)
-- ✓ SQL ↔ JS parity test fixture (§8a) required pre-merge: `isReady()` (JS whitelist) vs `job_base_checklist_passes()` (SQL blacklist) diverge on unknown material status values. Test asserts row-for-row agreement across crew × material × SOW × date combos. Recommend aligning JS to blacklist + adding CHECK constraint on `materials.status` in follow-up loop (round-3 E2)
+- ✓ SQL ↔ JS parity test fixture (§8a) required pre-merge with Vitest + local Supabase + GitHub Actions CI gate (round-4 G2). Branch protection rule enforces `npm test` on any PR touching `supabase/migrations/` or `src/lib/queries.js`. Plan adopts both fixes: JS aligns to blacklist + CHECK constraint on `materials.status` ships in same jobs migration (round-4 G1)
+- ✓ PRT bulk loader uses `Promise.allSettled` (round-4 F1 — bail-on-first-error discarded successful chunks); returns `{data, error, partial}`; defensive re-sort by `report_date desc` after merge (round-4 F6 — parallel-arrival order doesn't preserve sort). Chunk-100 URL length unverified — measure in dev OR migrate to RPC `prts_for_call_logs(ids uuid[])` (round-4 F4)
+- ✓ `job_changes` table gets `ENABLE ROW LEVEL SECURITY` + tenant-scoped SELECT policy in same jobs migration (round-4 D3). SECURITY DEFINER writers bypass; reads stay tenant-scoped
 - ✓ §8 step 4 corrected: `OnHoldCardList` wraps `JobCardList` (not a peer); `StagedCardList` + `CompleteCardList` don't exist today and must be created
 - ✓ Staged tile sub-line: `📋 N · 📦 N · 👷 N · 📅 N` (§2.5)
 - ✓ Staged sort: nearest `start_date` asc, NULL first (§5.1)
