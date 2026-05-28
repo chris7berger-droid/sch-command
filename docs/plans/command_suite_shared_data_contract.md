@@ -8,7 +8,30 @@
 
 ---
 
-## The core question (Chris's framing)
+## Framing — ONE app, four drivers (Chris, 2026-05-28)
+
+The suite began as **4 separately-sellable apps** sharing a DB. ~3/4 through the
+build, Chris concluded that model can't deliver the experience he wants, and the
+product is now **one app with four drivers** (Sales / Schedule / Field / AR as
+modes of one product), not four independent products.
+
+This **reframes — and mostly shrinks — the question below.** Most cross-app pain
+is an artifact of the 4-sellable-apps model and should be *designed out*, not
+contracted around:
+- Ownership "treaty" → one product owns its data; pick the canonical table.
+- Cross-domain links/auth (e.g. SOW port) → shared modules within one product.
+- Copy-vs-reference snapshots → live references; no drift inside one app.
+
+**The one boundary that stays real:** Field Command's offline-first mobile
+runtime (PowerSync local SQLite). Crews need offline, so a phone will always
+differ from the web. The "contract" therefore narrows to a single **web ↔
+offline-mobile sync surface**, not a 4-way treaty.
+
+Caveat: the running system is still 4 repos + 4 deploys. Becoming *physically*
+one app (monorepo, merged web deploys) is its own strategic migration. This
+doc's job is to set the design premise, not to pre-decide that migration.
+
+## The core question (re-read under the one-app framing)
 
 The 4 Command Suite apps — **Sales, Schedule, Field, AR** — run on **one shared Supabase DB** (`pbgvgjjuhnpsumnowuym`):
 
