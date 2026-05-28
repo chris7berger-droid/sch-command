@@ -130,7 +130,6 @@ export default function Jobs() {
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
-  const [jobCrew, setJobCrew] = useState([])
   const [materials, setMaterials] = useState([])
   const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
@@ -151,14 +150,23 @@ export default function Jobs() {
   const today = useMemo(() => new Date(), [])
   const loadIdRef = useRef(0)
 
-  const teamNameById = useMemo(
-    () => Object.fromEntries(teamMembers.map(t => [t.id, t.name])),
-    [teamMembers]
-  )
-
-  const crewByCallLog = useMemo(() => jobCrew.reduce((m, r) => {
-    (m[r.job_id] ||= []).push({ ...r, name: teamNameById[r.team_member_id] || null }); return m
-  }, {}), [jobCrew, teamNameById])
+  // "Crew assigned" = office assignments (the pre-kickoff signal). job_crew is
+  // Field Command clock-ins, which only exist post-kickoff, so it can't gate
+  // readiness. Keyed by call_log_id with shape [{name}] so existing card
+  // consumers (CREW scorecard, DETAILS, baseChecklistPasses, isReady) are
+  // unchanged — only the data source swaps.
+  const crewByCallLog = useMemo(() => {
+    const clByJob = Object.fromEntries(jobs.map(j => [j.job_id, j.call_log_id]))
+    const sets = {}
+    for (const a of assignments) {
+      const clId = clByJob[a.job_id]
+      if (!clId || !a.crew_name) continue
+      ;(sets[clId] ||= new Set()).add(a.crew_name)
+    }
+    const out = {}
+    for (const clId in sets) out[clId] = [...sets[clId]].map(name => ({ name }))
+    return out
+  }, [assignments, jobs])
 
   const logsByCallLog = useMemo(() => dailyLogs.reduce((m, r) => {
     m[r.job_id] = (m[r.job_id] || 0) + 1; return m
@@ -176,12 +184,11 @@ export default function Jobs() {
   const loadData = useCallback(async () => {
     const thisLoad = ++loadIdRef.current
     setLoading(true)
-    const [jobsRes, assignRes, billRes, tmRes, crewRes, matsRes, logsRes] = await Promise.all([
+    const [jobsRes, assignRes, billRes, tmRes, matsRes, logsRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
       supabase.from('assignments').select('*'),
       supabase.from('billing_log').select('*'),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
-      loadAllRows('job_crew', 'id, job_id, team_member_id', { orderBy: 'id' }),
       loadAllRows('materials', 'id, job_id, status', { orderBy: 'id' }),
       loadAllRows('daily_log_entries', 'id, job_id', { orderBy: 'id' }),
     ])
@@ -191,10 +198,9 @@ export default function Jobs() {
     setAssignments(assignRes.data || [])
     setBillingLog(billRes.data || [])
     setTeamMembers(tmRes.data || [])
-    setJobCrew(crewRes.data || [])
     setMaterials(matsRes.data || [])
     setDailyLogs(logsRes.data || [])
-    setSyncWarning(crewRes.partial || matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
+    setSyncWarning(matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
 
     const loadedJobs = jobsRes.data || []
     const activeCallLogIds = loadedJobs
@@ -214,7 +220,7 @@ export default function Jobs() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Realtime: reload on jobs, job_crew, or materials changes.
+  // Realtime: reload on jobs, assignments (crew), or materials changes.
   // 300ms debounce so bulk imports (CSV of 500 materials) don't freeze the tab.
   useEffect(() => {
     let timer = null
@@ -226,8 +232,8 @@ export default function Jobs() {
       supabase.channel('jobs-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, debouncedLoad)
         .subscribe(),
-      supabase.channel('job-crew-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'job_crew' }, debouncedLoad)
+      supabase.channel('assignments-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, debouncedLoad)
         .subscribe(),
       supabase.channel('materials-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'materials' }, debouncedLoad)
