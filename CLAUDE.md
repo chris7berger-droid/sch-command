@@ -107,13 +107,33 @@ Field Command: Clock in → auto-trigger → In Progress → DPR submission
 
 ## Pushing Migrations
 
-Always use `npm run db:push` instead of raw `supabase db push`. The wrapper
-runs a collision check against the prod ledger before pushing — it catches
-timestamp collisions across repos sharing the same Supabase project. If it
-reports a collision, rename your migration file to the next free timestamp.
-If the ledger is unreachable, re-auth with `supabase login` and
-`supabase link --project-ref pbgvgjjuhnpsumnowuym`.
-Canonical convention doc: `~/sales-command/docs/plans/o7_migration_coordination.md`.
+**`supabase db push` does NOT work from sch-command.** The Supabase project is
+shared, and its ledger holds ~60 migrations owned by sibling repos
+(sales-command, field-command) that have no local file here. `db push` does a
+local-vs-remote sync pre-check and aborts with *"Remote migration versions not
+found in local migrations directory"* before applying anything. Verified
+2026-05-28; also documented in `20260503190000_daily_log_update_policy.sql`'s
+header ("cross-repo migration history conflict prevented `supabase db push`").
+The CLI's suggested fix (`migration repair --status reverted <60 sibling
+timestamps>`) is DESTRUCTIVE — it would make sibling repos re-apply live
+migrations. Never run it. `db pull` is also wrong (dumps the whole remote
+schema locally).
+
+**The actual deploy path for this repo (dashboard SQL editor):**
+1. Write the migration file in `supabase/migrations/` (14-digit timestamp, NOT
+   `+N` suffix) and commit it — the file is the source of record.
+2. Run `node scripts/check-migration-collision.mjs` to confirm the timestamp is
+   collision-free against the prod ledger.
+3. Paste the file's SQL into the **Supabase dashboard SQL editor** and run it.
+   Wrap in `BEGIN/COMMIT` + use `IF NOT EXISTS` / `DROP … IF EXISTS` guards so
+   it's transactional and re-runnable.
+4. Record it in the ledger so the books stay honest and future collision checks
+   are accurate: `supabase migration repair --status applied <timestamp>`.
+
+See also the RESUME ALERT at the top of this file (three live-but-ledger-absent
+migrations) and `~/sales-command/docs/plans/o7_migration_coordination.md` (the
+canonical cross-repo coordination doc; resolving the ledger divergence so
+`db push` works again is backlog item O7).
 
 ## Design System (Command Suite)
 
