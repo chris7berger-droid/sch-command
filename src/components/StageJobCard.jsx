@@ -6,6 +6,7 @@ import { baseChecklistPasses } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import MaterialsModal from './MaterialsModal'
+import DaysModal from './DaysModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -85,19 +86,6 @@ function getPrtStatus(prts) {
     return { label: `${daysBehind > 0 ? daysBehind + 'd behind' : 'behind target'}`, color: 'warn' }
   }
   return { label: 'on target', color: 'ok' }
-}
-
-function fmtD(d) {
-  const dt = d instanceof Date ? d : new Date(d)
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-}
-
-function getMonday(d) {
-  const dt = new Date(d)
-  const day = dt.getDay()
-  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))
-  dt.setHours(0, 0, 0, 0)
-  return dt
 }
 
 function StageBanner({ job, stage, crewRows, matRows, billingLog, prtMap, today }) {
@@ -345,6 +333,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
   const [showMtrlModal, setShowMtrlModal] = useState(false)
+  const [showDaysModal, setShowDaysModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -395,15 +384,6 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const goManagementTab = useCallback((tab) => {
     navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
   }, [navigate, job.job_id])
-  const goSchedule = useCallback(() => {
-    const s = effectiveStart(job)
-    if (s) {
-      const monday = getMonday(new Date(s + 'T00:00:00'))
-      navigate(`/schedule?job=${job.job_id}&week=${fmtD(monday)}`)
-    } else {
-      navigate(`/jobs/${job.job_id}?mode=planning`)
-    }
-  }, [navigate, job])
 
   return (
     <div className="sjc-card">
@@ -429,7 +409,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           onSowClick={() => setShowSowModal(true)}
           onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={() => navigate(`/jobs/${job.job_id}?mode=planning`)}
-          onDateClick={() => goSchedule()}
+          onDateClick={() => setShowDaysModal(true)}
         />
       )}
       {panels.management && (
@@ -493,6 +473,10 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           onClose={() => setShowMtrlModal(false)}
           onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
         />
+      )}
+
+      {showDaysModal && (
+        <DaysModal job={job} onClose={() => setShowDaysModal(false)} />
       )}
     </div>
   )
