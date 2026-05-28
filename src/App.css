@@ -5191,6 +5191,25 @@
   font-size: 14px;
 }
 
+/* Staged tile accent */
+.jh-tile-staged   { border-left-color: #e0a030; }
+.jh-tile-staged   .jh-tile-dot { background: #e0a030; }
+.jh-tile-staged   .jh-tile-count { color: #e0a030; }
+.jh-tile-staged   .jh-tile-attn { color: var(--text-light); }
+.jh-tile-attn-icons { display: flex; gap: 8px; align-items: center; }
+.jh-tile-attn-icons span { white-space: nowrap; }
+
+/* Sync warning chip */
+.jh-sync-warning {
+  background: rgba(230, 126, 34, 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(230, 126, 34, 0.3);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
 /* Per-stage accent — left border + dot + count color */
 .jh-tile-scheduled { border-left-color: var(--warning); }
 .jh-tile-scheduled .jh-tile-dot { background: var(--warning); }
@@ -5560,4 +5579,300 @@
   cursor: pointer;
 }
 .jd-sched-link:hover { filter: brightness(0.95); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   StageJobCard — Option D three-panel card
+   ══════════════════════════════════════════════════════════════════════ */
+
+.sjc-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(28, 24, 20, 0.07);
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.sjc-card:hover {
+  border-color: rgba(28, 24, 20, 0.3);
+  box-shadow: 0 3px 12px rgba(28, 24, 20, 0.12);
+}
+
+/* ── Banner row ──────────────────────────────────────────────────── */
+.sjc-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.sjc-banner-staged   { background: rgba(224, 160, 48, 0.12); color: #b8860b; }
+.sjc-banner-ready    { background: rgba(91, 189, 63, 0.12); color: var(--grn); }
+.sjc-banner-active   { background: rgba(91, 189, 63, 0.15); color: var(--grn); }
+.sjc-banner-on-hold  { background: rgba(230, 126, 34, 0.12); color: var(--orn); }
+.sjc-banner-complete { background: rgba(74, 158, 255, 0.10); color: var(--blu); }
+
+.sjc-banner-stage {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+.sjc-banner-missing {
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+.sjc-banner-countdown {
+  font-weight: 600;
+  opacity: 0.85;
+}
+.sjc-banner-reason {
+  font-weight: 500;
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.8;
+}
+.sjc-banner-warn {
+  color: var(--danger);
+  font-weight: 700;
+}
+.sjc-banner-prt {
+  margin-left: auto;
+  font-weight: 600;
+}
+.sjc-prt-ok   { color: var(--grn); }
+.sjc-prt-warn { color: var(--warning); }
+.sjc-prt-neutral { opacity: 0.7; }
+
+/* ── Clickable header (job title) ────────────────────────────────── */
+.sjc-header {
+  padding: 10px 14px 6px;
+  cursor: pointer;
+}
+.sjc-header:hover { text-decoration: underline; }
+.sjc-header-title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+}
+
+/* ── Identity row — three bubbles ────────────────────────────────── */
+.sjc-identity {
+  display: flex;
+  gap: 8px;
+  padding: 6px 14px 10px;
+}
+.sjc-id-bubble {
+  flex: 1;
+  background: var(--bg-deep);
+  border: 1px solid rgba(28, 24, 20, 0.2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+.sjc-id-label {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-light);
+  margin-bottom: 2px;
+}
+.sjc-id-value {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Panel toggles ───────────────────────────────────────────────── */
+.sjc-toggles {
+  display: flex;
+  gap: 0;
+  padding: 0 14px;
+  border-top: 1px solid rgba(28, 24, 20, 0.1);
+}
+.sjc-toggle {
+  flex: 1;
+  padding: 8px 0;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-light);
+  cursor: pointer;
+  text-align: center;
+  transition: color 0.12s, border-color 0.12s;
+}
+.sjc-toggle:hover {
+  color: var(--text-primary);
+}
+.sjc-toggle.open {
+  color: var(--command-green);
+  border-bottom-color: var(--command-green);
+}
+
+/* ── Panel containers ────────────────────────────────────────────── */
+.sjc-panel {
+  padding: 10px 14px;
+  border-top: 1px solid rgba(28, 24, 20, 0.08);
+  animation: sjc-slide-in 0.15s ease-out;
+}
+@keyframes sjc-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Scorecards grid ─────────────────────────────────────────────── */
+.sjc-scorecards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sjc-score {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-deep);
+  border: 1px solid rgba(28, 24, 20, 0.15);
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-width: 80px;
+}
+.sjc-score-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.sjc-score-label {
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-light);
+}
+.sjc-score-val {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: auto;
+}
+
+/* Scorecard color states */
+.sjc-score-ok   { border-color: rgba(46, 125, 50, 0.3); background: rgba(46, 125, 50, 0.08); }
+.sjc-score-ok   .sjc-score-val { color: var(--grn); }
+.sjc-score-bad  { border-color: rgba(198, 40, 40, 0.3); background: rgba(198, 40, 40, 0.08); }
+.sjc-score-bad  .sjc-score-val { color: var(--danger); }
+.sjc-score-warn { border-color: rgba(230, 126, 34, 0.3); background: rgba(230, 126, 34, 0.08); }
+.sjc-score-warn .sjc-score-val { color: var(--warning); }
+.sjc-score-neutral { }
+.sjc-score-stub {
+  opacity: 0.5;
+  border-style: dashed;
+}
+
+/* ── Details panel ───────────────────────────────────────────────── */
+.sjc-detail-row {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.06);
+}
+.sjc-detail-row:last-child { border-bottom: none; }
+.sjc-detail-label {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-light);
+  width: 50px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.sjc-detail-val {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  min-width: 0;
+  flex: 1;
+}
+.sjc-sow-line {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.sjc-sow-wtc {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-light);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* ── Stage action button ─────────────────────────────────────────── */
+.sjc-action {
+  padding: 8px 14px 10px;
+  border-top: 1px solid rgba(28, 24, 20, 0.1);
+}
+.sjc-action-btn {
+  width: 100%;
+  padding: 8px 16px;
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: filter 0.12s, opacity 0.12s;
+}
+.sjc-action-btn:hover:not(:disabled) { filter: brightness(0.92); }
+.sjc-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sjc-promote {
+  background: var(--command-green);
+  color: var(--header-dark);
+  border-color: var(--command-green);
+}
+.sjc-kickoff {
+  background: var(--grn);
+  color: #fff;
+  border-color: var(--grn);
+}
+.sjc-resume {
+  background: var(--warning);
+  color: var(--header-dark);
+  border-color: var(--warning);
+}
+.sjc-billing {
+  background: var(--cyan);
+  color: #fff;
+  border-color: var(--cyan);
+}
 
