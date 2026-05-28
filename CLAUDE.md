@@ -4,11 +4,11 @@
 
 **Read before any `supabase db push` on this repo.**
 
-1. **Ledger reconciliation required.** On 2026-05-12, two timestamps were reverted from the prod `supabase_migrations.schema_migrations` ledger: `20260512120000_jobs_material_status_additive` and `20260512120100_job_wtcs_create`. Local files for both still exist in `supabase/migrations/`. The DDL is believed live on prod via dashboard/db-query bypass. **Before any further `db push` in this repo, run:**
+1. **Ledger reconciliation required.** THREE migrations are live on prod (applied via dashboard/db-query bypass) but ABSENT from the prod `supabase_migrations.schema_migrations` ledger: `20260503190000_daily_log_update_policy` (RLS policies — non-idempotent bare create/drop), `20260512120000_jobs_material_status_additive`, and `20260512120100_job_wtcs_create`. Local files for all three exist in `supabase/migrations/`. **Before any `db push` in this repo, repair all three** (audit 2026-05-28 found the 0503 omission would abort a push on error 42710 before reaching the target migration):
    ```
-   supabase migration repair --status applied 20260512120000 20260512120100
+   supabase migration repair --status applied 20260503190000 20260512120000 20260512120100
    ```
-   Otherwise `db push` will see them in the ledger as not-applied locally, skip them silently, and any code expecting the schema will look fine but downstream pushes drift.
+   Otherwise `db push` tries to re-apply already-live DDL and aborts (non-idempotent ones) or drifts the ledger.
 
 2. **Sales-command is mid-sprint on Multi-GC Allocation.** Branch `feat/multi-gc-allocation`, pushing migrations to the shared Supabase project `pbgvgjjuhnpsumnowuym`. Item **O7 (T1, open)** in `~/sales-command/docs/BACKLOG.md` covers cross-repo timestamp coordination — it has not shipped yet. Until it does, **before drafting any migration timestamp in this repo**, query the prod ledger and pick a clear-of-everything value:
    ```
@@ -21,6 +21,15 @@
 Last shipped here: v7+v8 to prod 2026-05-06. Working tree was clean at alert-time. Resume by clearing items 1–3 above, then proceed.
 
 ---
+
+## Command Suite Shared-Data Contract
+
+The 4 apps (Sales, Schedule, Field, AR) share ONE Supabase DB. Any data that
+crosses app boundaries must have a declared **source of truth** (one writer),
+**canonical location** (no drifting copies), **copy-vs-reference** policy, and
+**sync pipe** (PostgREST web vs PowerSync for Field). Before wiring any
+cross-app field, answer those four — don't assume where data lives or who owns
+it. Full contract + open decisions: `docs/plans/command_suite_shared_data_contract.md`.
 
 ## What This Is
 Schedule Command is a React + Vite web app for managing construction crew scheduling. Part of the Command Suite (Sales, Schedule, Field, AR) under the Sub Con Command brand. Replaces a live Google Apps Script version used daily by office staff. The Apps Script stays live until v2 reaches full parity.
@@ -107,13 +116,33 @@ Field Command: Clock in → auto-trigger → In Progress → DPR submission
 
 ## Pushing Migrations
 
-Always use `npm run db:push` instead of raw `supabase db push`. The wrapper
-runs a collision check against the prod ledger before pushing — it catches
-timestamp collisions across repos sharing the same Supabase project. If it
-reports a collision, rename your migration file to the next free timestamp.
-If the ledger is unreachable, re-auth with `supabase login` and
-`supabase link --project-ref pbgvgjjuhnpsumnowuym`.
-Canonical convention doc: `~/sales-command/docs/plans/o7_migration_coordination.md`.
+**`supabase db push` does NOT work from sch-command.** The Supabase project is
+shared, and its ledger holds ~60 migrations owned by sibling repos
+(sales-command, field-command) that have no local file here. `db push` does a
+local-vs-remote sync pre-check and aborts with *"Remote migration versions not
+found in local migrations directory"* before applying anything. Verified
+2026-05-28; also documented in `20260503190000_daily_log_update_policy.sql`'s
+header ("cross-repo migration history conflict prevented `supabase db push`").
+The CLI's suggested fix (`migration repair --status reverted <60 sibling
+timestamps>`) is DESTRUCTIVE — it would make sibling repos re-apply live
+migrations. Never run it. `db pull` is also wrong (dumps the whole remote
+schema locally).
+
+**The actual deploy path for this repo (dashboard SQL editor):**
+1. Write the migration file in `supabase/migrations/` (14-digit timestamp, NOT
+   `+N` suffix) and commit it — the file is the source of record.
+2. Run `node scripts/check-migration-collision.mjs` to confirm the timestamp is
+   collision-free against the prod ledger.
+3. Paste the file's SQL into the **Supabase dashboard SQL editor** and run it.
+   Wrap in `BEGIN/COMMIT` + use `IF NOT EXISTS` / `DROP … IF EXISTS` guards so
+   it's transactional and re-runnable.
+4. Record it in the ledger so the books stay honest and future collision checks
+   are accurate: `supabase migration repair --status applied <timestamp>`.
+
+See also the RESUME ALERT at the top of this file (three live-but-ledger-absent
+migrations) and `~/sales-command/docs/plans/o7_migration_coordination.md` (the
+canonical cross-repo coordination doc; resolving the ledger divergence so
+`db push` works again is backlog item O7).
 
 ## Design System (Command Suite)
 

@@ -1,5 +1,56 @@
 import { supabase } from './supabase'
 
+// ── Paginating loader ──────────────────────────────────────────────────────
+// PostgREST caps at 1000 rows. This helper pages through with .range().
+// orderBy is required — composite-PK tables must specify a stable column.
+export async function loadAllRows(tableName, selectStr, {
+  orderBy,
+  orderAsc = true,
+  filterFn,
+} = {}) {
+  if (!orderBy) throw new Error(`loadAllRows(${tableName}): orderBy is required`)
+  const PAGE = 1000
+  const all = []
+  let chain = supabase.from(tableName).select(selectStr)
+  if (filterFn) chain = filterFn(chain)
+  chain = chain.order(orderBy, { ascending: orderAsc })
+
+  let firstRowPK = null
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await chain.range(from, from + PAGE - 1)
+    if (error) return { data: all, error, partial: true }
+    if (import.meta.env.DEV && from === PAGE && data?.length > 0 && firstRowPK != null) {
+      if (data[0]?.id === firstRowPK) {
+        console.warn(`loadAllRows(${tableName}): chunk 2 repeated chunk 1 — .range() reuse may be broken`)
+      }
+    }
+    if (from === 0 && data?.length > 0) firstRowPK = data[0]?.id ?? null
+    all.push(...(data || []))
+    if (!data || data.length < PAGE) break
+  }
+  return { data: all, error: null, partial: false }
+}
+
+// ── Staged/Ready checklist ─────────────────────────────────────────────────
+// Base checklist: SOW + date + crew + materials-decided.
+// Uses blacklist for materials to match SQL job_base_checklist_passes().
+export function baseChecklistPasses(job, crewRows, materialRows) {
+  const hasSOW = job.field_sow != null
+  const hasDate = (job.scheduled_start || job.start_date) != null
+  const hasCrew = crewRows.length >= 1
+  const materialsDecided = materialRows.length === 0
+    || materialRows.every(m => !['Not Ordered', 'Delayed'].includes(m.status))
+  return hasSOW && hasDate && hasCrew && materialsDecided
+}
+
+// Full isReady = base checklist + manual promotion gate.
+// crewByCallLog / matsByJobId are pre-indexed Maps for O(1) lookup.
+export function isReady(job, crewByCallLog, matsByJobId) {
+  const crew = crewByCallLog[job.call_log_id] || []
+  const mats = matsByJobId[job.job_id] || []
+  return baseChecklistPasses(job, crew, mats) && job.ready_confirmed_at != null
+}
+
 // ── Call_log fields pulled via join ─────────────────────────────────────────
 const CALL_LOG_SELECT = `
   call_log (
@@ -137,7 +188,7 @@ export async function updateJobField(jobId, field, newValue, changedBy, source =
 }
 
 // ── Update multiple job fields at once with audit logging ───────────────────
-export async function updateJobFields(jobId, updates, changedBy, source = 'schedule_command') {
+export async function updateJobFields(jobId, updates, changedBy, source = 'schedule_command', { skipAuditFields = [] } = {}) {
   const fields = Object.keys(updates)
   const selectFields = [...fields, 'call_log_id'].join(', ')
 
@@ -156,9 +207,10 @@ export async function updateJobFields(jobId, updates, changedBy, source = 'sched
 
   if (error) return { error }
 
-  // log each changed field
+  // log each changed field (skip fields handled by DB trigger to avoid duplicates)
   const logs = []
   for (const field of fields) {
+    if (skipAuditFields.includes(field)) continue
     const oldValue = String(current?.[field] ?? '')
     const newValue = String(updates[field] ?? '')
     if (newValue !== oldValue) {
@@ -183,6 +235,43 @@ export async function updateJobFields(jobId, updates, changedBy, source = 'sched
 // ── PRT readers (Field Command writes via PowerSync) ───────────────────────
 // daily_production_reports.job_id is FK to call_log.id (NOT jobs.job_id).
 // Always pass job.call_log_id, not job.job_id.
+
+export async function loadPRTsForCallLogIds(callLogIds) {
+  if (!callLogIds || callLogIds.length === 0) {
+    return { data: new Map(), error: null, partial: false }
+  }
+  const CHUNK = 100
+  const chunks = []
+  for (let i = 0; i < callLogIds.length; i += CHUNK) {
+    chunks.push(callLogIds.slice(i, i + CHUNK))
+  }
+  const settled = await Promise.allSettled(chunks.map(ids =>
+    supabase
+      .from('daily_production_reports')
+      .select('id, job_id, wtc_id, report_date, submitted_by, tasks, materials_used, hours_regular, hours_ot, photos, notes, status, approved_by, approved_at, created_at, tenant_id, team_members:submitted_by(id, name)')
+      .in('job_id', ids)
+      .order('report_date', { ascending: false })
+  ))
+  const byCallLogId = new Map()
+  let firstError = null
+  let rejected = 0
+  for (const r of settled) {
+    if (r.status === 'fulfilled' && !r.value.error) {
+      for (const row of (r.value.data || [])) {
+        const arr = byCallLogId.get(row.job_id) || []
+        arr.push(row)
+        byCallLogId.set(row.job_id, arr)
+      }
+    } else {
+      rejected++
+      if (!firstError) firstError = r.status === 'fulfilled' ? r.value.error : r.reason
+    }
+  }
+  for (const [, arr] of byCallLogId) {
+    arr.sort((a, b) => (b.report_date || '').localeCompare(a.report_date || ''))
+  }
+  return { data: byCallLogId, error: firstError, partial: rejected > 0 }
+}
 
 export async function loadPRTsForJob(callLogId) {
   if (!callLogId) return { data: [], error: null }
