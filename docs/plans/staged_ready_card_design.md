@@ -80,24 +80,51 @@ const readyCount   = jobs.filter(j => getJobStatus(j) === 'Scheduled' &&  isRead
 
 `JobsPicker` needs to load `job_crew` and `materials` to compute `isReady`. Today it only loads `jobs`, `assignments`, `billingLog`. Add two queries.
 
-**Pagination required for both new loads.** PostgREST caps at 1000 rows (per [[supabase-row-limit]] memory and `CLAUDE.md`). Implement via `.range()` in a paginating helper, batching at 1000 until empty:
+**Pagination required for both new loads.** PostgREST caps at 1000 rows (per [[supabase-row-limit]] memory and `CLAUDE.md`). Implement via `.range()` in a paginating helper that auto-orders, doesn't throw, and signals partial loads:
 
 ```js
-async function loadAllRows(builder) {
+// in src/lib/queries.js
+export async function loadAllRows(builder, { orderBy = 'id', orderAsc = true } = {}) {
   const PAGE = 1000
+  const ordered = builder.order(orderBy, { ascending: orderAsc })  // auto-append for stable paging
   const all = []
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await builder.range(from, from + PAGE - 1)
-    if (error) throw error
+    const { data, error } = await ordered.range(from, from + PAGE - 1)
+    if (error) return { data: all, error, partial: true }   // return last-known + error
     all.push(...(data || []))
     if (!data || data.length < PAGE) break
   }
-  return all
+  return { data: all, error: null, partial: false }
 }
 // usage:
-const jobCrew  = await loadAllRows(supabase.from('job_crew').select('job_id, crew_id'))
-const materials = await loadAllRows(supabase.from('materials').select('job_id, status'))
+const { data: jobCrew, error: e1, partial: p1 } =
+  await loadAllRows(supabase.from('job_crew').select('job_id, crew_id'))
+const { data: materials, error: e2, partial: p2 } =
+  await loadAllRows(supabase.from('materials').select('job_id, status'))
+if (e1 || e2) showSyncWarning('Counts may be stale — partial data loaded')
 ```
+
+**Caller contract**: `JobsPicker` and `Jobs.jsx` render last-known counts on partial-load and surface a small sync-warning chip near the tile section title. Prevents a brief network hiccup from blanking the dashboard.
+
+**`orderBy` default = `'id'`** because `id` is the only column guaranteed to exist + be stable across all the tables we paginate. Callers can override (e.g., `orderBy: 'job_id'` for `job_crew` if PK differs).
+
+**isReady performance — pre-index child rows.** Calling `isReady(job, jobCrew, materials)` naively re-scans the full child arrays per job → O(jobs × (crew + materials)). On a 600-job board with 200 crew rows and 500 materials rows that's 420k ops per render. Pre-index once per `loadData`:
+
+```js
+const jobCrewByCallLog = jobCrew.reduce((m, r) => {
+  (m[r.job_id] ||= []).push(r); return m         // job_crew.job_id is call_log.id
+}, {})
+const materialsByJobId = materials.reduce((m, r) => {
+  (m[r.job_id] ||= []).push(r); return m
+}, {})
+function isReady(job) {
+  const crew = jobCrewByCallLog[job.call_log_id] || []
+  const mats = materialsByJobId[job.job_id]      || []
+  return baseChecklistPasses(job, crew, mats) && job.ready_confirmed_at != null
+}
+```
+
+Reduces per-job lookup to O(1).
 
 **Audit-pass scope creep**: the existing three loads in `Jobs.jsx:149-157` (`assignments`, `billing_log`, `team_members`) and `JobsPicker`'s `jobs` load all use raw `.select('*')` without `.range()`. They are unpaginated today and would silently truncate at 1000 rows. Treat that as a separate audit fix outside this loop; surface as backlog item `T2 — paginate sch-command load paths` (see §9.7).
 
@@ -222,33 +249,58 @@ When open, shows three text rows:
 | SOW | see below — aggregates across all `job_wtcs` rows | per-WTC sub-lines for multi-GC; single line for single-WTC / legacy |
 | NOTES | `jobs.notes` | full text, no truncation |
 
-**SOW aggregation rule** (corrects earlier `[0]`-only sketch):
+**SOW aggregation rule — corrected to the actual daily shape.**
+
+`field_sow` is a jsonb **array of per-day records**, not phase blocks. Each element is one day. Verified shape per `src/components/FieldSowBuilder.jsx:115-137`:
+
+```js
+{
+  day_label:      string,    // e.g. 'Day 1' or 'Mon 6/3'
+  crew_count:     number,
+  hours_planned:  number,
+  tasks:          [{ description, pct_complete }, ...],
+  materials:      [{ material_id, name, qty_planned, ... }, ...]
+}
+```
+
+Existing card pattern (`ScheduledCardList.jsx:56`) renders this as `${arr.length} days · ${crewSize}-man crew`. The card SOW row matches that pattern and adds day labels for context:
 
 ```js
 function sowRowsForCard(job) {
   const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
   if (wtcs.length === 0) {
     // Legacy merged-row job (no job_wtcs children); fall back to parent
-    return job.field_sow ? [{ label: null, phases: job.field_sow }] : []
+    const days = Array.isArray(job.field_sow) ? job.field_sow : []
+    return days.length ? [{ label: null, days }] : []
   }
-  // One sub-line per WTC, preserving WTC order (position asc)
   return wtcs
     .slice()
     .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    .map(w => ({ label: w.work_type_name, phases: w.field_sow }))
+    .map(w => ({ label: w.work_type_name, days: Array.isArray(w.field_sow) ? w.field_sow : [] }))
+}
+
+function formatDays(days) {
+  if (days.length === 0) return '—'
+  // First N day labels (truncate at 3) + total count
+  const labels = days.slice(0, 3).map(d => d.day_label || '?')
+  const more = days.length > 3 ? ` … (${days.length} days)` : ` (${days.length} day${days.length !== 1 ? 's' : ''})`
+  return labels.join(' · ') + more
 }
 ```
 
 Render:
-- Single-WTC or legacy: one line — `SOW   Demo (3d) · Install (15d) · Final coat (2d)`
-- Multi-WTC: one sub-line per WTC under the SOW label —
+- Single-WTC / legacy:
   ```
-  SOW   [Painting]    Prep (2d) · Spray (5d)
-        [Floor coat]  Demo (3d) · Install (15d) · Final coat (2d)
-        [Touch-up]    Final walk (1d)
+  SOW   Day 1 · Day 2 · Day 3 (3 days)
+  ```
+- Multi-WTC:
+  ```
+  SOW   [Painting]    Day 1 · Day 2 (2 days)
+        [Floor coat]  Day 1 · Day 2 · Day 3 … (5 days)
+        [Touch-up]    Day 1 (1 day)
   ```
 
-Per-phase format: `phaseName (Nd)` where `N = phase.days ?? phase.duration`. Phase array shape comes from `job_wtcs.field_sow` (jsonb) — see migration `20260512120100`.
+The previous draft's `phaseName (Nd)` format was based on an imagined phased shape that doesn't exist in the codebase. Drop it.
 
 ### §3.8 Panel toggle behavior [LOCKED]
 
@@ -268,16 +320,50 @@ Rendered below the panels regardless of which panels are open. One button per st
 | Staged | `[ Promote to Ready ]` | all four base checklist items pass (§2.2) — else disabled/greyed | **Writes `now()` to `jobs.ready_confirmed_at`**. Card moves to Ready tile. Manual promotion chosen over auto so office has a beat to review before promoting. See §3.12 for column + clearing rules |
 | Ready | `[ Kickoff ]` | always | Sets `jobs.status = 'In Progress'`. Card moves to Active tile |
 | Active | *(no button)* | — | Promotion to Complete is driven by Field Command finishing the job |
-| On Hold | `[ Resume ]` | always | Sets `jobs.status = 'Scheduled'`. Card returns to either Staged or Ready depending on `isReady` (a previously-promoted job whose `ready_confirmed_at` was cleared during the hold returns to Staged for re-confirmation) |
+| On Hold | `[ Resume ]` | always | Sets `jobs.status = 'Scheduled'` **AND** sets `ready_confirmed_at = NULL` in the same `updateJobFields` call. Card returns to Staged for re-confirmation, even if the four base items still pass. Rationale: time has passed; office should re-verify before promoting |
 | Production Complete | `[ Send to Billing ]` | always | Hands off to billing pipeline. Existing flow — confirm exact behavior with existing `/billing` integration |
 
 **No "Open Job" button.** Card header (Job # + name) is clickable to navigate to existing `/jobs/:jobId?mode=management` view, which now serves only as a deep-history/audit-log surface. The card itself replaces the previous Planning + Management button row.
 
 ### §3.10 PRT "behind target" rule [LOCKED]
 
-Source: per-job PRT data. Today only the single-job loader `loadPRTsForJob()` exists in `src/lib/queries.js` — calling it once per visible Active card produces N+1 reads and will throttle on busy boards.
+Source: per-job PRT data. Today only the single-job loader `loadPRTsForJob()` exists in `src/lib/queries.js:187` — calling it once per visible Active card produces N+1 reads and will throttle on busy boards.
 
-**Required: add `loadPRTsForCallLogIds(callLogIds[])` bulk loader.** Single PostgREST query with `.in('call_log_id', callLogIds)` + `.range()` paginated per §2.4. Returns `Map<call_log_id, PRT[]>` for O(1) per-card lookup.
+**Required: add `loadPRTsForCallLogIds(callLogIds[])` bulk loader.** Mirrors the single-job loader exactly (same SELECT, same order, same FK semantics) plus chunked `.in()` to stay under the PostgREST URL length cap, plus pagination per §2.4:
+
+```js
+// in src/lib/queries.js — mirrors loadPRTsForJob (queries.js:187)
+export async function loadPRTsForCallLogIds(callLogIds) {
+  if (!callLogIds || callLogIds.length === 0) return { data: new Map(), error: null }
+  const CHUNK = 100  // PostgREST URL length cap — `.in('id', [...])` serializes to GET params
+  const chunks = []
+  for (let i = 0; i < callLogIds.length; i += CHUNK) {
+    chunks.push(callLogIds.slice(i, i + CHUNK))
+  }
+  // Same SELECT as queries.js:191, same .order(), same .eq→.in swap
+  const results = await Promise.all(chunks.map(ids =>
+    supabase
+      .from('daily_production_reports')
+      .select('id, job_id, wtc_id, report_date, submitted_by, tasks, materials_used, hours_regular, hours_ot, photos, notes, status, approved_by, approved_at, created_at, tenant_id, team_members:submitted_by(id, name)')
+      .in('job_id', ids)                                        // job_id = call_log.id per queries.js:184 comment
+      .order('report_date', { ascending: false })
+  ))
+  const errors = results.filter(r => r.error)
+  if (errors.length) return { data: new Map(), error: errors[0].error }
+  // Merge into Map<callLogId, PRT[]>, preserving the desc report_date order
+  const byCallLogId = new Map()
+  for (const { data } of results) {
+    for (const row of (data || [])) {
+      const arr = byCallLogId.get(row.job_id) || []
+      arr.push(row)
+      byCallLogId.set(row.job_id, arr)
+    }
+  }
+  return { data: byCallLogId, error: null }
+}
+```
+
+Use `job.call_log_id` as the lookup key (per `queries.js:184` comment: "daily_production_reports.job_id is FK to call_log.id, NOT jobs.job_id"). O(1) per-card lookup.
 
 Threshold rule (3+ PRTs):
 ```
@@ -305,11 +391,24 @@ ALTER TABLE jobs ADD COLUMN hold_reason text;
 - Cleared (set to NULL) when status flips back to non-`'On Hold'`.
 - Surfaced in the On Hold stage banner: `ON HOLD · 14d · {hold_reason}`.
 
-**Trigger check**: verify `jobs.updated_at` is already auto-maintained by an existing trigger before adding `hold_reason`. If yes, the new column inherits the trigger and no migration change is needed beyond `ALTER TABLE`. If no trigger exists, add one in the same migration. Same check applies to §3.12's `ready_confirmed_at`.
+**`jobs.updated_at` trigger — must be added in this migration, not "verified."** Grep of `supabase/migrations/` for `updated_at.*trigger|set_updated_at|moddatetime|trigger.*updated` returned zero matches against `jobs`. The trigger does not exist today. Same gate applies to §3.12's `ready_confirmed_at`. Include in the same migration:
+
+```sql
+CREATE OR REPLACE FUNCTION public.tg_set_updated_at()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at := now(); RETURN NEW; END;
+$$;
+
+CREATE TRIGGER jobs_set_updated_at_trg
+BEFORE UPDATE ON public.jobs
+FOR EACH ROW EXECUTE FUNCTION public.tg_set_updated_at();
+```
+
+If `jobs.updated_at` column itself doesn't exist yet, also `ALTER TABLE public.jobs ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now();` — check before drafting.
 
 Migration ledger: new timestamp, coordinate per `o7_migration_coordination.md` cross-repo convention (see §6.4).
 
-### §3.12 `jobs.ready_confirmed_at` — new column [LOCKED]
+### §3.12 `jobs.ready_confirmed_at` — new column + hybrid enforcement [LOCKED]
 
 Persists the office's [ Promote to Ready ] click so the Staged↔Ready bucketing reconciles read-time derivation (§2.3) with manual confirmation (§3.9).
 
@@ -317,37 +416,130 @@ Persists the office's [ Promote to Ready ] click so the Staged↔Ready bucketing
 ALTER TABLE jobs ADD COLUMN ready_confirmed_at timestamptz;
 ```
 
-- **Set** by the [ Promote to Ready ] button (§3.9) to `now()`. Button only enabled when the four base checklist items pass.
-- **Cleared** (set to NULL) whenever any base checklist item transitions from passing to failing. This forces re-confirmation if the office changes something after promotion (e.g., un-assigns crew, marks a material `Not Ordered`, clears the date).
+#### §3.12.1 Hybrid enforcement model [LOCKED]
 
-**Clearing implementation** — write-side rather than read-time. Read-time alone would let a job auto-promote if a base item failed-then-passed again (timestamp persists across the failure window), which defeats the review-beat purpose.
+**App layer SETS, DB trigger CLEARS.** The [ Promote to Ready ] button writes the timestamp via `updateJobField()` so audit logging captures actor + source (`job_changes` row with `field='ready_confirmed_at'`, `new_value=<now>`, `changed_by=<user>`, `source='manual_promotion'`). The trigger clears it on any base-checklist transition true→false, regardless of write origin (raw modal write, PowerSync sync from Field Command, sales-command cross-repo write, On-Hold→Resume cleanup, bulk migration, etc.).
 
-Implement via a helper `clearReadyConfirmationIfBroken(callLogId)` called from every write path that could break the base checklist:
+This closes six attack vectors that app-layer-only would miss:
+1. Raw writes from `FieldSowModal` / `Materials` views that bypass `updateJobField`
+2. PowerSync `job_crew` writes originating in Field Command (the sch-command app never sees them)
+3. Sales-command writes to `jobs.scheduled_start` / `jobs.field_sow` via cross-repo flows
+4. On-Hold→Resume that lands a previously-promoted job back in the bucket without re-confirmation
+5. Race window between mutation and the app-layer helper's read-then-write
+6. Bulk paths (multi-row updates, migration scripts) where calling a per-row helper would explode into N round-trips
 
-```js
-// in src/lib/queries.js (sketch)
-export async function clearReadyConfirmationIfBroken(callLogId) {
-  const job = await loadJobByCallLog(callLogId)
-  if (!job?.ready_confirmed_at) return  // already null, nothing to do
-  const jobCrew = await loadJobCrew(callLogId)
-  const materials = await loadMaterials(job.job_id)
-  if (!baseChecklistPasses(job, jobCrew, materials)) {
-    await supabase.from('jobs')
-      .update({ ready_confirmed_at: null })
-      .eq('job_id', job.job_id)
-  }
-}
+#### §3.12.2 DB trigger spec [LOCKED]
+
+```sql
+-- Helper: returns true iff all four base checklist items pass for a jobs row.
+-- Lives in same migration as ready_confirmed_at + trigger.
+CREATE OR REPLACE FUNCTION public.job_base_checklist_passes(p_job public.jobs)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  v_has_crew      boolean;
+  v_has_materials boolean;
+BEGIN
+  IF p_job.field_sow IS NULL THEN RETURN false; END IF;
+  IF COALESCE(p_job.scheduled_start, p_job.start_date) IS NULL THEN RETURN false; END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.job_crew jc
+     WHERE jc.job_id = p_job.call_log_id   -- job_crew.job_id FKs to call_log.id
+  ) INTO v_has_crew;
+  IF NOT v_has_crew THEN RETURN false; END IF;
+
+  -- Materials decided = no rows OR no rows in ('Not Ordered', 'Delayed')
+  SELECT NOT EXISTS (
+    SELECT 1 FROM public.materials m
+     WHERE m.job_id = p_job.job_id
+       AND m.status IN ('Not Ordered', 'Delayed')
+  ) INTO v_has_materials;
+  RETURN v_has_materials;
+END;
+$$;
+
+-- Trigger on jobs: clear ready_confirmed_at on any UPDATE if checklist now fails.
+CREATE OR REPLACE FUNCTION public.jobs_clear_ready_confirmed_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.ready_confirmed_at IS NOT NULL
+     AND NOT public.job_base_checklist_passes(NEW) THEN
+    NEW.ready_confirmed_at := NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER jobs_clear_ready_confirmed_at_trg
+BEFORE UPDATE ON public.jobs
+FOR EACH ROW
+EXECUTE FUNCTION public.jobs_clear_ready_confirmed_at();
+
+-- Mirror trigger on job_crew (DELETE / TRUNCATE) and materials (INSERT/UPDATE/DELETE)
+-- so checklist-affecting writes on child tables also re-evaluate the parent.
+CREATE OR REPLACE FUNCTION public.recheck_jobs_ready_from_child()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_job public.jobs;
+  v_call_log_id uuid;
+  v_job_id int8;
+BEGIN
+  -- Resolve which parent jobs row to re-check based on TG_TABLE_NAME.
+  IF TG_TABLE_NAME = 'job_crew' THEN
+    v_call_log_id := COALESCE(NEW.job_id, OLD.job_id);  -- job_crew.job_id is call_log.id
+    SELECT * INTO v_job FROM public.jobs WHERE call_log_id = v_call_log_id;
+  ELSIF TG_TABLE_NAME = 'materials' THEN
+    v_job_id := COALESCE(NEW.job_id, OLD.job_id);
+    SELECT * INTO v_job FROM public.jobs WHERE job_id = v_job_id;
+  END IF;
+  IF v_job.ready_confirmed_at IS NOT NULL
+     AND NOT public.job_base_checklist_passes(v_job) THEN
+    UPDATE public.jobs SET ready_confirmed_at = NULL WHERE job_id = v_job.job_id;
+  END IF;
+  RETURN NULL;  -- AFTER trigger
+END;
+$$;
+
+CREATE TRIGGER job_crew_recheck_ready_trg
+AFTER INSERT OR UPDATE OR DELETE ON public.job_crew
+FOR EACH ROW
+EXECUTE FUNCTION public.recheck_jobs_ready_from_child();
+
+CREATE TRIGGER materials_recheck_ready_trg
+AFTER INSERT OR UPDATE OR DELETE ON public.materials
+FOR EACH ROW
+EXECUTE FUNCTION public.recheck_jobs_ready_from_child();
 ```
 
-Call sites:
-- `updateJobField()` when changing `field_sow`, `scheduled_start`, `start_date`, `scheduled_end`, `end_date`
-- `job_crew` insert/delete paths
-- `materials` insert/delete + status update paths
-- (Not needed on `jobs.notes`, `jobs.hold_reason`, etc. — those don't affect the base checklist)
+#### §3.12.3 App layer — SET path only [LOCKED]
 
-A DB trigger would be more bulletproof but adds RLS complexity and cross-repo coupling (sales-command's send-to-schedule writes the initial `jobs` row). Application-layer enforcement is acceptable for v1; revisit if leaks surface.
+Only the [ Promote to Ready ] button writes a non-NULL value, and it writes via `updateJobField()` so audit logging fires:
 
-**Idempotency**: re-clicking [ Promote to Ready ] when `ready_confirmed_at` is already set is a no-op (or harmlessly overwrites with a fresh timestamp — either is fine).
+```js
+// In the Staged card action button onClick (sketch):
+await updateJobField(
+  job.job_id,
+  'ready_confirmed_at',
+  new Date().toISOString(),
+  changedBy,
+  { source: 'manual_promotion' }    // surfaces in job_changes.source
+)
+```
+
+No app-layer clearing helper is needed. The trigger handles every clearing case.
+
+#### §3.12.4 Idempotency + edge cases [LOCKED]
+
+- Re-clicking [ Promote to Ready ] when `ready_confirmed_at` is already set harmlessly overwrites with a fresh timestamp (audit log gains a row; otherwise no behavior change).
+- A job that arrives from sales-command with a non-NULL `ready_confirmed_at` (shouldn't happen since sales doesn't write that column) would be auto-cleared by the trigger if the four base items don't pass — defense in depth.
+- On-Hold→Resume returns the job to `status='Scheduled'`. The trigger does not fire on `status` changes alone; whether the job lands in Staged or Ready depends purely on the existing `ready_confirmed_at` value at hold-time. If the office wants the held job to require re-confirmation, set `ready_confirmed_at = NULL` explicitly in the hold transition — recommend yes, document in §3.9's On Hold row.
 
 ---
 
@@ -429,7 +621,9 @@ Mobilizations as a child table fixes this:
 
 ### §6.2 Schema — Option C, hybrid override [LOCKED]
 
-Mirrors the `job_wtcs` pattern (migration `20260512120100`): no `tenant_id` column on the child table; tenant scoping enforced via RLS through the `call_log_id` → `call_log.tenant_id` chain. Same applies to §7's `job_attachments`.
+Mirrors the `job_wtcs` pattern (migration `20260512120100`) **exactly**: single `job_id` FK only, no `call_log_id` column on the child table, no `tenant_id` column. Tenant scoping enforced via RLS through `JOIN jobs ON job_id, JOIN call_log ON jobs.call_log_id`. Same applies to §7's `job_attachments`.
+
+**Why single FK** (drops `call_log_id` from the previous draft): a dual FK lets an attacker insert a row where `job_id` and `call_log_id` disagree — `job_id` points to a job in tenant A, `call_log_id` points to a call_log in tenant B. With both columns present, the RLS check on the call_log column passes (tenant B owns that call_log) while the actual job lives in tenant A. Result: cross-tenant data pollution. The dual-FK shape also lets a malicious UPDATE re-parent a mob from one job to another by flipping just `call_log_id`. Single FK + JOIN closes both vectors and exactly matches `job_wtcs`.
 
 ```sql
 BEGIN;
@@ -437,7 +631,6 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.job_mobilizations (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id      int8 NOT NULL REFERENCES public.jobs(job_id) ON DELETE CASCADE,
-  call_log_id uuid NOT NULL REFERENCES public.call_log(id) ON DELETE CASCADE,
   label       text NOT NULL,            -- 'M1', 'M2', ...
   ordinal     int  NOT NULL,            -- sort order: 1, 2, 3, ...
   start_date  date NOT NULL,
@@ -454,26 +647,30 @@ CREATE TABLE IF NOT EXISTS public.job_mobilizations (
 
 CREATE INDEX IF NOT EXISTS idx_job_mobilizations_job_id
   ON public.job_mobilizations(job_id);
-CREATE INDEX IF NOT EXISTS idx_job_mobilizations_call_log_id
-  ON public.job_mobilizations(call_log_id);
 
 COMMENT ON TABLE public.job_mobilizations IS
   'Per-mobilization date blocks for a job (hybrid override). NULL crew_size '
   'or field_sow means inherit the parent jobs.crew_needed or jobs.field_sow.';
 
+-- updated_at maintenance via shared trigger fn (added in §3.11 migration)
+CREATE TRIGGER job_mobilizations_set_updated_at_trg
+BEFORE UPDATE ON public.job_mobilizations
+FOR EACH ROW EXECUTE FUNCTION public.tg_set_updated_at();
+
 -- ── RLS ────────────────────────────────────────────────────
 ALTER TABLE public.job_mobilizations ENABLE ROW LEVEL SECURITY;
 
--- Scope via parent jobs.call_log_id -> call_log.tenant_id chain.
--- Mirrors job_wtcs (20260512120100). No tenant_id column on this table.
+-- Scope via JOIN jobs -> call_log.tenant_id chain.
+-- Mirrors job_wtcs (20260512120100) exactly.
 CREATE POLICY job_mob_select_authenticated
   ON public.job_mobilizations
   FOR SELECT TO authenticated
   USING (
     EXISTS (
       SELECT 1
-        FROM public.call_log cl
-       WHERE cl.id = job_mobilizations.call_log_id
+        FROM public.jobs j
+        JOIN public.call_log cl ON cl.id = j.call_log_id
+       WHERE j.job_id = job_mobilizations.job_id
          AND cl.tenant_id = public.get_user_tenant_id()
     )
   );
@@ -484,8 +681,9 @@ CREATE POLICY job_mob_insert_authenticated
   WITH CHECK (
     EXISTS (
       SELECT 1
-        FROM public.call_log cl
-       WHERE cl.id = job_mobilizations.call_log_id
+        FROM public.jobs j
+        JOIN public.call_log cl ON cl.id = j.call_log_id
+       WHERE j.job_id = job_mobilizations.job_id
          AND cl.tenant_id = public.get_user_tenant_id()
     )
   );
@@ -496,16 +694,18 @@ CREATE POLICY job_mob_update_authenticated
   USING (
     EXISTS (
       SELECT 1
-        FROM public.call_log cl
-       WHERE cl.id = job_mobilizations.call_log_id
+        FROM public.jobs j
+        JOIN public.call_log cl ON cl.id = j.call_log_id
+       WHERE j.job_id = job_mobilizations.job_id
          AND cl.tenant_id = public.get_user_tenant_id()
     )
   )
   WITH CHECK (
     EXISTS (
       SELECT 1
-        FROM public.call_log cl
-       WHERE cl.id = job_mobilizations.call_log_id
+        FROM public.jobs j
+        JOIN public.call_log cl ON cl.id = j.call_log_id
+       WHERE j.job_id = job_mobilizations.job_id
          AND cl.tenant_id = public.get_user_tenant_id()
     )
   );
@@ -516,8 +716,9 @@ CREATE POLICY job_mob_delete_authenticated
   USING (
     EXISTS (
       SELECT 1
-        FROM public.call_log cl
-       WHERE cl.id = job_mobilizations.call_log_id
+        FROM public.jobs j
+        JOIN public.call_log cl ON cl.id = j.call_log_id
+       WHERE j.job_id = job_mobilizations.job_id
          AND cl.tenant_id = public.get_user_tenant_id()
     )
   );
@@ -546,6 +747,7 @@ The mobilizations table is its own build, not part of the card-design loop. Down
 - `JobCrewScheduler.jsx` needs to render multi-block schedules (today assumes one contiguous range).
 - `Calendar.jsx`, `Daily.jsx`, `Schedule.jsx` all need to render multi-block jobs without artifacts.
 - Field Command (mobile app, separate repo) needs to know which mobilization a crew is clocking into. Coordinate with `field-command` repo owner.
+- **PowerSync sync rules — explicit artifact required.** Field Command crews run offline-first against PowerSync. `job_mobilizations` must be added to the PowerSync sync rules (managed in the PowerSync dashboard, per `field-command` CLAUDE.md) **before** Field Command code starts querying mobs offline. Without this, the table exists in Supabase but never replicates to crew devices — silent data hole. Coordination artifact: PR comment or doc update on `field-command` referencing this migration timestamp; ensure rules are updated within the same deploy window.
 
 **Plan: build mobs as its own ERD loop after card design lands.** Card design renders `MOBS` scorecard with derived count = 1 today (from `jobs.start/end_date`); once table ships, count comes from `job_mobilizations` and card renders unchanged.
 
@@ -571,15 +773,101 @@ Otherwise `db push` will see them as not-applied locally, skip them silently, an
 
 No attachments system exists in sch-command today. Grep for `attachment|file_url|files\.` in `src/` returned zero matches. Needed for the 📎 FILES scorecard to be functional.
 
-Scope outside this loop:
-- New table `job_attachments` (id, job_id, call_log_id, label, file_path, file_size, mime_type, uploaded_by, uploaded_at). **No `tenant_id` column** — scope RLS via `call_log_id` → `call_log.tenant_id` per the pattern in §6.2 / migration `20260512120100`. Same 4-policy RLS spec (SELECT/INSERT/UPDATE/DELETE) gating on `get_user_tenant_id()` through the call_log chain.
-- Supabase Storage bucket (per-tenant prefix or shared bucket; storage-level RLS must match table RLS — scope storage policies on the same call_log chain).
-- Upload UI (drag-drop or file picker).
-- Download / preview UI in the FILES scorecard click target.
-- Cross-app: does Field Command need read access to job attachments? Likely yes for crew refs.
-- Push via `npm run db:push` per §6.4.
+Per the audit, the storage layer must be fully spec'd before the FILES scorecard can be marked ready — a permissive storage bucket policy today (`storage_job_attachments_delete_policy`, scoped to the bucket only, callable by any tenant) is in scope to drop in the same migration that adds the table-level policies. Verify the existing policy via the Supabase storage policy list; if absent, skip the DROP.
 
-**Plan: card design ships 📎 FILES scorecard as a stub** showing count 0 with click target disabled or showing "Coming soon." Attachments subsystem gets its own loop.
+#### §7.1 Table — `job_attachments` [LOCKED design, DEFERRED build]
+
+Single-FK shape matching §6.2 / `job_wtcs`. No `tenant_id`, no `call_log_id` — scope via `JOIN jobs ON job_id, JOIN call_log`:
+
+```sql
+CREATE TABLE IF NOT EXISTS public.job_attachments (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  job_id       int8 NOT NULL REFERENCES public.jobs(job_id) ON DELETE CASCADE,
+  label        text,
+  file_path    text NOT NULL,                      -- '{tenant_id}/{call_log_id}/{uuid}-{filename}'
+  file_size    bigint,
+  mime_type    text,
+  uploaded_by  uuid REFERENCES public.team_members(id),
+  uploaded_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (file_path)
+);
+CREATE INDEX idx_job_attachments_job_id ON public.job_attachments(job_id);
+
+-- 4 policies — same JOIN pattern as §6.2.
+ALTER TABLE public.job_attachments ENABLE ROW LEVEL SECURITY;
+-- [SELECT/INSERT/UPDATE/DELETE policies elided — copy §6.2 verbatim, swap table name]
+```
+
+#### §7.2 Storage path schema [LOCKED]
+
+Files live in a single shared `job-attachments` bucket. Path schema embeds the tenant for the storage policy:
+
+```
+{tenant_id}/{call_log_id}/{uuid}-{original_filename}
+```
+
+- First path segment = `tenant_id` — the only segment storage RLS can read via `storage.foldername(name)[1]`
+- Second segment = `call_log_id` — for human navigation in the storage UI
+- Third segment = `{uuid}-{filename}` — UUID prevents collisions, original filename preserved for download
+
+#### §7.3 Storage policies — 4 policies + 1 DROP [LOCKED]
+
+```sql
+-- DROP the legacy bucket-only DELETE policy (callable by any tenant today).
+-- If the policy doesn't exist, skip this statement.
+DROP POLICY IF EXISTS storage_job_attachments_delete_policy
+  ON storage.objects;
+
+-- 4 tenant-scoped policies on storage.objects, gating on the tenant_id
+-- path segment.
+CREATE POLICY job_attachments_storage_select
+  ON storage.objects
+  FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'job-attachments'
+    AND (storage.foldername(name))[1] = public.get_user_tenant_id()::text
+  );
+
+CREATE POLICY job_attachments_storage_insert
+  ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'job-attachments'
+    AND (storage.foldername(name))[1] = public.get_user_tenant_id()::text
+  );
+
+CREATE POLICY job_attachments_storage_update
+  ON storage.objects
+  FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'job-attachments'
+    AND (storage.foldername(name))[1] = public.get_user_tenant_id()::text
+  )
+  WITH CHECK (
+    bucket_id = 'job-attachments'
+    AND (storage.foldername(name))[1] = public.get_user_tenant_id()::text
+  );
+
+CREATE POLICY job_attachments_storage_delete
+  ON storage.objects
+  FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'job-attachments'
+    AND (storage.foldername(name))[1] = public.get_user_tenant_id()::text
+  );
+```
+
+`(storage.foldername(name))[1]` returns the first `/`-separated segment of the object path. Cast to `text` because `get_user_tenant_id()` returns `uuid`.
+
+#### §7.4 Build scope [DESIGN-OPEN]
+
+- Migration writes both the table (§7.1) + the storage policies (§7.3) atomically.
+- Upload UI (drag-drop or file picker) inside the FILES scorecard click target.
+- Download / preview UI same surface.
+- Cross-app: Field Command read access — likely yes for crew refs. Same RLS gates apply (tenant scoping via call_log chain).
+- Push via `npm run db:push` per §6.4 — applies to both the table migration and the storage policy migration if they end up split.
+
+**Plan: card design ships 📎 FILES scorecard as a stub** showing count 0 with click target disabled or showing "Coming soon." Attachments subsystem gets its own loop, but §7.1–§7.3 are spec'd here so the loop can ship without re-design.
 
 ---
 
@@ -587,18 +875,53 @@ Scope outside this loop:
 
 Not part of this design loop; sketched here to inform whoever picks up the build loop.
 
-1. **Compute `isReady`** in `queries.js` — needs `job_crew` + `materials` joined onto loaded jobs. Add helper `isJobReady(job, jobCrew, materials)`.
-2. **Tile split** in `JobsPicker.jsx` — add Staged tile before Ready, update Ready tile copy + filter, move Production Complete to Section 2. Counts derive from `isReady`.
-3. **Sort + filter** in `Jobs.jsx` — add new tab `staged` to `VALID_TABS`, route `?tab=staged` to a new card list filtered by `!isReady && getJobStatus==='Scheduled'`, update `?tab=scheduled` to filter `isReady && getJobStatus==='Scheduled'`. Sort by `start_date asc, NULL first` on both.
-4. **Card template** as new component `StageJobCard.jsx` — replaces the per-stage list cards in `ScheduledCardList.jsx`, `JobCardList.jsx`, `OnHoldCardList.jsx`. Card props include `stage` so banner + action button vary correctly.
-5. **`jobs.hold_reason`** migration + edit UI on the On Hold flow.
-6. **PRT threshold** computation in a helper, banner pill on Active cards.
-7. **Mobilizations** as a separate loop (see §6.3).
-8. **Attachments** as a separate loop (see §7).
+1. **Migrations bundle** — single migration timestamp covering: `jobs.updated_at` column + trigger fn `tg_set_updated_at()` + `jobs_set_updated_at_trg` (§3.11), `jobs.hold_reason` column (§3.11), `jobs.ready_confirmed_at` column + `job_base_checklist_passes()` fn + `jobs_clear_ready_confirmed_at_trg` + `job_crew_recheck_ready_trg` + `materials_recheck_ready_trg` (§3.12). Push via `npm run db:push` after ledger repair gate (§6.4).
+2. **Compute `isReady`** in `queries.js` — `loadAllRows()` helper (§2.4), `loadJobCrewAll()` + `loadMaterialsAll()`, then `baseChecklistPasses(job, crew, mats)` and `isReady(job)` using pre-indexed Maps. Also default `loadJobs({ withWTCs: true })` so the SOW row renders for multi-GC jobs without per-caller plumbing (audit-flag any caller in `Calendar.jsx`, `Schedule.jsx`, `Materials.jsx`, `Billing.jsx`, `Daily.jsx`, `Schedules.jsx` where perf-sensitive opt-out is justified; explicit `withWTCs: false`).
+3. **Tile split** in `JobsPicker.jsx` — load `job_crew` + `materials` via paginating helper, add Staged tile before Ready, update Ready tile copy + filter, move Production Complete to Section 2. Counts derive from `isReady`. Surface `{ partial, error }` from §2.4 as a sync-warning chip.
+4. **Card list components** — actual surfaces in the repo today (verified `ls src/components/`):
+   - `ScheduledCardList.jsx` — renders the Ready tile's list. Split into **Staged list** + **Ready list**. Either parameterize with a `mode` prop or extract a shared `StageJobCard.jsx` and create new `StagedCardList.jsx` (does not exist today). Recommend the latter — file separation matches the tile split.
+   - `JobCardList.jsx` — currently the Complete + All Jobs list. Either parameterize with `stage` to render the new Option D card, or extract `StageJobCard.jsx` and have JobCardList use it. Today this is also wrapped by `OnHoldCardList.jsx` (next item).
+   - `OnHoldCardList.jsx` — verified at file head: imports `JobCardList from './JobCardList'`, uses it inside a `<>` wrapper plus a "Resume to Scheduled" affordance. The OnHold list shares cards with JobCardList, so card-template changes flow through automatically. Add the new Resume behavior: `updateJobFields(jobId, { status: 'Scheduled', ready_confirmed_at: null })` per §3.9's revised On Hold row.
+   - **New** `StagedCardList.jsx` and **new** `CompleteCardList.jsx` — neither exists today (verified). `CompleteCardList` may not need to exist if Production Complete moves to Section 2 and reuses an existing surface there; confirm with §2.1.
+5. **Sort + filter routing** in `Jobs.jsx` — add `'staged'` to `VALID_TABS`, route `?tab=staged` → `StagedCardList`, update `?tab=scheduled` filter to `isReady && getJobStatus==='Scheduled'`. Sort by `start_date asc, NULL first` on both.
+6. **Stage action buttons + banner** — `StageJobCard.jsx` props include `stage`; renders banner per §3.3, panels per §3.5–§3.7, bottom action per §3.9. The Staged [ Promote to Ready ] button writes `ready_confirmed_at` via `updateJobField(..., 'manual_promotion')`.
+7. **PRT bulk loader** (`loadPRTsForCallLogIds`) per §3.10, banner pill on Active cards.
+8. **Realtime channel coverage** — extend `Jobs.jsx:171` to also subscribe to `job_crew` + `materials` changes, OR document an explicit eventual-consistency contract for Staged/Ready counts (see §11).
+9. **Mobilizations** as a separate loop (see §6.3) — includes PowerSync sync-rules update for field-command.
+10. **Attachments** as a separate loop (see §7) — migration + storage policies are spec'd; only build remains.
 
 ---
 
-## §9 Open questions
+## §9 Realtime channels [LOCKED]
+
+`Jobs.jsx:171` today subscribes only to `postgres_changes` on `public.jobs` and triggers `loadData()` on any change. With Staged/Ready counts depending on `job_crew` and `materials`, those tables also need realtime coverage — otherwise the dashboard drifts until the next manual reload (or the next `jobs` change happens to coincide).
+
+Add two additional channels:
+
+```js
+useEffect(() => {
+  const channels = [
+    supabase.channel('jobs-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, loadData)
+      .subscribe(),
+    supabase.channel('job-crew-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'job_crew' }, loadData)
+      .subscribe(),
+    supabase.channel('materials-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'materials' }, loadData)
+      .subscribe(),
+  ]
+  return () => channels.forEach(c => supabase.removeChannel(c))
+}, [loadData])
+```
+
+**Cost / contract**: each channel is a long-lived websocket subscription. Three channels per open `/jobs` tab is acceptable. If realtime cost becomes an issue, fall back to the **eventual-consistency contract**: counts are accurate as of the last `jobs` change; child-table writes refresh on the next `jobs` write or the next manual reload (target ≤30s drift). Today's single-channel implementation already has this contract for billing data without complaint; extending it to job_crew/materials is acceptable degradation if needed.
+
+Recommend: ship with all three channels. Strip back only if observability shows the cost is real.
+
+---
+
+## §10 Open questions
 
 | # | Question | Owner |
 |---|---|---|
@@ -609,10 +932,12 @@ Not part of this design loop; sketched here to inform whoever picks up the build
 | 5 | Does `jobs.start_date` / `jobs.end_date` stay as denormalized cache once mobs ship, or get dropped? (§6.3) | Chris (decide during mobs loop) |
 | 6 | Should panel toggle state persist across page reloads (per-user pref) or stay session-local? (§3.8) | Chris (revisit post-launch) |
 | 7 | Pagination audit pass on existing sch-command load paths (`Jobs.jsx:149-157`: `jobs`, `assignments`, `billing_log`, `team_members`). All currently unpaginated and would silently truncate at 1000 rows. File as backlog `T2 — paginate sch-command load paths` | Chris (separate backlog item) |
+| 8 | `withWTCs: true` default on `loadJobs()` — confirm spot-check of `Calendar.jsx`, `Schedule.jsx`, `Materials.jsx`, `Billing.jsx`, `Daily.jsx`, `Schedules.jsx` for perf-sensitive opt-out (explicit `withWTCs: false`). Most surfaces render WTC chips already, so default-true is safer | Chris (during build step 2) |
+| 9 | Verify whether `storage_job_attachments_delete_policy` exists today before drafting §7.3's `DROP POLICY IF EXISTS`. If absent, skip the DROP statement | Chris (during attachments loop) |
 
 ---
 
-## §10 Locked decisions summary
+## §11 Locked decisions summary
 
 For quick scan by the build loop:
 
@@ -624,18 +949,23 @@ For quick scan by the build loop:
 - ✓ Banner format: always-visible icon-coded missing items + stage countdown (§3.3)
 - ✓ Three identity bubbles: Job · Customer · Work Types (§3.4)
 - ✓ Scorecards: 5 Planning + 6 Management (§3.5, §3.6), click targets per table; MOBS + FILES stub until §6/§7 ship
-- ✓ DETAILS panel SOW row aggregates across all `job_wtcs` rows (§3.7); legacy fallback to `jobs.field_sow`
-- ✓ Stage action button always visible at bottom (§3.9)
-- ✓ Staged promotion = manual `[ Promote to Ready ]` button (not auto), writes `jobs.ready_confirmed_at` (§3.12)
+- ✓ DETAILS panel SOW row uses **actual daily shape** from `FieldSowBuilder.jsx:115-137` (`{day_label, crew_count, hours_planned, tasks[], materials[]}`); per-WTC sub-lines for multi-GC; legacy fallback to `jobs.field_sow`. Phased `(Nd)` format dropped — not in the data (§3.7)
+- ✓ Stage action button always visible at bottom (§3.9). On Hold `[ Resume ]` also nulls `ready_confirmed_at` so resumed jobs require re-confirmation
+- ✓ Staged promotion = manual `[ Promote to Ready ]` button (not auto), writes `jobs.ready_confirmed_at` via `updateJobField` (audit-logged with `source='manual_promotion'`)
 - ✓ No "Open Job" button — card header clickable instead
-- ✓ PRT behind threshold: `actual < target by >10% across last 3 PRTs` (§3.10); bulk loader `loadPRTsForCallLogIds(ids[])` required to avoid N+1; documented behavior at 0/1/2 PRTs
+- ✓ PRT behind threshold: `actual < target by >10% across last 3 PRTs` (§3.10); bulk `loadPRTsForCallLogIds(ids[])` mirrors single-job SELECT verbatim from `queries.js:191`, chunks `.in()` at 100 UUIDs, preserves `.order('report_date' desc)`; documented behavior at 0/1/2 PRTs
 - ✓ New `jobs.hold_reason` column (§3.11)
-- ✓ New `jobs.ready_confirmed_at` column (§3.12), write-side clearing helper `clearReadyConfirmationIfBroken()`
-- ✓ Mobilizations table: Option C hybrid override (§6.2). **No `tenant_id` column** — RLS scoped via `call_log_id` → `call_log.tenant_id` chain mirroring `job_wtcs` (migration `20260512120100`). Four-policy RLS spec included. `UNIQUE (job_id, label)` + stable-label policy (deletion leaves gaps, never renumber)
-- ✓ Same RLS-via-call_log-chain pattern required for future `job_attachments` (§7)
-- ✓ All new loads use `.range()` pagination (§2.4); MED audit-pass on existing unpaginated loads filed as backlog
+- ✓ New `jobs.ready_confirmed_at` column (§3.12) with **hybrid enforcement**: app-layer SETs via [ Promote to Ready ] for audit logging; DB trigger CLEARs on any base-checklist transition true→false. Trigger covers raw modal writes, PowerSync child-table writes, cross-repo writes, On-Hold→Resume, race windows, bulk paths. Includes `job_base_checklist_passes()` SQL fn + triggers on `jobs`, `job_crew`, `materials`
+- ✓ Mobilizations table: Option C hybrid override (§6.2). **Single FK to `jobs.job_id`** — no `call_log_id`, no `tenant_id`. Mirrors `job_wtcs` exactly. RLS scoped via `JOIN jobs ON job_id JOIN call_log`. Closes cross-tenant pollution + UPDATE-loophole attacks. Four-policy RLS spec included. `UNIQUE (job_id, label)` + stable-label policy (deletion leaves gaps, never renumber)
+- ✓ Attachments (§7) fully spec'd despite deferred build: single-FK table, path schema `{tenant_id}/{call_log_id}/{uuid}-{filename}`, 4 storage policies gating on `(storage.foldername(name))[1] = get_user_tenant_id()::text`, DROP existing `storage_job_attachments_delete_policy` (if present)
+- ✓ All new loads use `.range()` pagination via `loadAllRows()` helper (§2.4); helper returns `{data, error, partial}`, auto-orders for stable paging, surfaces sync warning on partial. MED audit-pass on existing unpaginated loads filed as backlog
+- ✓ `isReady` performance: pre-index `jobCrew` + `materials` as `Map<job_id, rows[]>` once per `loadData`; O(1) per-job lookup
 - ✓ All new migrations push via `npm run db:push`; ledger repair gate per `CLAUDE.md` RESUME ALERT (§6.4)
-- ✓ Verify `jobs.updated_at` trigger covers both new columns (§3.11)
+- ✓ `jobs.updated_at` trigger does **NOT exist today** — ADD `tg_set_updated_at()` fn + `jobs_set_updated_at_trg` in the same migration as `hold_reason` / `ready_confirmed_at`. Reused by `job_mobilizations`
+- ✓ `loadJobs({ withWTCs: true })` becomes the default; per-caller opt-out (explicit `withWTCs: false`) only where perf-sensitive
+- ✓ Realtime channels extended: subscribe to `job_crew` + `materials` in addition to `jobs` so Staged/Ready counts don't drift (§9). Fallback contract: eventual consistency ≤30s if realtime cost grows
+- ✓ PowerSync sync rules update for `job_mobilizations` is an **explicit artifact** in the mobs follow-up loop (§6.3) — required before Field Command queries mobs offline
+- ✓ §8 step 4 corrected: `OnHoldCardList` wraps `JobCardList` (not a peer); `StagedCardList` + `CompleteCardList` don't exist today and must be created
 - ✓ Staged tile sub-line: `📋 N · 📦 N · 👷 N · 📅 N` (§2.5)
 - ✓ Staged sort: nearest `start_date` asc, NULL first (§5.1)
 - ✓ Total Work Days: weekdays + scheduled weekends, summed across mobs (§4.1)
