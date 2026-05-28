@@ -1,10 +1,10 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobFields } from '../lib/queries'
-import { getJobStatus } from '../lib/jobStatus'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses } from '../lib/queries'
 import { useUser } from '../lib/user'
+import FieldSowModal from './FieldSowModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -27,6 +27,22 @@ function getBilledTotal(billingLog, jobId) {
   return billingLog
     .filter(b => b.job_id === jobId)
     .reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
+}
+
+function totalWorkDays(job) {
+  const start = effectiveStart(job)
+  const end = effectiveEnd(job)
+  if (!start || !end) return null
+  const s = new Date(start + 'T00:00:00')
+  const e = new Date(end + 'T00:00:00')
+  let count = 0
+  const cursor = new Date(s)
+  while (cursor <= e) {
+    const dow = cursor.getDay()
+    if (dow !== 0) count++
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return count
 }
 
 function sowRowsForCard(job) {
@@ -68,6 +84,19 @@ function getPrtStatus(prts) {
     return { label: `${daysBehind > 0 ? daysBehind + 'd behind' : 'behind target'}`, color: 'warn' }
   }
   return { label: 'on target', color: 'ok' }
+}
+
+function fmtD(d) {
+  const dt = d instanceof Date ? d : new Date(d)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
+}
+
+function getMonday(d) {
+  const dt = new Date(d)
+  const day = dt.getDay()
+  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))
+  dt.setHours(0, 0, 0, 0)
+  return dt
 }
 
 function StageBanner({ job, stage, crewRows, matRows, billingLog, prtMap, today }) {
@@ -175,37 +204,38 @@ function IdentityRow({ job }) {
   )
 }
 
-function PlanningPanel({ job, crewRows, matRows }) {
+function PlanningPanel({ job, crewRows, matRows, onSowClick, onCrewClick, onMtrlClick, onDateClick }) {
   const hasSOW = job.field_sow != null
   const hasCrew = crewRows.length >= 1
   const undecidedMats = matRows.filter(m => ['Not Ordered', 'Delayed'].includes(m.status)).length
   const matsOk = matRows.length === 0 || undecidedMats === 0
   const hasDate = (job.scheduled_start || job.start_date) != null
+  const workDays = totalWorkDays(job)
 
   return (
     <div className="sjc-panel sjc-panel-planning">
       <div className="sjc-scorecards">
-        <div className={`sjc-score ${hasSOW ? 'sjc-score-ok' : 'sjc-score-bad'}`}>
+        <div className={`sjc-score sjc-score-click ${hasSOW ? 'sjc-score-ok' : 'sjc-score-bad'}`} onClick={onSowClick}>
           <span className="sjc-score-icon">{'📋'}</span>
           <span className="sjc-score-label">SOW</span>
           <span className="sjc-score-val">{hasSOW ? '✓' : '✗'}</span>
         </div>
-        <div className={`sjc-score ${matsOk ? 'sjc-score-ok' : 'sjc-score-bad'}`}>
+        <div className={`sjc-score sjc-score-click ${matsOk ? 'sjc-score-ok' : 'sjc-score-bad'}`} onClick={onMtrlClick}>
           <span className="sjc-score-icon">{'📦'}</span>
           <span className="sjc-score-label">MTRL</span>
           <span className="sjc-score-val">{matsOk ? '✓' : undecidedMats}</span>
         </div>
-        <div className={`sjc-score ${hasCrew ? 'sjc-score-ok' : 'sjc-score-bad'}`}>
+        <div className={`sjc-score sjc-score-click ${hasCrew ? 'sjc-score-ok' : 'sjc-score-bad'}`} onClick={onCrewClick}>
           <span className="sjc-score-icon">{'👷'}</span>
           <span className="sjc-score-label">CREW</span>
           <span className="sjc-score-val">{crewRows.length} / {job.crew_needed || '?'}</span>
         </div>
-        <div className="sjc-score sjc-score-neutral">
+        <div className={`sjc-score sjc-score-click ${hasDate ? 'sjc-score-neutral' : 'sjc-score-bad'}`} onClick={onDateClick}>
           <span className="sjc-score-icon">{'📅'}</span>
-          <span className="sjc-score-label">DATE</span>
-          <span className="sjc-score-val">{hasDate ? '✓' : '✗'}</span>
+          <span className="sjc-score-label">DAYS</span>
+          <span className="sjc-score-val">{workDays != null ? workDays : '✗'}</span>
         </div>
-        <div className="sjc-score sjc-score-stub">
+        <div className="sjc-score sjc-score-stub" title="Coming soon — mobilizations">
           <span className="sjc-score-icon">{'🚚'}</span>
           <span className="sjc-score-label">MOBS</span>
           <span className="sjc-score-val">—</span>
@@ -215,7 +245,7 @@ function PlanningPanel({ job, crewRows, matRows }) {
   )
 }
 
-function ManagementPanel({ job, billingLog, prtMap }) {
+function ManagementPanel({ job, billingLog, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
   const amount = job.amount ? parseFloat(job.amount) : 0
   const billedPct = getBilledTotal(billingLog, job.job_id)
 
@@ -227,7 +257,7 @@ function ManagementPanel({ job, billingLog, prtMap }) {
           <span className="sjc-score-label">PROP</span>
           <span className="sjc-score-val">{amount > 0 ? fmtMoney(amount) : '—'}</span>
         </div>
-        <div className={`sjc-score ${billedPct >= 100 ? 'sjc-score-ok' : billedPct > 0 ? 'sjc-score-warn' : 'sjc-score-neutral'}`}>
+        <div className={`sjc-score sjc-score-click ${billedPct >= 100 ? 'sjc-score-ok' : billedPct > 0 ? 'sjc-score-warn' : 'sjc-score-neutral'}`} onClick={onBilledClick}>
           <span className="sjc-score-icon">{'📊'}</span>
           <span className="sjc-score-label">BILLED</span>
           <span className="sjc-score-val">{amount > 0 ? `${Math.round(billedPct)}%` : '—'}</span>
@@ -236,24 +266,24 @@ function ManagementPanel({ job, billingLog, prtMap }) {
           const prts = prtMap instanceof Map ? (prtMap.get(job.call_log_id) || []) : []
           const prt = getPrtStatus(prts)
           return (
-            <div className={`sjc-score sjc-score-${prt.color}`}>
+            <div className={`sjc-score sjc-score-click sjc-score-${prt.color}`} onClick={onPrtClick}>
               <span className="sjc-score-icon">{'📊'}</span>
               <span className="sjc-score-label">PRT</span>
               <span className="sjc-score-val">{prt.label}</span>
             </div>
           )
         })()}
-        <div className="sjc-score sjc-score-neutral">
+        <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onLogsClick}>
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">LOGS</span>
           <span className="sjc-score-val">—</span>
         </div>
-        <div className="sjc-score sjc-score-stub">
+        <div className="sjc-score sjc-score-stub" title="Coming soon — attachments">
           <span className="sjc-score-icon">{'📎'}</span>
           <span className="sjc-score-label">FILES</span>
           <span className="sjc-score-val">—</span>
         </div>
-        <div className="sjc-score sjc-score-neutral">
+        <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onNotesClick}>
           <span className="sjc-score-icon">{'📝'}</span>
           <span className="sjc-score-label">NOTES</span>
           <span className="sjc-score-val">{job.notes ? `${job.notes.length}c` : '—'}</span>
@@ -302,6 +332,8 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const [panels, setPanels] = useState({ planning: false, management: false, details: false })
   const [acting, setActing] = useState(false)
+  const [showSowModal, setShowSowModal] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
   const matRows = matsByJobId[job.job_id] || []
@@ -330,7 +362,13 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const handleResume = useCallback(async () => {
     setActing(true)
-    const { error } = await updateJobFields(job.job_id, { status: 'Scheduled', ready_confirmed_at: null }, changedBy, 'on_hold_resume')
+    const { error } = await updateJobFields(
+      job.job_id,
+      { status: 'Scheduled', ready_confirmed_at: null },
+      changedBy,
+      'on_hold_resume',
+      { skipAuditFields: ['ready_confirmed_at'] }
+    )
     if (error) { console.error(error); setActing(false); return }
     if (onJobUpdate) onJobUpdate()
     setActing(false)
@@ -339,6 +377,23 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const handleSendToBilling = useCallback(() => {
     navigate('/billing')
   }, [navigate])
+
+  // Scorecard click handlers — navigate to JobDetail with the right tab
+  const goJobTab = useCallback((tab) => {
+    navigate(`/jobs/${job.job_id}?mode=planning&tab=${tab}`)
+  }, [navigate, job.job_id])
+  const goManagementTab = useCallback((tab) => {
+    navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
+  }, [navigate, job.job_id])
+  const goSchedule = useCallback(() => {
+    const s = effectiveStart(job)
+    if (s) {
+      const monday = getMonday(new Date(s + 'T00:00:00'))
+      navigate(`/schedule?job=${job.job_id}&week=${fmtD(monday)}`)
+    } else {
+      navigate(`/jobs/${job.job_id}?mode=planning`)
+    }
+  }, [navigate, job])
 
   return (
     <div className="sjc-card">
@@ -356,8 +411,33 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
         <button className={`sjc-toggle${panels.details ? ' open' : ''}`} onClick={() => togglePanel('details')}>DETAILS</button>
       </div>
 
-      {panels.planning && <PlanningPanel job={job} crewRows={crewRows} matRows={matRows} />}
-      {panels.management && <ManagementPanel job={job} billingLog={billingLog} prtMap={prtMap} />}
+      {panels.planning && (
+        <PlanningPanel
+          job={job}
+          crewRows={crewRows}
+          matRows={matRows}
+          onSowClick={() => setShowSowModal(true)}
+          onMtrlClick={() => goJobTab('materials')}
+          onCrewClick={() => goSchedule()}
+          onDateClick={() => goSchedule()}
+        />
+      )}
+      {panels.management && (
+        <ManagementPanel
+          job={job}
+          billingLog={billingLog}
+          prtMap={prtMap}
+          onBilledClick={() => navigate('/billing')}
+          onPrtClick={() => goManagementTab('production')}
+          onLogsClick={() => goManagementTab('daily-log')}
+          onNotesClick={() => setShowNotes(prev => !prev)}
+        />
+      )}
+      {showNotes && job.notes && (
+        <div className="sjc-panel sjc-panel-notes">
+          <div className="sjc-detail-val">{job.notes}</div>
+        </div>
+      )}
       {panels.details && <DetailsPanel job={job} crewRows={crewRows} />}
 
       <div className="sjc-action">
@@ -382,6 +462,18 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           </button>
         )}
       </div>
+
+      {showSowModal && (
+        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowSowModal(false) }}>
+          <div className="mdl mdl-lg">
+            <FieldSowModal
+              job={job}
+              onClose={() => setShowSowModal(false)}
+              onUpdated={() => { setShowSowModal(false); if (onJobUpdate) onJobUpdate() }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

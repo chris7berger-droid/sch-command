@@ -15,9 +15,16 @@ export async function loadAllRows(tableName, selectStr, {
   if (filterFn) chain = filterFn(chain)
   chain = chain.order(orderBy, { ascending: orderAsc })
 
+  let firstRowPK = null
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await chain.range(from, from + PAGE - 1)
     if (error) return { data: all, error, partial: true }
+    if (import.meta.env.DEV && from === PAGE && data?.length > 0 && firstRowPK != null) {
+      if (data[0]?.id === firstRowPK) {
+        console.warn(`loadAllRows(${tableName}): chunk 2 repeated chunk 1 — .range() reuse may be broken`)
+      }
+    }
+    if (from === 0 && data?.length > 0) firstRowPK = data[0]?.id ?? null
     all.push(...(data || []))
     if (!data || data.length < PAGE) break
   }
@@ -181,7 +188,7 @@ export async function updateJobField(jobId, field, newValue, changedBy, source =
 }
 
 // ── Update multiple job fields at once with audit logging ───────────────────
-export async function updateJobFields(jobId, updates, changedBy, source = 'schedule_command') {
+export async function updateJobFields(jobId, updates, changedBy, source = 'schedule_command', { skipAuditFields = [] } = {}) {
   const fields = Object.keys(updates)
   const selectFields = [...fields, 'call_log_id'].join(', ')
 
@@ -200,9 +207,10 @@ export async function updateJobFields(jobId, updates, changedBy, source = 'sched
 
   if (error) return { error }
 
-  // log each changed field
+  // log each changed field (skip fields handled by DB trigger to avoid duplicates)
   const logs = []
   for (const field of fields) {
+    if (skipAuditFields.includes(field)) continue
     const oldValue = String(current?.[field] ?? '')
     const newValue = String(updates[field] ?? '')
     if (newValue !== oldValue) {

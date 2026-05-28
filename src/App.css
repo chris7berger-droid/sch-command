@@ -5789,6 +5789,25 @@
   opacity: 0.5;
   border-style: dashed;
 }
+.sjc-score-click {
+  cursor: pointer;
+  transition: border-color 0.12s, transform 0.1s;
+}
+.sjc-score-click:hover {
+  border-color: rgba(28, 24, 20, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Notes inline expand */
+.sjc-panel-notes {
+  padding: 8px 14px;
+  border-top: 1px solid rgba(28, 24, 20, 0.08);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  animation: sjc-slide-in 0.15s ease-out;
+}
 
 /* ── Details panel ───────────────────────────────────────────────── */
 .sjc-detail-row {

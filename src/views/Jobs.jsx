@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady } from '../lib/queries'
@@ -148,6 +148,7 @@ export default function Jobs() {
   const [deletedJobs, setDeletedJobs] = useState([])
 
   const today = useMemo(() => new Date(), [])
+  const loadIdRef = useRef(0)
 
   const crewByCallLog = useMemo(() => jobCrew.reduce((m, r) => {
     (m[r.job_id] ||= []).push(r); return m
@@ -158,6 +159,7 @@ export default function Jobs() {
   }, {}), [materials])
 
   const loadData = useCallback(async () => {
+    const thisLoad = ++loadIdRef.current
     setLoading(true)
     const [jobsRes, assignRes, billRes, tmRes, crewRes, matsRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
@@ -167,6 +169,7 @@ export default function Jobs() {
       loadAllRows('job_crew', 'id, job_id, team_member_id', { orderBy: 'id' }),
       loadAllRows('materials', 'id, job_id, status', { orderBy: 'id' }),
     ])
+    if (thisLoad !== loadIdRef.current) return
     if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
     setJobs(jobsRes.data || [])
     setAssignments(assignRes.data || [])
@@ -183,6 +186,7 @@ export default function Jobs() {
       .filter(Boolean)
     if (activeCallLogIds.length > 0) {
       const prtRes = await loadPRTsForCallLogIds(activeCallLogIds)
+      if (thisLoad !== loadIdRef.current) return
       setPrtMap(prtRes.data)
     } else {
       setPrtMap(new Map())
