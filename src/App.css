@@ -5789,6 +5789,16 @@
   opacity: 0.5;
   border-style: dashed;
 }
+.sjc-score-wide {
+  min-width: 160px;
+  flex: 2;
+}
+.sjc-score-dates {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-light);
+  margin-left: 4px;
+}
 .sjc-score-click {
   cursor: pointer;
   transition: border-color 0.12s, transform 0.1s;

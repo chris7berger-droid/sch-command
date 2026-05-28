@@ -209,7 +209,9 @@ function PlanningPanel({ job, crewRows, matRows, onSowClick, onCrewClick, onMtrl
   const hasCrew = crewRows.length >= 1
   const undecidedMats = matRows.filter(m => ['Not Ordered', 'Delayed'].includes(m.status)).length
   const matsOk = matRows.length === 0 || undecidedMats === 0
-  const hasDate = (job.scheduled_start || job.start_date) != null
+  const start = job.scheduled_start || job.start_date || null
+  const end = job.scheduled_end || job.end_date || null
+  const hasDate = start != null
   const workDays = totalWorkDays(job)
 
   return (
@@ -230,10 +232,14 @@ function PlanningPanel({ job, crewRows, matRows, onSowClick, onCrewClick, onMtrl
           <span className="sjc-score-label">CREW</span>
           <span className="sjc-score-val">{crewRows.length} / {job.crew_needed || '?'}</span>
         </div>
-        <div className={`sjc-score sjc-score-click ${hasDate ? 'sjc-score-neutral' : 'sjc-score-bad'}`} onClick={onDateClick}>
+        <div className={`sjc-score sjc-score-click sjc-score-wide ${hasDate ? 'sjc-score-neutral' : 'sjc-score-bad'}`} onClick={onDateClick}>
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">DAYS</span>
-          <span className="sjc-score-val">{workDays != null ? workDays : '✗'}</span>
+          <span className="sjc-score-val">
+            {hasDate
+              ? <>{workDays || '?'}d <span className="sjc-score-dates">{start} — {end || '?'}</span></>
+              : '✗'}
+          </span>
         </div>
         <div className="sjc-score sjc-score-stub" title="Coming soon — mobilizations">
           <span className="sjc-score-icon">{'🚚'}</span>
@@ -418,7 +424,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           matRows={matRows}
           onSowClick={() => setShowSowModal(true)}
           onMtrlClick={() => goJobTab('materials')}
-          onCrewClick={() => goSchedule()}
+          onCrewClick={() => navigate(`/jobs/${job.job_id}?mode=planning`)}
           onDateClick={() => goSchedule()}
         />
       )}
