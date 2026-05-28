@@ -22,6 +22,15 @@ Last shipped here: v7+v8 to prod 2026-05-06. Working tree was clean at alert-tim
 
 ---
 
+## Command Suite Shared-Data Contract
+
+The 4 apps (Sales, Schedule, Field, AR) share ONE Supabase DB. Any data that
+crosses app boundaries must have a declared **source of truth** (one writer),
+**canonical location** (no drifting copies), **copy-vs-reference** policy, and
+**sync pipe** (PostgREST web vs PowerSync for Field). Before wiring any
+cross-app field, answer those four — don't assume where data lives or who owns
+it. Full contract + open decisions: `docs/plans/command_suite_shared_data_contract.md`.
+
 ## What This Is
 Schedule Command is a React + Vite web app for managing construction crew scheduling. Part of the Command Suite (Sales, Schedule, Field, AR) under the Sub Con Command brand. Replaces a live Google Apps Script version used daily by office staff. The Apps Script stays live until v2 reaches full parity.
 
