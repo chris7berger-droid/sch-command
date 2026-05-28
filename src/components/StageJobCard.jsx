@@ -333,6 +333,40 @@ function DetailsPanel({ job, crewRows }) {
   )
 }
 
+function NotesPanel({ job, changedBy, onSaved }) {
+  const [val, setVal] = useState(job.notes || '')
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    setSaving(true)
+    const { error } = await updateJobField(job.job_id, 'notes', val, changedBy)
+    setSaving(false)
+    if (error) { alert('Save failed: ' + error.message); return }
+    if (onSaved) onSaved()
+  }
+
+  return (
+    <div className="sjc-panel sjc-panel-notes">
+      <textarea
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        placeholder="Add a note…"
+        rows={3}
+        style={{
+          width: '100%', boxSizing: 'border-box', background: '#a89b88',
+          border: '1px solid rgba(28,24,20,0.25)', borderRadius: 4, padding: '6px 8px',
+          fontSize: 13, color: '#1c1814', fontFamily: "'Barlow', sans-serif", outline: 'none', resize: 'vertical',
+        }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        <button className="app-act-btn app-act-primary" onClick={save} disabled={saving || val === (job.notes || '')}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
@@ -450,10 +484,12 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           onNotesClick={() => setShowNotes(prev => !prev)}
         />
       )}
-      {showNotes && job.notes && (
-        <div className="sjc-panel sjc-panel-notes">
-          <div className="sjc-detail-val">{job.notes}</div>
-        </div>
+      {showNotes && (
+        <NotesPanel
+          job={job}
+          changedBy={changedBy}
+          onSaved={() => { if (onJobUpdate) onJobUpdate() }}
+        />
       )}
       {panels.details && <DetailsPanel job={job} crewRows={crewRows} />}
 
