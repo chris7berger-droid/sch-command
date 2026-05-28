@@ -1,15 +1,14 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobs } from '../lib/queries'
-import ActiveTab from '../components/tabs/ActiveTab'
+import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady } from '../lib/queries'
 import JobsPicker from '../components/JobsPicker'
 import JobCardList from '../components/JobCardList'
-import ScheduledCardList from '../components/ScheduledCardList'
+import StagedCardList from '../components/StagedCardList'
 import OnHoldCardList from '../components/OnHoldCardList'
 import { getJobStatus } from '../lib/jobStatus'
 
-const VALID_TABS = ['scheduled', 'active', 'on-hold', 'complete', 'all']
+const VALID_TABS = ['staged', 'scheduled', 'active', 'on-hold', 'complete', 'all']
 // Old/removed tab slugs redirect to their canonical destination.
 // 'pipeline' is the old Parked-bucket tab; legacy bookmarks land on Scheduled.
 const TAB_REDIRECTS = {
@@ -131,6 +130,10 @@ export default function Jobs() {
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
+  const [jobCrew, setJobCrew] = useState([])
+  const [materials, setMaterials] = useState([])
+  const [prtMap, setPrtMap] = useState(new Map())
+  const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -146,33 +149,73 @@ export default function Jobs() {
 
   const today = useMemo(() => new Date(), [])
 
+  const crewByCallLog = useMemo(() => jobCrew.reduce((m, r) => {
+    (m[r.job_id] ||= []).push(r); return m
+  }, {}), [jobCrew])
+
+  const matsByJobId = useMemo(() => materials.reduce((m, r) => {
+    (m[r.job_id] ||= []).push(r); return m
+  }, {}), [materials])
+
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [jobsRes, assignRes, billRes, tmRes] = await Promise.all([
+    const [jobsRes, assignRes, billRes, tmRes, crewRes, matsRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
       supabase.from('assignments').select('*'),
       supabase.from('billing_log').select('*'),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
+      loadAllRows('job_crew', 'id, job_id, team_member_id', { orderBy: 'id' }),
+      loadAllRows('materials', 'id, job_id, status', { orderBy: 'id' }),
     ])
     if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
     setJobs(jobsRes.data || [])
     setAssignments(assignRes.data || [])
     setBillingLog(billRes.data || [])
     setTeamMembers(tmRes.data || [])
+    setJobCrew(crewRes.data || [])
+    setMaterials(matsRes.data || [])
+    setSyncWarning(crewRes.partial || matsRes.partial ? 'Counts may be stale — partial data loaded' : null)
+
+    const loadedJobs = jobsRes.data || []
+    const activeCallLogIds = loadedJobs
+      .filter(j => j.status === 'In Progress' || j.status === 'Ongoing')
+      .map(j => j.call_log_id)
+      .filter(Boolean)
+    if (activeCallLogIds.length > 0) {
+      const prtRes = await loadPRTsForCallLogIds(activeCallLogIds)
+      setPrtMap(prtRes.data)
+    } else {
+      setPrtMap(new Map())
+    }
+
     setLoading(false)
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Realtime: reload when jobs table changes
+  // Realtime: reload on jobs, job_crew, or materials changes.
+  // 300ms debounce so bulk imports (CSV of 500 materials) don't freeze the tab.
   useEffect(() => {
-    const channel = supabase
-      .channel('jobs-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, () => {
-        loadData()
-      })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    let timer = null
+    const debouncedLoad = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => loadData(), 300)
+    }
+    const channels = [
+      supabase.channel('jobs-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jobs' }, debouncedLoad)
+        .subscribe(),
+      supabase.channel('job-crew-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'job_crew' }, debouncedLoad)
+        .subscribe(),
+      supabase.channel('materials-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'materials' }, debouncedLoad)
+        .subscribe(),
+    ]
+    return () => {
+      if (timer) clearTimeout(timer)
+      channels.forEach(c => supabase.removeChannel(c))
+    }
   }, [loadData])
 
   const dateRange = useMemo(() => {
@@ -346,7 +389,7 @@ export default function Jobs() {
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} assignments={assignments} billingLog={billingLog} today={today} onPick={setActiveTab} />
+        <JobsPicker jobs={jobs} assignments={assignments} billingLog={billingLog} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} />
       )}
 
       {!showPicker && (
@@ -355,6 +398,7 @@ export default function Jobs() {
             <button className="jh-back-btn" onClick={goToPicker}>← All stages</button>
             <span className="jh-back-context">
               Viewing <b>{
+                activeTab === 'staged' ? 'Staged' :
                 activeTab === 'scheduled' ? 'Ready' :
                 activeTab === 'active' ? 'Active' :
                 activeTab === 'on-hold' ? 'On Hold' :
@@ -364,22 +408,43 @@ export default function Jobs() {
             </span>
           </div>
 
-          {activeTab === 'scheduled' && (
-            <ScheduledCardList
-              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled')}
-              assignments={assignments}
+          {activeTab === 'staged' && (
+            <StagedCardList
+              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled' && !isReady(j, crewByCallLog, matsByJobId))}
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
+              billingLog={billingLog}
               today={today}
-              emptyText="No scheduled jobs in this date range"
+              onJobUpdate={loadData}
+              emptyText="No staged jobs in this date range"
+            />
+          )}
+          {activeTab === 'scheduled' && (
+            <StagedCardList
+              jobs={filteredJobs.filter(j => getJobStatus(j) === 'Scheduled' && isReady(j, crewByCallLog, matsByJobId))}
+              stage="ready"
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
+              billingLog={billingLog}
+              today={today}
+              onJobUpdate={loadData}
+              emptyText="No ready jobs in this date range"
             />
           )}
           {activeTab === 'active' && (
-            <ActiveTab
-              filteredJobs={filteredJobs}
-              jobs={jobs}
-              setJobs={setJobs}
+            <StagedCardList
+              jobs={filteredJobs.filter(j => {
+                const s = getJobStatus(j)
+                return s === 'In Progress' || s === 'Ongoing'
+              })}
+              stage="active"
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
               billingLog={billingLog}
-              setBillingLog={setBillingLog}
+              prtMap={prtMap}
               today={today}
+              onJobUpdate={loadData}
+              emptyText="No active jobs in this date range"
             />
           )}
           {activeTab === 'on-hold' && (
@@ -390,16 +455,21 @@ export default function Jobs() {
               billingLog={billingLog}
               setBillingLog={setBillingLog}
               today={today}
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
+              prtMap={prtMap}
+              onJobUpdate={loadData}
             />
           )}
           {activeTab === 'complete' && (
-            <JobCardList
+            <StagedCardList
               jobs={filteredJobs.filter(j => getJobStatus(j) === 'Complete')}
-              allJobs={jobs}
-              setJobs={setJobs}
+              stage="complete"
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
               billingLog={billingLog}
-              setBillingLog={setBillingLog}
               today={today}
+              onJobUpdate={loadData}
               emptyText="No production-complete jobs in this date range"
             />
           )}
