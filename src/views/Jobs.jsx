@@ -164,6 +164,11 @@ export default function Jobs() {
     m[r.job_id] = (m[r.job_id] || 0) + 1; return m
   }, {}), [dailyLogs])
 
+  // Per-job set of assignment dates — feeds the work-days weekend exception (§4.1)
+  const assignmentsByJobId = useMemo(() => assignments.reduce((m, a) => {
+    (m[a.job_id] ||= new Set()).add(a.date); return m
+  }, {}), [assignments])
+
   const matsByJobId = useMemo(() => materials.reduce((m, r) => {
     (m[r.job_id] ||= []).push(r); return m
   }, {}), [materials])
@@ -430,6 +435,7 @@ export default function Jobs() {
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
@@ -443,6 +449,7 @@ export default function Jobs() {
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
@@ -459,6 +466,7 @@ export default function Jobs() {
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
               billingLog={billingLog}
               prtMap={prtMap}
               today={today}
@@ -477,6 +485,7 @@ export default function Jobs() {
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
               prtMap={prtMap}
               onJobUpdate={loadData}
             />
@@ -488,6 +497,7 @@ export default function Jobs() {
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}

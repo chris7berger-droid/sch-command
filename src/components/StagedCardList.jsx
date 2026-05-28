@@ -41,7 +41,7 @@ function getSorter(stage) {
   return () => 0
 }
 
-export default function StagedCardList({ jobs, stage = 'staged', crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate, emptyText = 'No staged jobs' }) {
+export default function StagedCardList({ jobs, stage = 'staged', crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate, emptyText = 'No staged jobs' }) {
   const sorted = [...jobs].sort(getSorter(stage))
 
   if (!sorted.length) return <div className="jh-empty">{emptyText}</div>
@@ -56,6 +56,7 @@ export default function StagedCardList({ jobs, stage = 'staged', crewByCallLog =
           crewByCallLog={crewByCallLog}
           matsByJobId={matsByJobId}
           logsByCallLog={logsByCallLog}
+          assignmentsByJobId={assignmentsByJobId}
           billingLog={billingLog}
           prtMap={prtMap}
           today={today}

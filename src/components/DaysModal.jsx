@@ -7,28 +7,33 @@ function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-function workingDays(start, end) {
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Matches totalWorkDays in StageJobCard (plan §4.1): both weekend days excluded
+// unless an assignment exists that day.
+function workingDays(start, end, assignmentDates) {
   if (!start || !end) return []
   const s = new Date(start + 'T00:00:00')
   const e = new Date(end + 'T00:00:00')
   const out = []
   const cursor = new Date(s)
   while (cursor <= e) {
-    if (cursor.getDay() !== 0) {
-      out.push({
-        dow: DOW[cursor.getDay()],
-        date: `${cursor.getMonth() + 1}/${cursor.getDate()}`,
-      })
+    const dow = cursor.getDay()
+    const isWeekend = dow === 0 || dow === 6
+    if (!isWeekend || (assignmentDates && assignmentDates.has(ymd(cursor)))) {
+      out.push({ dow: DOW[dow], date: `${cursor.getMonth() + 1}/${cursor.getDate()}` })
     }
     cursor.setDate(cursor.getDate() + 1)
   }
   return out
 }
 
-export default function DaysModal({ job, onClose }) {
+export default function DaysModal({ job, assignmentDates = null, onClose }) {
   const start = effectiveStart(job)
   const end = effectiveEnd(job)
-  const days = workingDays(start, end)
+  const days = workingDays(start, end, assignmentDates)
 
   return (
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
