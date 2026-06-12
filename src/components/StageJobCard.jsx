@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { updateJobField, updateJobFields } from '../lib/queries'
+import { updateJobField, updateJobStatus } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -400,7 +400,8 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const handleKickoff = useCallback(async () => {
     setActing(true)
-    const { error } = await updateJobField(job.job_id, 'status', 'In Progress', changedBy)
+    // Stage-sync chokepoint (SCH3): syncs call_log.stage → 'In Progress' too.
+    const { error } = await updateJobStatus(job.job_id, 'In Progress', changedBy)
     if (error) { console.error(error); setActing(false); return }
     if (onJobUpdate) onJobUpdate()
     setActing(false)
@@ -408,12 +409,15 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const handleResume = useCallback(async () => {
     setActing(true)
-    const { error } = await updateJobFields(
+    // Stage-sync chokepoint (SCH3): resume writes status 'Scheduled' →
+    // call_log.stage 'Scheduled' (in-filter). ready_confirmed_at is cleared as
+    // a paired field; its audit row is still skipped (DB trigger handles it).
+    const { error } = await updateJobStatus(
       job.job_id,
-      { status: 'Scheduled', ready_confirmed_at: null },
+      'Scheduled',
       changedBy,
       'on_hold_resume',
-      { skipAuditFields: ['ready_confirmed_at'] }
+      { extraFields: { ready_confirmed_at: null }, skipAuditFields: ['ready_confirmed_at'] }
     )
     if (error) { console.error(error); setActing(false); return }
     if (onJobUpdate) onJobUpdate()

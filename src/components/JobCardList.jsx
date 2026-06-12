@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { updateJobField, updateJobFields, updateCallLogStage } from '../lib/queries'
+import { updateJobStatus, updateJobFields } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus } from '../lib/jobStatus'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
@@ -83,7 +83,7 @@ function renderTags(workType) {
 
 /* ── component ──────────────────────────────────────────────────── */
 
-export default function JobCardList({ jobs, allJobs, setJobs, billingLog, setBillingLog, today, emptyText = 'No jobs match this filter' }) {
+export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, today, emptyText = 'No jobs match this filter' }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || changedBy
@@ -98,17 +98,13 @@ export default function JobCardList({ jobs, allJobs, setJobs, billingLog, setBil
   }, [])
 
   const updateStatus = useCallback(async (jobId, newStatus) => {
-    const job = (allJobs || jobs).find(j => j.job_id === jobId)
-    const { error: err } = await updateJobField(jobId, 'status', newStatus, changedBy)
+    // Stage-sync chokepoint (SCH3): updateJobStatus resolves + writes the paired
+    // call_log.stage internally, so the old inline stageMap (which omitted On
+    // Hold and dropped held jobs from the crew) is gone.
+    const { error: err } = await updateJobStatus(jobId, newStatus, changedBy)
     if (err) { console.error(err); return }
-    if (job?.call_log_id) {
-      const stageMap = { 'Scheduled': 'Scheduled', 'In Progress': 'In Progress', 'Complete': 'Complete' }
-      if (stageMap[newStatus]) {
-        await updateCallLogStage(job.call_log_id, stageMap[newStatus], changedBy)
-      }
-    }
     setJobs(prev => prev.map(j => j.job_id === jobId ? { ...j, status: newStatus } : j))
-  }, [allJobs, jobs, setJobs, changedBy])
+  }, [setJobs, changedBy])
 
   const softDelete = useCallback(async (jobId, jobName) => {
     if (!window.confirm(`Delete "${jobName}"? It can be restored within 24 hours.`)) return

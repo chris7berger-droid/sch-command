@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { STATUS_OPTIONS_PICKER } from './jobStatus'
 
 // ── Paginating loader ──────────────────────────────────────────────────────
 // PostgREST caps at 1000 rows. This helper pages through with .range().
@@ -227,6 +228,73 @@ export async function updateJobFields(jobId, updates, changedBy, source = 'sched
   }
   if (logs.length > 0) {
     await supabase.from('job_changes').insert(logs)
+  }
+
+  return { error: null }
+}
+
+// ── Stage-sync chokepoint (SCH3) ────────────────────────────────────────────
+// Every jobs.status write MUST go through updateJobStatus() so the paired
+// call_log.stage (which drives Field's PowerSync visibility filter) can never
+// drift out of sync. Stage resolution lives INSIDE the helper, so no caller can
+// forget it; the map is fully enumerated and the helper THROWS (fail-closed) on
+// any unmapped status rather than silently skipping the stage write.
+//
+// On Hold → 'In Progress' (Option 1, LOCKED 2026-06-12): 'In Progress' is
+// already in the Field call_log.stage filter, so a held job stays synced to the
+// crew with NO powersync-sync-rules.yaml edit. See plan §3.6 + §SCH3.
+const STATUS_TO_STAGE = {
+  'Scheduled':   'Scheduled',
+  'In Progress': 'In Progress',
+  'On Hold':     'In Progress',
+  'Ongoing':     'In Progress',
+  'Complete':    'Complete',
+}
+
+// Startup invariant: every status the user can assign from the dropdown must
+// have a stage mapping, else updateJobStatus would throw the moment it's picked.
+// This converts "someone added a dropdown option without a map entry" into a
+// loud, pre-ship failure instead of a silently-stale stage that drops the job
+// from the crew.
+for (const pickerStatus of STATUS_OPTIONS_PICKER) {
+  if (STATUS_TO_STAGE[pickerStatus] === undefined) {
+    throw new Error(
+      `STATUS_TO_STAGE is missing an entry for picker status "${pickerStatus}" — ` +
+      `every STATUS_OPTIONS_PICKER value must map to a call_log stage (SCH3 fail-closed invariant).`
+    )
+  }
+}
+
+// Write jobs.status (plus any paired fields) and unconditionally sync the
+// paired call_log.stage. Routes the jobs write through updateJobFields so audit
+// logging + the on_hold_resume source/skipAuditFields behavior are preserved.
+//   opts.extraFields     — extra jobs columns to write alongside status
+//                          (e.g. { ready_confirmed_at: null } on resume)
+//   opts.skipAuditFields — fields to skip in the job_changes audit log
+export async function updateJobStatus(jobId, newStatus, changedBy, source = 'schedule_command', { extraFields = {}, skipAuditFields = [] } = {}) {
+  // Fail-closed: resolve the stage BEFORE any write. An unmapped status throws
+  // here, so neither jobs.status nor call_log.stage is touched.
+  const newStage = STATUS_TO_STAGE[newStatus]
+  if (newStage === undefined) {
+    throw new Error(
+      `updateJobStatus: unmapped status "${newStatus}" — add it to STATUS_TO_STAGE ` +
+      `(fail-closed: refusing to write a status with no paired call_log stage).`
+    )
+  }
+
+  // 1) write jobs.status (+ paired fields) through the audit-logged path
+  const { error } = await updateJobFields(jobId, { status: newStatus, ...extraFields }, changedBy, source, { skipAuditFields })
+  if (error) return { error }
+
+  // 2) unconditionally sync the paired call_log.stage when the job has a call_log
+  const { data: jobRow } = await supabase
+    .from('jobs')
+    .select('call_log_id')
+    .eq('job_id', jobId)
+    .single()
+  if (jobRow?.call_log_id) {
+    const { error: stageErr } = await updateCallLogStage(jobRow.call_log_id, newStage, changedBy, source)
+    if (stageErr) return { error: stageErr }
   }
 
   return { error: null }
