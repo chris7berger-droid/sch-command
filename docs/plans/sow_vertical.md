@@ -21,7 +21,7 @@ This plan finishes the vertical:
 1. **Sales** starts writing `job_wtcs` (the canonical downstream SOW), adds a **per-day calendar date** to each `field_sow` day, and adds a **"dates TBD" toggle** for when the schedule isn't known at sale.
 2. **Schedule** takes ownership of the calendar layer (which date each day lands on) on the `job_wtcs` row, mutable and cost-free, never touching the frozen bid.
 3. **Field** syncs the canonical `job_wtcs` SOW, fixes the stage-sync hard-break that can prevent a job from ever reaching the crew, and renders the read-only SOW **grouped by calendar date** (work types collapsed).
-4. **Overage stamp + capture**: a reusable marker on the job plus a captured artifact row when a downstream add pushes cost beyond the bid. Tag + capture only — the change-order workflow itself is out of scope.
+4. **Overage stamp + capture**: _(Deferred to Build 2 — see `docs/plans/build2_costs_overages_change_orders.md`.)_ A reusable marker on the job plus a captured artifact row when a downstream add pushes cost beyond the bid. Tag + capture only — the change-order workflow itself is out of scope. The design (L5) stands; only its implementation moves to Build 2.
 
 The vertical respects one hard invariant: **the proposal (`proposal_wtc`) is frozen at sale and is never written downstream.** Scope and cost are immutable. Calendar dates are a separate, Schedule-owned layer.
 
@@ -37,7 +37,7 @@ These are design decisions made upstream. They are **not** open in this plan. Ea
 | L2 | **Frozen at sale.** Scope and cost are immutable downstream forever. Schedule and Field NEVER write `proposal_wtc`. | §5, §7 (invariant gate), §10 (risks) |
 | L3 | **Two layers, two owners.** *Scope* = Sales-owned, frozen. *Calendar* (which date each day lands on) = Schedule-owned once the job is sent; mutable, cost-free. Moving a date is a normal Schedule write that never touches the bid. | §5 (Schedule), §6 (canonical location) |
 | L4 | **Field read view.** Read-only, **day-centric grouped by calendar date**, work types collapsed (a crew may do multiple work types in one day). No notes/annotations on the SOW — crew commentary goes to a PRT or daily log. | §7 (Field) |
-| L5 | **Scope additions beyond bid** NEVER edit the proposal. They **stamp the job** with a reusable overage marker (a standard, reusable identifier, expected frequent) and **capture the artifact** (record that money was added beyond bid). The stamp is the future hook for a change-order workflow. **The change-order workflow itself is OUT OF SCOPE — only the tag + capture.** | §8 (overage) |
+| L5 | **[LOCKED — design stands] Implementation DEFERRED to Build 2** (2026-06-12). See `docs/plans/build2_costs_overages_change_orders.md`. **Scope additions beyond bid** NEVER edit the proposal. They **stamp the job** with a reusable overage marker (a standard, reusable identifier, expected frequent) and **capture the artifact** (record that money was added beyond bid). The stamp is the future hook for a change-order workflow. **The change-order workflow itself is OUT OF SCOPE — only the tag + capture.** | §8 (deferred — Build 2) |
 | L6 | **No cross-app shared SOW editor.** Nothing edits the proposal post-sale, so there is NO "edit routes home from Schedule." | Whole plan; explicitly NOT built |
 
 **Consequence for sequencing:** because nothing writes back to `proposal_wtc`, the only shared-write surface is `job_wtcs` (canonical) and `jobs` (mirror). The directionality is strictly forward: Sales writes the seed, Schedule owns the calendar layer thereafter, Field reads. This matches the Command Suite data contract's "one writer per crossing field" rule (`docs/plans/command_suite_shared_data_contract.md`).
@@ -202,13 +202,11 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
 
 **Migration safety first.** This repo **cannot** `supabase db push` (shared ledger holds ~60 sibling migrations with no local file). Per `sch-command/CLAUDE.md` "Pushing Migrations": write the file → `node scripts/check-migration-collision.mjs` → paste into the Supabase dashboard SQL editor (BEGIN/COMMIT + `IF NOT EXISTS`/`DROP … IF EXISTS`) → record with `supabase migration repair --status applied <ts>`. **[BLOCKED until the RESUME ALERT ledger reconciliation is cleared]** — three migrations (`20260503190000`, `20260512120000`, `20260512120100`) are live-but-ledger-absent; repair them before any new push (`sch-command/CLAUDE.md` RESUME ALERT). **Pick timestamps clear of the prod ledger** (query `SELECT version FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 20`). **Do not run any migration as part of this plan — author files only.**
 
-**Migration count — 4 new files across 2 repos:**
+**Migration count — 3 new files across 2 repos:**
 1. `proposal_wtc.dates_tbd` boolean (§6.2) — **sales-command** (`npm run db:push`).
-2. `job_overages` table + 4 RLS policies (§8.2 / §6.5) — **sch-command** (dashboard-applied).
-3. `jobs.has_overage` boolean (§8.1) — **sch-command** (dashboard-applied).
-4. `job_wtcs.start_date` / `end_date` DROP NOT NULL (§6.6) — **sch-command** (dashboard-applied). _Added round-1 audit (A1)._
+2. `job_wtcs.start_date` / `end_date` DROP NOT NULL (§6.6) — **sch-command** (dashboard-applied). _Added round-1 audit (A1)._
 
-(Items 2 and 3 may be combined into one sch-command file; the NOT-NULL drop (4) is separate and is a **prerequisite for §S3** — see §9.)
+(The `job_overages` table + `jobs.has_overage` migrations are **deferred to Build 2** — see `docs/plans/build2_costs_overages_change_orders.md`. The NOT-NULL drop (2) is a **prerequisite for §S3** — see §9.)
 
 ### 6.1 What already exists (no migration)
 - `job_wtcs` table + RLS + the `proposal_wtc_id` UNIQUE — **already live** (`20260512120100_job_wtcs_create.sql`). Columns cover `field_sow jsonb` (NOT NULL), `start_date/end_date date` (currently **NOT NULL** — relaxed by §6.6 for the "dates TBD" path), `material_status`. **The per-day calendar date lives INSIDE `field_sow` JSONB (`field_sow[*].date`)** — no column add needed for per-day dates. **[DERIVED]**
@@ -225,7 +223,7 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
 ### 6.4 `idx_jobs_source_proposal_id` UNIQUE stays [LOCKED 2026-06-11 — model (a)]
 - **Chris ratified model (a): one `jobs` row per proposal + N `job_wtcs` children** (one schedule card per job; work types collapse into the day-centric view). The Jobs-IA per-WTC-rows lean (its "M3 drop") is **superseded for this vertical** — there is never >1 `jobs` row per proposal, so `idx_jobs_source_proposal_id` **stays** and no index DDL is needed. Residual is verification only: confirm no code path inserts >1 `jobs` row per proposal (`ProposalDetail.jsx:580` should remain a single insert).
 
-### 6.5 New: overage stamp + capture (Schedule-owned) — see §8 for the data shape.
+### 6.5 Overage stamp + capture migrations — **DEFERRED to Build 2** (`job_overages` table + `jobs.has_overage`). See `docs/plans/build2_costs_overages_change_orders.md`.
 
 ### 6.6 New: DROP NOT NULL on `job_wtcs.start_date` AND `job_wtcs.end_date` (Schedule-owned) [LOCKED L1 — supports §S3 "dates TBD"] — _added round-1 audit (A1)_
 - **Why:** the locked "dates TBD" toggle (L1) means a `job_wtcs` row can be created with no calendar dates. But the live create migration `20260512120100_job_wtcs_create.sql` declared `start_date date NOT NULL` and `end_date date NOT NULL` **[DERIVED: §3.3 line 71]** — so a TBD send would fail to insert. Drop the NOT NULL on both.
@@ -281,43 +279,10 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
 
 ---
 
-## §8 Overage stamp + capture [LOCKED L5 — tag + capture ONLY]
+## §8 Overage stamp + capture — DEFERRED to Build 2
 
-**Trip condition:** a downstream add (a day, a material, a cost) that pushes the job's committed cost **beyond what was bid**. Detected in Schedule when an edit to `job_wtcs` (or `materials`) would exceed the frozen proposal total. The bid total is read from the frozen proposal — never recomputed against it.
-
-### 8.1 The reusable marker (the "stamp")
-- A **standard, reusable** flag on the job. Recommend a boolean + metadata on `jobs`: `jobs.has_overage boolean NOT NULL DEFAULT false`. It is the same identifier across all such jobs (L5: "unique identifier, standard across all such jobs, expected frequent"), and is the future hook a change-order workflow keys off. **[Schedule-owned table → migration in this repo, dashboard-applied per §6.]**
-
-### 8.2 The captured artifact (the record that money was added beyond bid)
-- A new Schedule-owned table `job_overages`:
-  ```
-  id uuid PK default gen_random_uuid()
-  job_id int8 NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE
-  call_log_id int8           -- master-record key, mirrors the queries.js convention
-  kind text NOT NULL         -- 'day' | 'material' | 'cost'
-  description text
-  amount_over_bid numeric NOT NULL
-  created_by text            -- who
-  created_at timestamptz NOT NULL DEFAULT now()  -- when
-  ```
-  + 4 authenticated RLS policies scoped via `jobs.call_log_id → call_log.tenant_id` (copy the exact pattern from `20260512120100_job_wtcs_create.sql`). One row per overage event; the `jobs.has_overage` flag is set true on first insert.
-- **Out of scope (L5):** the change-order workflow that consumes these rows (creating a CO proposal, re-pricing, customer approval). This plan only **stamps + captures**. The audit manifest (§11) flags this boundary so a reviewer doesn't expect CO logic.
-
-### 8.3 Where the trip fires
-- In the Schedule Field SOW editor (§SCH1/SCH2): on a save that adds a day/material whose cost exceeds the frozen bid, set `jobs.has_overage = true` and insert a `job_overages` row. **Do not block the save** (L5: capture, don't gate) and **do not write `proposal_wtc`** (L2).
-- **[DERIVED — route the flag through the audit chokepoint]** Set the stamp via `updateJobField(jobId, 'has_overage', true, changedBy)` — **not** a raw `supabase.from('jobs').update({ has_overage: true })` — so the flag flip is audit-logged in `job_changes` like every other job write (`CLAUDE.md` critical rule). `updateJobField` already no-ops the audit insert when the value is unchanged **[verified queries.js:175]**, so re-stamping an already-flagged job won't spam the log.
-- **[LOCKED 2026-06-11 — Chris ratified]** Cost-comparison basis: **committed `job_wtcs` cost vs. `proposals.total`, accrual-style** (counted when work is committed, not paid — mirrors the QB accrual rule). Stamp when committed cost > proposal total.
-- **The bid total is read READ-ONLY** — see §8.4 for the exact frozen source — and the `job_overages` insert is **best-effort-surfaced** (capture-don't-gate, L5) — see §8.5.
-
-### 8.4 The committed-cost SOURCE — named precisely [DERIVED — money-observant, read-only]
-- **The bid total (the comparand) is read READ-ONLY from the frozen proposal.** The canonical bid is the rolled-up `proposals.total`, but per sales-command **Data Integrity Rule 2** "`proposals.total` … can be stale"; the authoritative frozen per-WTC components live on `proposal_wtc` (the financial fields: `regular_hours, ot_hours, burden_rate, ot_burden_rate, markup_pct, materials, travel, discount, size` — **[verified: sales-command/CLAUDE.md proposal_wtc column ref + Data Integrity Rule 5]**). **[DESIGN-OPEN — comparand precision]** Whether to compare against the stored `proposals.total` (simpler, possibly stale) or recompute the bid from the frozen `proposal_wtc` financial fields via the shared `calcWtcPrice()` (authoritative, but pulls Sales' calc into Schedule) is a real open decision — flag for Chris. Either way the read is **strictly read-only**: this vertical is **money-observant, never money-touching** (L2). It NEVER writes `proposal_wtc` or `proposals.total` — it only reads them to compute the over-bid delta.
-- **Committed cost (the other side)** = the accrual-style committed `job_wtcs` cost (§8.3 LOCKED basis): counted when work is committed, not when paid.
-- **Invariant reaffirmed:** no write path in §8 touches any `proposal_wtc` financial field or `proposals.total`. The R2 grep gate (no `from('proposal_wtc').update` in sch/field) covers this.
-
-### 8.5 The `job_overages` insert is best-effort-surfaced (capture-don't-gate) [DERIVED — L5]
-- The `job_overages` insert and the `has_overage` stamp are **best-effort-surfaced**: if either write fails, it **surfaces an error to the user/log but NEVER rolls back or throws on the user's save**. The Schedule SOW save (the `job_wtcs.field_sow` / calendar write) **succeeds regardless** of whether the overage stamp/capture write succeeds. This is L5 "capture, don't gate" applied to the failure path: a failed stamp must not cost the user their scheduling edit.
-- **Mirrors sales-command "fail-safe, not fail-silent" (Data Integrity Rule 6) [verified: sales-command/CLAUDE.md Rule 6]:** the failure is **logged/surfaced** (toast + console), not swallowed silently — the office should know the overage stamp didn't land — but the primary save is preserved. Concretely: run the SOW save first and confirm success; then attempt `updateJobField(jobId,'has_overage',true,...)` + `insert(job_overages)` in a try/catch that, on error, toasts "Saved — but couldn't record the overage flag" and logs the error, **without** reverting the SOW write or throwing.
-- **Worst-case failure = a wrong/missing flag** (mis-observation), never financial corruption or a lost scheduling edit — consistent with the §11 manifest's overage severity cap.
+Overage stamp/capture deferred to Build 2 — see `docs/plans/build2_costs_overages_change_orders.md`.
+The L5 design decision stands; only its implementation is deferred.
 
 ---
 
@@ -330,15 +295,14 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
 
 **Can parallelize after the prerequisites:**
 - **Sales track:** S1 (per-day date) → S2 (TBD toggle + `proposal_wtc.dates_tbd` migration, §6.2) → S3 (write `job_wtcs` — gated on the §6.6 A1 NOT-NULL-drop migration above). S4 (durable IDs) lands with S1.
-- **Schedule track:** SCH1 (editor → `job_wtcs`) → SCH2 (per-day date picker) → SCH4 (TBD badge). Overage (§8) migrations + trip logic land after SCH1/SCH2 (they hook the same save path).
+- **Schedule track:** SCH1 (editor → `job_wtcs`) → SCH2 (per-day date picker) → SCH4 (TBD badge). _(Overage migrations + trip logic deferred to Build 2 — they hook this same SCH1/SCH2 save path. See `docs/plans/build2_costs_overages_change_orders.md`.)_
 - **Field track:** F2 (read fix) → F3 (group-by-date render). Depends on F1.
 
 **Cross-repo ordering constraints:**
 - **§6.3 mirror discipline:** keep `jobs.field_sow` fresh **until F2 ships** (Field reads it today). Only after Field reads `job_wtcs` (F2) may `jobs.field_sow` be frozen/deprecated. So: **F2 before deprecating the mirror.**
 - **S3 (Sales writes `job_wtcs`) before F2 is *useful*:** Field can sync an empty `job_wtcs` set, but the dated read only pays off once Sales is writing rows. Land S3 → backfill consideration (§10 R4) → F2.
-- **Overage (§8)** is independent of the date layer mechanically but shares the SCH save path — land after SCH1/SCH2.
 
-**End-to-end smoke (after all tracks):** author a 3-day SOW in Sales with 2 work types and per-day dates → Send to Schedule → confirm 2 `job_wtcs` rows with dated `field_sow` → move a day's date in Schedule, confirm `proposal_wtc` untouched → confirm the dated, date-grouped SOW renders on a Field device → add a day beyond bid in Schedule, confirm `jobs.has_overage` + a `job_overages` row, and `proposal_wtc` still frozen.
+**End-to-end smoke (after all tracks):** author a 3-day SOW in Sales with 2 work types and per-day dates → Send to Schedule → confirm 2 `job_wtcs` rows with dated `field_sow` → move a day's date in Schedule, confirm `proposal_wtc` untouched → confirm the dated, date-grouped SOW renders on a Field device. _(The overage smoke step — add a day beyond bid, confirm the stamp + capture — is deferred to Build 2.)_
 
 ---
 
@@ -347,7 +311,7 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
 | # | Risk | Severity | Hardened by |
 |---|------|----------|-------------|
 | R1 | **Stage-sync hard-break** — `jobs.status` writes that don't sync `call_log.stage` drop the job from Field's sync filter mid-lifecycle. | High (crew can't see the job) | **SCH3** — `updateJobStatus()` chokepoint (all 3 verified writers routed through it) + complete `STATUS_TO_STAGE` map + the coupled On-Hold sync-filter edit (§3.6 amendment). PREREQUISITE, ships first. |
-| R2 | **Invariant violation** — a Schedule/Field write leaks into `proposal_wtc` or a financial field, breaking "frozen at sale." | High (corrupts the bid) | **SCH1/SCH2** edit `job_wtcs.field_sow` only; add a grep gate: no `from('proposal_wtc').update` in sch/field. §8.3 never writes the bid. |
+| R2 | **Invariant violation** — a Schedule/Field write leaks into `proposal_wtc` or a financial field, breaking "frozen at sale." | High (corrupts the bid) | **SCH1/SCH2** edit `job_wtcs.field_sow` only; add a grep gate: no `from('proposal_wtc').update` in sch/field. _(The overage read path that also relies on this invariant is deferred to Build 2.)_ |
 | R3 | **Unjoined Field fallback** — `proposal_wtc … LIMIT 10` `[0]` picks the wrong WTC. | Med (wrong SOW shown) | **F2** — the `proposal_wtc` fallback is **dropped entirely** (round-1 audit); reads go `job_wtcs` (joined on local `id`) → `jobs.field_sow` mirror only. The `LIMIT 10` anti-pattern is removed, not just replaced. |
 | R4 | **No backfill** — jobs sent before S3 have zero `job_wtcs`; Field's primary read is empty for them. | Med | **[LOCKED 2026-06-11 — Chris ratified: rely on fallback, NO backfill]** Old jobs stay on the `jobs.field_sow` mirror fallback (§6.3); only new sends get the dated SOW + new Field read. In-flight jobs age out; no prod data migration. |
 | R5 | **Client-side ID collision** — `Date.now()`/`+Math.random()` day/task IDs collide across cloned/sister proposals; a per-day date keyed on `id` writes to two days. | Med (date corruption once Schedule writes per-day dates) | **S4** (`crypto.randomUUID()`). Recommend in-scope — the date layer makes the collision actively corrupting, not just cosmetic. |
@@ -462,7 +426,8 @@ _Each is a riskiest assumption a reviewer should independently verify, with a fi
 
 ## §12 Out of scope (explicit)
 
-- The **change-order workflow** that consumes overage stamps (re-pricing, CO proposal, customer approval). §8 tags + captures only. **[LOCKED L5]**
+- **Costs, overage stamp/capture, and the change-order workflow → Build 2** (`docs/plans/build2_costs_overages_change_orders.md`). Scope-cut from this vertical 2026-06-12; the SOW pipeline (dates, canonical `job_wtcs` write, Field read) ships alone.
+- The **change-order workflow** that consumes overage stamps (re-pricing, CO proposal, customer approval). _(Deferred to Build 2 along with the overage tag + capture it consumes.)_ **[LOCKED L5]**
 - A **cross-app shared SOW editor** / "edit routes home from Schedule." Nothing edits the proposal post-sale. **[LOCKED L6]**
 - **Per-crew sync filtering** in Field (the `job_crew`-scoped buckets TODO in the sync rules) — orthogonal to this vertical.
 - Running any migration, pushing, or deploying — this is a planning doc only.
