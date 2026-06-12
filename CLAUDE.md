@@ -4,11 +4,7 @@
 
 **Read before any `supabase db push` on this repo.**
 
-1. **Ledger reconciliation required.** THREE migrations are live on prod (applied via dashboard/db-query bypass) but ABSENT from the prod `supabase_migrations.schema_migrations` ledger: `20260503190000_daily_log_update_policy` (RLS policies — non-idempotent bare create/drop), `20260512120000_jobs_material_status_additive`, and `20260512120100_job_wtcs_create`. Local files for all three exist in `supabase/migrations/`. **Before any `db push` in this repo, repair all three** (audit 2026-05-28 found the 0503 omission would abort a push on error 42710 before reaching the target migration):
-   ```
-   supabase migration repair --status applied 20260503190000 20260512120000 20260512120100
-   ```
-   Otherwise `db push` tries to re-apply already-live DDL and aborts (non-idempotent ones) or drifts the ledger.
+1. **✅ RESOLVED 2026-06-12 (feat/sow-vertical build session).** The three live-but-ledger-absent migrations (`20260503190000_daily_log_update_policy`, `20260512120000_jobs_material_status_additive`, `20260512120100_job_wtcs_create`) were reconciled via `supabase migration repair --status applied 20260503190000 20260512120000 20260512120100`. `supabase migration list` now shows all three in both Local and Remote columns. The ledger no longer aborts `db push` on these. *(Original alert: they were applied via dashboard/db-query bypass but absent from the prod `supabase_migrations.schema_migrations` ledger; audit 2026-05-28 found the 0503 omission would abort a push on error 42710. Reconciliation now complete.)*
 
 2. **Sales-command is mid-sprint on Multi-GC Allocation.** Branch `feat/multi-gc-allocation`, pushing migrations to the shared Supabase project `pbgvgjjuhnpsumnowuym`. Item **O7 (T1, open)** in `~/sales-command/docs/BACKLOG.md` covers cross-repo timestamp coordination — it has not shipped yet. Until it does, **before drafting any migration timestamp in this repo**, query the prod ledger and pick a clear-of-everything value:
    ```
