@@ -130,6 +130,7 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
 - Add a checkbox `Dates TBD` bound to a new field. **[LOCKED 2026-06-11 — (a) explicit `proposal_wtc.dates_tbd` column]** Storage location for the toggle: (a) a new `proposal_wtc.dates_tbd boolean` column, or (b) infer from `start_date IS NULL`. Recommend **(a) an explicit column** — inference is ambiguous (legacy rows have null dates that aren't "TBD"), and the toggle's whole point is to make "we don't know yet" a first-class, non-error state (today the date inputs are required-with-red-error **[:379,388]**; TBD must suppress that error). Add the migration in §6.
 - When `dates_tbd` is true: the Tentative Start/End inputs and all per-day `date` inputs are disabled, the required-red treatment is suppressed, and Send-to-Schedule seeds `job_wtcs.start_date/end_date` and per-day `date` as NULL (Schedule fills them).
 - **[round-2 A4] `dates_tbd` is per-WTC.** Because the toggle binds to `proposal_wtc.dates_tbd` (one row per WTC), it is a **per-WTC** state, not a single proposal-wide flag. The checkbox lives in each WTC's editor and persists to that WTC's row; Send-to-Schedule reads it back per-WTC (§S3). A proposal may legitimately have one dated WTC and one TBD WTC.
+- **[round-3 L2] The toggle must round-trip.** Add `dates_tbd` to BOTH the `WTCCalculator` `handleSave()` payload AND the `loadWTC` state read. Otherwise reopening a WTC reads no `dates_tbd`, the checkbox defaults to `false`, and the next save silently writes `false` — losing the TBD state. Persist on save; hydrate on load.
 
 ### S3 — Make "Send to Schedule" write canonical `job_wtcs` rows [LOCKED L1, L3]
 - **File:** `sales-command/src/components/ProposalDetail.jsx`, `handleSendToSchedule()` **[:513-621]**.
@@ -140,7 +141,7 @@ The brief says Field filters `call_log` by Sales-vocab `stage` while Schedule mo
     work_type_id: wtc.work_type_id,
     work_type_name: wtc.work_types?.name,
     position: index,
-    field_sow: wtc.field_sow || [],   // ALWAYS an array, never undefined (NOT NULL col) — per-day, now date-bearing
+    field_sow: wtc.dates_tbd ? (wtc.field_sow||[]).map(d => ({...d, date: null})) : (wtc.field_sow||[]),   // ALWAYS an array, never undefined (NOT NULL col); on the TBD path null the per-day dates too [round-3 L1]
     material_status: 'not_ordered',
     start_date: wtc.dates_tbd ? null : (wtc.start_date || null),
     end_date:   wtc.dates_tbd ? null : (wtc.end_date || null) }
@@ -454,3 +455,7 @@ _Each is a riskiest assumption to verify, with a file pointer. Round 2: refreshe
 - **Deferred (round-1 audit): O1–O6, ADJ1–ADJ4 — out of this revision's scope.** The round-1 audit raised additional observations (O1–O6) and adjacent items (ADJ1–ADJ4) that this revision pass (the 6 caused-by findings A1/A2/A3/B1/B2/B3) did **not** address. They remain noted by the audit for a future pass; their content is not reproduced or resolved here.
 - **Deferred (round-2 audit): O1–O4, ADJ1–ADJ3 — out of this revision's scope.** The round-2 audit's non-caused-by observations (O1–O4) and adjacent items (ADJ1–ADJ3) are noted but **not** addressed by this revision pass (which applied only the 5 caused-by findings: R-A3, A1, A3, A4, A5). Their content is not reproduced or resolved here.
 - **Overage stamp + capture stays in Build 2 — untouched by this revision** (`docs/plans/build2_costs_overages_change_orders.md`). [LOCKED L5]
+- **Carried to backlog (round-3 audit, non-blocking):** **L3** — verify `job_changes.job_id` constraint against live schema before the audit-logged writes go in; **L4** — add a `job_wtcs` realtime channel in `Jobs.jsx` so per-WTC edits refresh the list (today realtime subscribes to `jobs` only). Neither blocks build.
+- **Deferred gates (must clear at the named checkpoint, not in this plan):** (1) a **two-tenant PowerSync sync test** before onboarding customer #2 (the [DISPUTED] RLS premise — §F1); (2) **field manager (Jonah) confirms `crew_count` = MAX-vs-SUM** + the per-task work-type tag during build/smoke (§F3, R9).
+
+> **STATUS: BUILD-READY.** Round 3 converged clean (0H/0M/5L; load-bearing stage-sync fix independently confirmed). No round 4. L1/L2 folded in (round-3 touch-up). Build per §9 sequencing — **prerequisites: SCH3 (stage-sync chokepoint) + §6.6 migration (`job_wtcs` NOT-NULL drop) + F1 (`job_wtcs` → Field sync) ship first.**
