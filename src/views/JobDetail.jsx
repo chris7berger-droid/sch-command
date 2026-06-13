@@ -168,6 +168,15 @@ export default function JobDetail() {
           <span className={`jh-status-badge ${getStatusBadgeClass(getJobStatus(job))}`}>
             {getJobStatus(job)}
           </span>
+          {Array.isArray(job._wtcs) && job._wtcs.length > 0 && job._wtcs.some(w => !w.start_date) && (
+            <span
+              className="jd-tbd-badge"
+              title="One or more work types still need calendar dates"
+              style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 10, background: '#1c1814', color: '#30cfac' }}
+            >
+              Dates TBD
+            </span>
+          )}
           {weekMonday && (
             <button
               className="jd-sched-link"

@@ -44,6 +44,15 @@ function crewCoverage(job, assignments) {
   return { covered, total: days.length }
 }
 
+// SCH4 calendar-readiness: true when the job has job_wtcs rows but any of them
+// still lacks a start_date (Schedule hasn't assigned the calendar yet). Legacy
+// jobs (no job_wtcs) are not badged — their dates live on jobs, not job_wtcs.
+function hasUndatedWtc(job) {
+  const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
+  if (wtcs.length === 0) return false
+  return wtcs.some(w => !w.start_date)
+}
+
 function fieldSowSummary(job) {
   const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
   // Prefer job_wtcs.field_sow if present; fall back to jobs.field_sow.
@@ -84,6 +93,15 @@ export default function ScheduledCardList({ jobs, assignments = [], today = new 
                 </div>
               </div>
               <div className="jh-card-right">
+                {hasUndatedWtc(j) && (
+                  <span
+                    className="sch-tbd-badge"
+                    title="One or more work types still need calendar dates"
+                    style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 10, background: '#1c1814', color: '#30cfac' }}
+                  >
+                    Dates TBD
+                  </span>
+                )}
                 {alertWeeks > 0 && (
                   <span className="jh-mw-badge" title={`${alertWeeks} week(s) need crew`}>
                     {alertWeeks}-wk · need crew
