@@ -485,3 +485,55 @@ export async function updateCallLogStage(callLogId, newStage, changedBy, source 
 
   return { error: null }
 }
+
+// ── Schedule calendar-layer write on job_wtcs (SCH1) ────────────────────────
+// Schedule owns the calendar on job_wtcs: per-day dates live in
+// field_sow[*].date and the WTC span lives in start_date/end_date (derived here
+// from the per-day dates). All Schedule field_sow / per-day-date writes route
+// through this helper so they are audit-logged like every other job write — do
+// NOT write job_wtcs via a raw supabase.from('job_wtcs').update(). Scope is
+// frozen at the proposal; this only moves the calendar, never financials.
+//
+// NOTE: field_sow is an ARRAY of day objects, so old/new values are serialized
+// with JSON.stringify — NOT String() (which the scalar helpers use). String()
+// on an array yields structure-losing garbage in the audit row. See plan §SCH1.
+export async function updateJobWtcFieldSow(jobWtcId, nextFieldSow, changedBy, source = 'schedule_command') {
+  // read current field_sow + parent job/call_log for the audit row
+  const { data: current, error: readErr } = await supabase
+    .from('job_wtcs')
+    .select('field_sow, job_id, jobs(call_log_id)')
+    .eq('id', jobWtcId)
+    .single()
+  if (readErr) return { error: readErr }
+
+  // Derive the WTC calendar span from the per-day dates (null when none dated —
+  // the §6.6 migration made start_date/end_date nullable for exactly this).
+  const dates = (nextFieldSow || []).map(d => d && d.date).filter(Boolean).sort()
+  const startDate = dates[0] || null
+  const endDate = dates.length ? dates[dates.length - 1] : null
+
+  // write field_sow + derived span
+  const { error } = await supabase
+    .from('job_wtcs')
+    .update({ field_sow: nextFieldSow, start_date: startDate, end_date: endDate })
+    .eq('id', jobWtcId)
+  if (error) return { error }
+
+  // audit-log — JSON.stringify (not String()); keyed on the parent job so the
+  // history view still attributes the change to the job.
+  const oldStr = JSON.stringify(current?.field_sow ?? [])
+  const newStr = JSON.stringify(nextFieldSow ?? [])
+  if (oldStr !== newStr) {
+    await supabase.from('job_changes').insert({
+      job_id: current?.job_id ?? null,
+      call_log_id: current?.jobs?.call_log_id ?? null,
+      field: `job_wtc.field_sow:${jobWtcId}`,
+      old_value: oldStr,
+      new_value: newStr,
+      changed_by: changedBy,
+      source,
+    })
+  }
+
+  return { error: null }
+}

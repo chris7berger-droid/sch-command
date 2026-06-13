@@ -16,6 +16,7 @@ const newTask = () => ({ id: Date.now() + Math.random(), description: '', pct_co
 const newDay = (idx) => ({
   id: Date.now() + Math.random(),
   day_label: `Day ${idx + 1}`,
+  date: null,           // Schedule sets the calendar date (SCH2); null = TBD
   tasks: [newTask()],
   crew_count: 0,
   hours_planned: 0,
@@ -34,7 +35,9 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   const addDay = () => update([...days, newDay(days.length)])
   const removeDay = (id) => update(days.filter(d => d.id !== id))
   const updateDayField = (id, key, val) => update(days.map(d =>
-    d.id === id ? { ...d, [key]: key === 'day_label' ? val : (parseFloat(val) || 0) } : d
+    // 'date' is exempt from numeric coercion (it's an ISO string, not a number);
+    // without this the per-day date would NaN→0 on any other day-field edit (SCH2).
+    d.id === id ? { ...d, [key]: ['day_label', 'date'].includes(key) ? val : (parseFloat(val) || 0) } : d
   ))
 
   const addTask = (dayId) => update(days.map(d =>
@@ -116,6 +119,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     // Strip transient ids before save (keep stable shape: tasks, materials, day fields)
     const clean = days.map(d => ({
       day_label: d.day_label,
+      date: d.date || null,   // Schedule calendar layer (SCH2) — preserve per-day date
       crew_count: d.crew_count || 0,
       hours_planned: d.hours_planned || 0,
       tasks: (d.tasks || []).map(t => ({
@@ -155,6 +159,10 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
         </div>
       </div>
 
+      <div className="fsb-scope-note" style={{ fontSize: 12, color: 'var(--sand-dark)', margin: '0 0 12px', lineHeight: 1.4 }}>
+        <strong>Scope is frozen (from the sale).</strong> You're setting the calendar — per-day dates, crew, and hours. Editing here never changes the bid.
+      </div>
+
       {days.length === 0 && (
         <div className="fsb-empty">
           No day entries yet. Click <strong>+ Add Day</strong> to define the field plan.
@@ -171,6 +179,15 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
                 className="fsb-input fsb-input-sm"
                 value={day.day_label || ''}
                 onChange={e => updateDayField(day.id, 'day_label', e.target.value)}
+              />
+            </div>
+            <div className="fsb-field">
+              <label className="fsb-label">Date{!day.date && ' (TBD)'}</label>
+              <input
+                type="date"
+                className="fsb-input fsb-input-sm"
+                value={day.date || ''}
+                onChange={e => updateDayField(day.id, 'date', e.target.value)}
               />
             </div>
             <div className="fsb-field">

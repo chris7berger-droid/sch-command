@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJob, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
+import { loadJobWithWTCs, updateJobField, updateJobWtcFieldSow, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
@@ -73,7 +73,7 @@ export default function JobDetail() {
     setLoading(true)
     const jid = parseInt(jobId)
     const [jobRes, asgnRes, blRes, matRes, chgRes] = await Promise.all([
-      loadJob(jid),
+      loadJobWithWTCs(jid),  // SCH1: populate job._wtcs so the Field SOW editor binds to canonical job_wtcs
       supabase.from('assignments').select('crew_name, date').eq('job_id', jid).order('date', { ascending: false }),
       supabase.from('billing_log').select('*').eq('job_id', jid).order('date', { ascending: false }),
       supabase.from('materials').select('*').eq('job_id', jid).order('ordinal'),
@@ -438,16 +438,41 @@ export default function JobDetail() {
         {/* ── Field SOW ──────────────────────────────────── */}
         {tab === 'fieldsow' && (
           <div className="jd-section">
-            <FieldSowBuilder
-              key={job.job_id}
-              value={job.field_sow}
-              saving={false}
-              availableMaterials={proposalMaterials}
-              onSave={async (next) => {
-                await updateJobField(job.job_id, 'field_sow', next, changedBy)
-                setJob(prev => ({ ...prev, field_sow: next }))
-              }}
-            />
+            {(job._wtcs && job._wtcs.length > 0) ? (
+              // SCH1: one editor per canonical job_wtcs row, bound to its field_sow.
+              job._wtcs.map(wtc => (
+                <div key={wtc.id} className="jd-wtc-block" style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-primary)', marginBottom: 8 }}>
+                    {wtc.work_type_name || 'Work Type'}
+                  </div>
+                  <FieldSowBuilder
+                    value={wtc.field_sow}
+                    saving={false}
+                    availableMaterials={proposalMaterials.filter(m => String(m._wtc_id) === String(wtc.proposal_wtc_id))}
+                    onSave={async (next) => {
+                      const { error } = await updateJobWtcFieldSow(wtc.id, next, changedBy)
+                      if (error) { console.error(error); return }
+                      setJob(prev => ({
+                        ...prev,
+                        _wtcs: prev._wtcs.map(w => w.id === wtc.id ? { ...w, field_sow: next } : w),
+                      }))
+                    }}
+                  />
+                </div>
+              ))
+            ) : (
+              // Legacy / pre-vertical fallback: edit jobs.field_sow directly.
+              <FieldSowBuilder
+                key={job.job_id}
+                value={job.field_sow}
+                saving={false}
+                availableMaterials={proposalMaterials}
+                onSave={async (next) => {
+                  await updateJobField(job.job_id, 'field_sow', next, changedBy)
+                  setJob(prev => ({ ...prev, field_sow: next }))
+                }}
+              />
+            )}
             {job.sow && (
               <details className="jd-sales-sow-collapse" style={{ marginTop: 20 }}>
                 <summary style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--sand-dark)', cursor: 'pointer' }}>
