@@ -33,11 +33,13 @@ the plan never named was invisible to every gate.
 Planning happens in **in-card modals** on `StageJobCard`. **No work may reintroduce JobDetail
 Planning tabs.**
 
-**DaysModal write authority — [LOCKED Option 1] (Chris):** the DAYS modal is **read-only**. It reads
-canonical `job_wtcs` dates and surfaces TBD state, but per-day dates are edited **only** in the SOW
-modal (`FieldSowBuilder` derives `start_date`/`end_date` from `field_sow[*].date` via
-`updateJobWtcFieldSow`). One writer for the calendar layer. No DaysModal write path is specced.
-(`DaysModal.jsx` is already read-only today — this locks that property, it does not add an editor.)
+**DaysModal write authority — [LOCKED Option 3] (Chris, 2026-06-15):** "single canonical writer" means
+one write **function** (`updateJobWtcFieldSow`), **not** one UI. So the DAYS modal is a **read-only
+overview that is click-to-edit**: each day row **deep-links into the in-card SOW modal** (the per-WTC
+`FieldSowBuilder`) focused on that day's WTC. The DAYS modal itself performs **no SOW/date write** — it
+only navigates to the canonical editor, where the write goes through `updateJobWtcFieldSow`. This
+preserves the single-write-**function** discipline AND delivers finding #4 ("click a day to fix it").
+(Supersedes the earlier Option-1 read-only-only framing.)
 
 ## 4. Complete SOW / per-day-dates surface inventory
 
@@ -66,7 +68,7 @@ The SQL mirror (`job_base_checklist_passes`) must be redefined to the equivalent
 | `StageJobCard.jsx:111` staged banner missing-📋 (`if (job.field_sow == null) missing.push('📋')`) | `jobs.field_sow` only | **REWIRE** to §4.1 predicate (negated). |
 | `StageJobCard.jsx:206` PlanningPanel SOW scorecard (`const hasSOW = job.field_sow != null`) | `jobs.field_sow` only | **REWIRE** to §4.1 predicate. |
 | `StageJobCard` **SOW** chip → in-card modal | opens `FieldSowModal` → merged `jobs.field_sow` | **REWIRE** → in-card modal hosting per-WTC `FieldSowBuilder` writing `job_wtcs` (design §3.5). Primary editor. See §6.1. |
-| `StageJobCard` **DAYS** chip → `DaysModal` (`DaysModal.jsx`) | **already read-only**; reads job-level `scheduled_start`/`start_date` | **UPDATE (read-only)** to read canonical per-WTC `job_wtcs` dates + surface TBD state. **NO write path** — dates are edited only in the SOW modal (Finding F, [LOCKED Option 1]). |
+| `StageJobCard` **DAYS** chip → `DaysModal` (`DaysModal.jsx`) | **already read-only**; reads job-level `scheduled_start`/`start_date` | **UPDATE** to read canonical per-WTC `job_wtcs` dates + TBD state; **read-only overview + click-to-edit deep-link into the SOW modal; no independent write path** (Finding F, [LOCKED Option 3]). |
 | `StageJobCard` card body / **WORK TYPES** | uses `job._wtcs` | **ADD** "Dates TBD" indicator (SCH4) |
 | `FieldSowModal` (`FieldSowModal.jsx`) | merged editor (`handleSave:83` writes `jobs.field_sow:92`), not WTC-aware | **STRIP EDIT PATH** → Print-only, reading `_wtcs`. See §6.1 / Finding D. After this it has NO write to `jobs.field_sow`. |
 | **JobDetail `?mode=planning` Field SOW tab** (SCH1's edit) — render `JobDetail.jsx:448-494`; planning-tab-group gate `:193`; default-tab `:86`; URL deep-link consumed `:53` | per-WTC editor but on a **deprecated** surface | **REVERT** — JobDetail is mgmt-only. See §6.1 step 3 for exact targets. |
@@ -113,7 +115,7 @@ Verified targets:
 - **DELETE `src/components/ScheduledCardList.jsx`** — it is DEAD (zero importers). Its `:148/159` `mode=planning` links are unreachable; do NOT spend revert effort treating them as live.
 
 **Step 4 — DAYS modal + crew-view scope field read canonical. (#9)**
-- `DaysModal.jsx` is **already read-only** (no write path today; reads `scheduled_start`/`start_date`). Update it to read canonical **per-WTC `job_wtcs`** dates and surface TBD state. **Keep it read-only — [LOCKED Option 1]:** dates are edited only in the SOW modal (Finding F). Do NOT add a DaysModal write path.
+- `DaysModal.jsx` is **already read-only** (no write path today; reads `scheduled_start`/`start_date`). Update it to read canonical **per-WTC `job_wtcs`** dates and surface TBD state. **[LOCKED Option 3]:** read-only overview with per-WTC dates/TBD; **each day row deep-links into the SOW modal at that day/WTC** (opens the per-WTC `FieldSowBuilder` focused there). The DAYS modal performs **no SOW/date write** — it only navigates to the canonical editor. Do NOT add a DaysModal write path.
 - Crew-view scope field reads canonical.
 
 **Step 5 — strip `FieldSowModal` edit path entirely (Finding D). (#6/#8)**
@@ -153,13 +155,14 @@ For each surface from §4 that edits SOW/dates, the acceptance test asserts BOTH
 | StageJobCard SOW modal — per-WTC `FieldSowBuilder` (§6.1 step 1) | save SOW for a WTC | `job_wtcs.field_sow` (+ derived `start_date`/`end_date`) updated for that `wtc.id` | one row, `field = 'job_wtc.field_sow:<wtc.id>'`, `source='schedule_command'` |
 | Multi-WTC job (N tabs) | save on tab 2 | only tab-2's `job_wtcs` row changes | one audit row keyed to tab-2's WTC; tab-1 untouched |
 | `baseChecklistPasses` / `isReady` (JS) + `job_base_checklist_passes` (SQL) | add SOW to a WTC of a Staged job | the WTC-aware predicate now returns SOW-present; tile/gate flip without writing `jobs.field_sow` | n/a (read gate) — but the SOW write that triggered it produced its `job_wtcs` audit row above |
-| DaysModal (read-only) | open on a multi-WTC job | reads per-WTC dates; **no** `job_wtcs` write occurs | **zero** `job_changes` rows (read-only — Finding F) |
+| DaysModal (read-only overview, click-to-edit deep-link — Finding F / Option 3) | open on a multi-WTC job; click a day row | DAYS modal writes **nothing**; clicking a day **navigates** to the SOW modal, where any edit goes through `updateJobWtcFieldSow` | **zero** `job_changes` rows from DaysModal itself; the audit row (if the user then edits) is produced by the SOW modal, not DaysModal |
 
 ### 7.3 Coverage / revert assertions
 - Editing SOW from the **staged card** updates `job_wtcs`, reflected in card + DB (not `jobs.field_sow`).
 - "Dates TBD" badge shows on the staged card for a TBD WTC.
 - No reachable JobDetail Planning Field SOW editor remains (`mode=planning` resolves to nothing SOW-editing; `JobCardList:258` link gone; `ScheduledCardList.jsx` deleted).
 - The Staged→Ready gate (JS + SQL) agrees on SOW-present for a WTC-only job (no parent `jobs.field_sow`).
+- **The DAYS modal has zero SOW/date write paths** — it only navigates to the canonical SOW modal (Option 3). Grep-confirm no date write exists outside `updateJobWtcFieldSow`: `DaysModal.jsx` (and its handlers) contains no `from('job_wtcs').update`/`from('jobs').update` carrying `field_sow`, `start_date`, or `end_date`; the only date-write path in the codebase is `updateJobWtcFieldSow` (which derives dates from `field_sow[*].date`).
 
 ## 8. Process fix (so this class can't recur) — enforceable gate (Fold O2)
 
