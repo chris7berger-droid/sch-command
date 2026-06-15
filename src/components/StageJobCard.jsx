@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
-import { baseChecklistPasses } from '../lib/queries'
+import { baseChecklistPasses, hasFieldSow } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import MaterialsModal from './MaterialsModal'
@@ -108,7 +108,7 @@ function StageBanner({ job, stage, crewRows, matRows, billingLog, prtMap, today 
 
   if (stage === 'staged') {
     const missing = []
-    if (job.field_sow == null) missing.push('📋')
+    if (!hasFieldSow(job)) missing.push('📋')
     if (crewRows.length === 0) missing.push('👷')
     if (matRows.length > 0 && matRows.some(m => ['Not Ordered', 'Delayed'].includes(m.status))) missing.push('📦')
     if ((job.scheduled_start || job.start_date) == null) missing.push('📅')
@@ -203,7 +203,7 @@ function IdentityRow({ job }) {
 }
 
 function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, onCrewClick, onMtrlClick, onDateClick }) {
-  const hasSOW = job.field_sow != null
+  const hasSOW = hasFieldSow(job)
   const hasCrew = crewRows.length >= 1
   const undecidedMats = matRows.filter(m => ['Not Ordered', 'Delayed'].includes(m.status)).length
   const matsOk = matRows.length === 0 || undecidedMats === 0

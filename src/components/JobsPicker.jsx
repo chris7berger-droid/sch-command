@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getJobStatus } from '../lib/jobStatus'
-import { getJobMultiWeekAlert, isReady } from '../lib/queries'
+import { getJobMultiWeekAlert, isReady, hasFieldSow } from '../lib/queries'
 
 function getMonday(d) {
   const dt = new Date(d)
@@ -31,7 +31,7 @@ export default function JobsPicker({ jobs = [], assignments = [], billingLog = [
 
     let missingSow = 0, missingMats = 0, missingCrew = 0, missingDate = 0
     scheduled.filter(j => !isReady(j, crewByCallLog, matsByJobId)).forEach(j => {
-      if (j.field_sow == null) missingSow++
+      if (!hasFieldSow(j)) missingSow++
       const mats = matsByJobId[j.job_id] || []
       if (mats.length > 0 && mats.some(m => ['Not Ordered', 'Delayed'].includes(m.status))) missingMats++
       if ((crewByCallLog[j.call_log_id] || []).length === 0) missingCrew++

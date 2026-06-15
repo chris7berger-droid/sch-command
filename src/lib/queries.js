@@ -34,9 +34,20 @@ export async function loadAllRows(tableName, selectStr, {
 
 // ── Staged/Ready checklist ─────────────────────────────────────────────────
 // Base checklist: SOW + date + crew + materials-decided.
+// Canonical "does this job have a Field SOW?" test (§4.1). Mirrored VERBATIM by
+// SQL job_base_checklist_passes. WTC branch: a job_wtcs row with a non-empty
+// ARRAY field_sow — Array.isArray guards the jsonb-NOT-NULL-but-unconstrained
+// column (a non-array row ⇒ "no SOW", never a throw). Parent branch: legacy
+// merged jobs fall back to the nullable jobs.field_sow. Every JS SOW-present
+// reader imports THIS — no inline field_sow null-checks (grep gate §7.1 O3).
+export function hasFieldSow(job) {
+  return (job?._wtcs?.some(w => Array.isArray(w.field_sow) && w.field_sow.length))
+    || job?.field_sow != null
+}
+
 // Uses blacklist for materials to match SQL job_base_checklist_passes().
 export function baseChecklistPasses(job, crewRows, materialRows) {
-  const hasSOW = job.field_sow != null
+  const hasSOW = hasFieldSow(job)
   const hasDate = (job.scheduled_start || job.start_date) != null
   const hasCrew = crewRows.length >= 1
   const materialsDecided = materialRows.length === 0
