@@ -72,29 +72,35 @@ const hasFieldSow =
 ```
 
 **[Finding A — empty-array JS↔SQL parity, the asymmetry is INTENTIONAL].** `job_wtcs.field_sow`
-is **NOT NULL** and defaults to `'[]'` (confirmed: `20260512120100_job_wtcs_create.sql` — a freshly
-materialized WTC carries `field_sow = '[]'`, never null). So the WTC branch must test **emptiness**,
-not nullness: JS `w.field_sow.length` treats `[]` as "no SOW," and the SQL mirror MUST match by
-testing `jsonb_array_length(...) > 0`. A naive SQL `field_sow IS NOT NULL` on the WTC branch would
-pass an empty `'[]'` WTC → **DB says ready, tile says missing** — the exact JS↔SQL drift this fix
-exists to prevent.
+is `jsonb NOT NULL` with **no default and no array CHECK** (confirmed: `20260512120100_job_wtcs_create.sql:16`
+is bare `field_sow jsonb NOT NULL` — the column accepts ANY jsonb shape). The only writer
+(`updateJobWtcFieldSow`) always supplies an array, so prod data is array-shaped today — but **there is
+no DB-level array guarantee** (round-3 H1 corrected the earlier false "DEFAULT '[]'" claim). So the WTC
+branch must (a) **defensively confirm the value is an array** before measuring it, then (b) test
+**emptiness**: JS `w.field_sow.length` treats `[]`/non-array as "no SOW," and the SQL mirror MUST match
+AND must not crash on a non-array value (`jsonb_array_length` **raises** on a scalar/object/jsonb-null).
+A naive SQL `field_sow IS NOT NULL` would pass an empty `'[]'` WTC → **DB says ready, tile says missing**;
+an **unguarded** `jsonb_array_length` would **throw** on a malformed row and abort the readiness fn (and
+any `assignments`/`materials` recheck that calls it). Both are prevented below.
 
 The SQL mirror (`job_base_checklist_passes`) is redefined so the SOW-present test is **VERBATIM**:
 
 ```sql
-EXISTS(SELECT 1 FROM job_wtcs w WHERE w.job_id = p_job.job_id AND jsonb_array_length(w.field_sow) > 0) OR p_job.field_sow IS NOT NULL
+EXISTS(SELECT 1 FROM job_wtcs w WHERE w.job_id = p_job.job_id AND jsonb_typeof(w.field_sow) = 'array' AND jsonb_array_length(w.field_sow) > 0) OR p_job.field_sow IS NOT NULL
 ```
 
 **Named asymmetry (intentional, do NOT "normalize" the two branches):**
-- **WTC branch** → `jsonb_array_length(w.field_sow) > 0`. WTC `field_sow` is `NOT NULL DEFAULT '[]'`,
-  so `[]` is the "empty" sentinel — nullness is impossible; emptiness is the real signal. Mirrors JS
-  `w.field_sow.length`.
+- **WTC branch** → `jsonb_typeof(w.field_sow) = 'array' AND jsonb_array_length(w.field_sow) > 0`. WTC
+  `field_sow` is `jsonb NOT NULL` (**no default, no array CHECK**); the writer always supplies an array,
+  so emptiness (`[]`) is the real signal — but the `jsonb_typeof(...) = 'array'` guard is **mandatory**
+  so a malformed (non-array) row returns false instead of **throwing**. Mirrors JS `w.field_sow.length`
+  (falsy/`undefined` on a non-array → also "no SOW").
 - **Parent branch** → `p_job.field_sow IS NOT NULL`. The legacy `jobs.field_sow` column **is**
   nullable (legacy merged jobs with no `job_wtcs` children), so `IS NOT NULL` is the correct legacy
   fallback. Mirrors JS `job.field_sow != null`.
 
 The two branches deliberately use **different operators** because the two columns have **different
-null semantics** (WTC: never-null, empty=`[]`; parent: nullable). Replace the current
+semantics** (WTC: `NOT NULL` but unconstrained shape → typeof-guard + emptiness test; parent: nullable → null test). Replace the current
 `IF p_job.field_sow IS NULL THEN RETURN false;` with this WTC-OR-parent EXISTS check (see §6.1 step 0
 for the full migration body, built on the `...133000` base).
 
@@ -167,10 +173,13 @@ Land in ONE step:
     v_has_crew      boolean;
     v_has_materials boolean;
   BEGIN
-    -- [Finding A] SOW-present test: WTC (empty=[]) OR legacy parent (nullable).
+    -- [Finding A / round-3 H1] SOW-present test: WTC (array + non-empty) OR legacy parent (nullable).
+    -- jsonb_typeof guard is MANDATORY: job_wtcs.field_sow is `jsonb NOT NULL` with NO array CHECK, so a
+    -- malformed (non-array) row would make jsonb_array_length RAISE and abort this fn (+ any recheck calling it).
     IF NOT (
       EXISTS (SELECT 1 FROM public.job_wtcs w
                WHERE w.job_id = p_job.job_id
+                 AND jsonb_typeof(w.field_sow) = 'array'
                  AND jsonb_array_length(w.field_sow) > 0)
       OR p_job.field_sow IS NOT NULL
     ) THEN RETURN false; END IF;
@@ -283,6 +292,11 @@ threaded down through **`StagedCardList`** (O2 — every step below names its co
     a SOW-empty doesn't touch `assignments`/`materials`, so without this clear the flag would go
     stale.) "Empties" = after this save the §4.1 `hasFieldSow(job)` predicate is false (this WTC went
     to `[]` AND no other WTC has SOW AND no parent `jobs.field_sow`).
+    - **[round-3 L1] Partial-failure handling:** the SOW write (`job_wtcs`) and this `ready_confirmed_at`
+      clear (`jobs`) are two sequential writes. On a clear **error**, surface/retry rather than swallow it.
+      This is belt-and-suspenders only — the UI self-corrects regardless, because the WTC-aware
+      `baseChecklistPasses` returns false on the now-empty SOW so `isReady` is false and the card already
+      shows Staged; the only thing a failed clear leaves stale is the stored `ready_confirmed_at` flag.
   - (b) fires a toast/popup: **"All SOW removed — this job has moved back to Staged."** The pre-Ready
     stage label is **"Staged"** (verified: `Jobs.jsx:428` renders the tab/stage label as `'Staged'`;
     the internal stage key is lowercase `'staged'`, `Jobs.jsx:11`, displayed `STAGED` in
@@ -333,6 +347,8 @@ already clean. The **"focus on day/WTC" half does NOT exist yet** and must be bu
   `supabase.from('jobs').update({ field_sow })` at `:92`, verified), plus the `editing` state
   (`:27`), the empty-state "Create Field SOW" path that sets `editing` (`:36-51`), the Edit button
   (`:174`), all `editing ?` branches in the render (`:256-368`), and `handleCancel` (`:99-102`).
+- **[round-3 L2]** Also delete the local `const hasFieldSow` at `FieldSowModal.jsx:33` — it shadows the
+  new exported `hasFieldSow(job)` helper (Fold O3). No same-named local may survive the strip.
 - **Keep Print only** (`handlePrint`, `FieldSowModal.jsx:105`). **[Fold O1 — Print must flatten the
   per-WTC canonical shape].** Today the Print body reads the **flat** `job.field_sow` via
   `viewDays = … job.field_sow` (`FieldSowModal.jsx:159`) and `.map`s it (`:253`). Canonical SOW now
@@ -418,6 +434,7 @@ For each surface from §4 that edits SOW/dates, the acceptance test asserts BOTH
     treat it as SOW-present, per the legacy-parent branch's intentional `IS NOT NULL` semantics (§4.1).
   - **Non-empty WTC** (the existing test) — JS=true AND SQL=true. All three cases agree across JS/SQL.
 - **The DAYS modal has zero SOW/date write paths** — it only navigates to the canonical SOW modal (Option 3). Grep-confirm no date write exists outside `updateJobWtcFieldSow`: `DaysModal.jsx` (and its handlers) contains no `from('job_wtcs').update`/`from('jobs').update` carrying `field_sow`, `start_date`, or `end_date`; the only date-write path in the codebase is `updateJobWtcFieldSow` (which derives dates from `field_sow[*].date`).
+  - **[round-3 L3 — grep-proven, not asserted (satisfies §8's grep-derived rule)]** `grep -rnE "start_date|end_date" src/ | grep -iE "update|\.set\("` returns **exactly one** hit: `src/lib/queries.js:518` — `.update({ field_sow: nextFieldSow, start_date: startDate, end_date: endDate })` inside `updateJobWtcFieldSow`. No other surface writes `start_date`/`end_date`. Confirmed by grep, not memory.
 
 ## 8. Process fix (so this class can't recur) — enforceable gate (Fold O2)
 
