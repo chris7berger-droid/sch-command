@@ -570,7 +570,18 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
       )}
 
       {showDaysModal && (
-        <DaysModal job={job} assignmentDates={assignmentDates} onClose={() => setShowDaysModal(false)} />
+        <DaysModal
+          job={job}
+          assignmentDates={assignmentDates}
+          onClose={() => setShowDaysModal(false)}
+          onDayClick={(wtcId, dayIndex) => {
+            // Option-3 handoff: close DAYS, open the canonical SOW modal focused on
+            // that WTC + day. DAYS modal writes nothing — it only navigates.
+            setShowDaysModal(false)
+            setSowFocus({ wtcId, dayIndex })
+            setShowSowModal(true)
+          }}
+        />
       )}
     </div>
   )
