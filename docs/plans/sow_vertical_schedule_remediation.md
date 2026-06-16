@@ -371,21 +371,20 @@ already clean. The **"focus on day/WTC" half does NOT exist yet** and must be bu
 ### 7.1 `jobs.field_sow` writer allowlist
 After this remediation, exactly **ONE** code path may write `jobs.field_sow`, and it is the documented legacy/mirror fallback:
 
-- **ALLOWED (two legacy-fallback `field_sow` writers, both `_wtcs.length === 0` only):**
-  1. `JobDetail.jsx:480` — `updateJobField(job.job_id, 'field_sow', next, ...)` in JobDetail's legacy
-     fallback branch (the `job._wtcs.length === 0` else-branch). *(Note: with the live `mode=planning`
-     deep-link removed in §6.1 step 3, this is reachable only via the surviving mgmt-mode tab routing;
-     it stays allowlisted as the documented legacy writer.)*
-  2. **NEW (Finding E)** — the **card SOW modal's** legacy fallback (`StageJobCard` host), same call
-     shape `updateJobField(job.job_id, 'field_sow', next, changedBy)`, in its own `job._wtcs.length === 0`
-     branch. This is the card-reachable legacy writer (§6.1 step 1 Finding E). Both are the SAME
-     documented legacy/mirror path, gated on zero `job_wtcs` children.
+- **ALLOWED (exactly ONE legacy-fallback `field_sow` writer, `_wtcs.length === 0` only):**
+  1. **(Finding E)** — the **card SOW modal's** legacy fallback (`CardSowModal`, hosted by
+     `StageJobCard`), call shape `updateJobField(job.job_id, 'field_sow', next, changedBy)`, inside its
+     `job._wtcs.length === 0` branch. This is the sole card-reachable legacy/mirror writer (§6.1 step 1
+     Finding E), gated on zero `job_wtcs` children.
+  - *~~JobDetail.jsx:480 legacy fallback~~ — **REMOVED** by §6.1 step 3 (the JobDetail Field SOW tab was
+    reverted; JobDetail is mgmt-only). The earlier draft listed it as a second allowlisted writer; with
+    the tab gone it no longer exists. Only the card-modal writer above remains — fewer writers = safer.*
 - **ALSO ALLOWED (not a `field_sow` write — adjacent, Finding F):** the handler-side
   `updateJobField(job.job_id, 'ready_confirmed_at', null, changedBy)` demote in the card SOW save path.
   It writes `ready_confirmed_at`, NOT `field_sow`, so it is outside the `field_sow` allowlist entirely
   and does not trip the grep gate below.
-- **FAIL (must be zero after build):** any `jobs.field_sow` write outside the two `_wtcs.length === 0`
-  fallback branches. Specifically the current `FieldSowModal.jsx:92` (`supabase.from('jobs').update({
+- **FAIL (must be zero after build):** any `jobs.field_sow` write outside the single `_wtcs.length === 0`
+  card-modal fallback branch. Specifically the current `FieldSowModal.jsx:92` (`supabase.from('jobs').update({
   field_sow })`) MUST be gone (§6.1 step 5); and the per-WTC card builders MUST write `job_wtcs` via
   `updateJobWtcFieldSow`, never `jobs.field_sow`.
 
@@ -393,8 +392,9 @@ After this remediation, exactly **ONE** code path may write `jobs.field_sow`, an
 ```bash
 # 1. All jobs.field_sow writes via .update():
 grep -rn "update(.*field_sow" src/
-#    → MUST return ONLY the two legacy-fallback updateJobField calls (JobDetail + the new card-modal host),
-#      each inside a job._wtcs.length === 0 branch. Zero hits in FieldSowModal / the per-WTC builder path = pass.
+#    → after step 3 the only .update({field_sow}) hit is queries.js's updateJobWtcFieldSow (job_wtcs, canonical).
+#      The sole jobs.field_sow legacy writer is CardSowModal's updateJobField(..., 'field_sow', ...) inside its
+#      job._wtcs.length === 0 branch (helper call, not a raw .update). Zero hits in FieldSowModal = pass.
 # 2. Any raw supabase write to the jobs table carrying field_sow:
 grep -rnE "from\('jobs'\)\.update\(.*field_sow|update\(\{[^}]*field_sow" src/
 #    → MUST NOT hit FieldSowModal.jsx; MUST NOT hit any new StageJobCard SOW-modal file (the card writes job_wtcs, not jobs).
@@ -406,7 +406,7 @@ grep -rnE "field_sow\s*[!=]=\s*null" src/ | grep -v "queries.js"
 #    → MUST be empty. All four JS readers (baseChecklistPasses, JobsPicker:34, StageJobCard:111, :206)
 #      route through hasFieldSow(); the only field_sow null-test lives in queries.js's hasFieldSow.
 ```
-The distinguisher: a `field_sow` hit is allowlisted ONLY if it is an `updateJobField(..., 'field_sow', ...)` call inside a `_wtcs.length === 0` fallback branch (JobDetail or the card host). A `from('jobs').update({ field_sow })` anywhere, any `field_sow` write outside those two branches, or any inline `field_sow == null` SOW-check outside `hasFieldSow`, fails the gate.
+The distinguisher: a `field_sow` hit is allowlisted ONLY if it is an `updateJobField(..., 'field_sow', ...)` call inside the card host's `_wtcs.length === 0` fallback branch. A `from('jobs').update({ field_sow })` anywhere, any `field_sow` write outside that single branch, or any inline `field_sow == null` SOW-check outside `hasFieldSow`, fails the gate.
 
 ### 7.2 Per-surface enumeration — each REWIRE/UPDATE asserts `job_wtcs` change + `job_changes` audit row
 For each surface from §4 that edits SOW/dates, the acceptance test asserts BOTH a `job_wtcs` mutation AND a `job_changes` audit row (the `updateJobWtcFieldSow` path inserts `field = 'job_wtc.field_sow:<id>'`, verified `queries.js:530`):
