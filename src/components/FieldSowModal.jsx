@@ -156,7 +156,7 @@ export default function FieldSowModal({ job, onClose }) {
   // Canonical per-WTC sections; legacy zero-WTC → flat jobs.field_sow (Fold O1).
   const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
   const sections = wtcs.length > 0
-    ? wtcs.map(w => ({ key: w.id, label: w.work_type_name || 'Work Type', days: Array.isArray(w.field_sow) ? w.field_sow : [] }))
+    ? wtcs.map((w, i) => ({ key: w.id, label: `WTC ${i + 1} — ${w.work_type_name || 'Work Type'}`, days: Array.isArray(w.field_sow) ? w.field_sow : [] }))
     : [{ key: 'legacy', label: null, days: Array.isArray(job.field_sow) ? job.field_sow : [] }]
   const hasAnyDays = sections.some(s => s.days.length > 0)
 
