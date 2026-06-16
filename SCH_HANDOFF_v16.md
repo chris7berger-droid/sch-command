@@ -1,4 +1,4 @@
-# Audit-Terminal Handoff — SOW Vertical (+ Schedule Remediation)
+# SCH_HANDOFF_v16 — AUDIT terminal · SOW Vertical (+ Schedule Remediation)
 
 **Repo:** sch-command · **Branch:** `feat/sow-vertical` · **Author:** Terminal #2 (audit) · **Date:** 2026-06-16
 **Role in the 4-terminal process:** #1 plan · **#2 audit (this doc)** · #3 build · #4 buildvsplan

@@ -1,4 +1,4 @@
-# Handoff — Terminal #4 (buildvsplan audit) · SOW Vertical
+# SCH_HANDOFF_v17 — BUILD-VS-PLAN terminal · SOW Vertical
 
 **Repo:** sch-command (cross-app: also sales-command, field-command) · branch `feat/sow-vertical`
 **Author:** Terminal #4 of 4 — buildvsplan gate
