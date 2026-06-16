@@ -253,12 +253,8 @@ export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, 
                     </div>
                   )}
 
-                  <button
-                    className="jh-view-btn"
-                    onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=planning`) }}
-                  >
-                    Job Planning
-                  </button>
+                  {/* "Job Planning" deep-link removed (remediation step 3) — JobDetail
+                      planning is deprecated; SOW edits happen in the in-card modal. */}
                   <button
                     className="jh-view-btn"
                     onClick={e => { e.stopPropagation(); navigate(`/jobs/${j.job_id}?mode=management`) }}
