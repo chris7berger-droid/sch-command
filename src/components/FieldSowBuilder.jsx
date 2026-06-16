@@ -4,17 +4,16 @@ const safeName = m => m.product || m.name || 'Unnamed material'
 const safeKit  = m => m.kit_size || m.kit || ''
 const safeId   = m => String(m.id)
 
-const newCustomId = () => {
-  const rand = (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  return `custom_${rand}`
-}
+const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const newCustomId = () => `custom_${uid()}`
 const isCustomId = (id) => String(id || '').startsWith('custom_')
 
-const newTask = () => ({ id: Date.now() + Math.random(), description: '', pct_complete: 0 })
+const newTask = () => ({ id: uid(), description: '', pct_complete: 0 })
 const newDay = (idx) => ({
-  id: Date.now() + Math.random(),
+  id: uid(),
   day_label: `Day ${idx + 1}`,
   date: null,           // Schedule sets the calendar date (SCH2); null = TBD
   tasks: [newTask()],
@@ -23,8 +22,19 @@ const newDay = (idx) => ({
   materials: [],
 })
 
+// Assign stable ids to loaded days/tasks that lack them. CRITICAL: updateDayField/
+// updateTask match by id (days.map(d => d.id === id ? …)). Persisted SOW that was
+// saved without ids comes back with id===undefined on EVERY day, so a single-day
+// edit would hit ALL days (observed: editing Day 2 set all 3 days to one date).
+// Normalizing on load guarantees each day/task is uniquely addressable.
+const withIds = (val) => (Array.isArray(val) ? val : []).map(d => ({
+  ...d,
+  id: d.id ?? uid(),
+  tasks: (Array.isArray(d.tasks) ? d.tasks : []).map(t => ({ ...t, id: t.id ?? uid() })),
+}))
+
 export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], focusDayIndex = null }) {
-  const [days, setDays] = useState(() => Array.isArray(value) ? value : [])
+  const [days, setDays] = useState(() => withIds(value))
   const [dirty, setDirty] = useState(false)
   const wrapRef = useRef(null)
 
@@ -125,13 +135,17 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   }, [days])
 
   const handleSave = async () => {
-    // Strip transient ids before save (keep stable shape: tasks, materials, day fields)
+    // PERSIST stable day/task ids (do NOT strip) so a later reload can address
+    // each day individually — stripping caused id===undefined collisions where a
+    // single-day edit hit every day. ids are durable, render+update keys.
     const clean = days.map(d => ({
+      id: d.id,
       day_label: d.day_label,
       date: d.date || null,   // Schedule calendar layer (SCH2) — preserve per-day date
       crew_count: d.crew_count || 0,
       hours_planned: d.hours_planned || 0,
       tasks: (d.tasks || []).map(t => ({
+        id: t.id,
         description: t.description || '',
         pct_complete: parseFloat(t.pct_complete) || 0,
       })),
