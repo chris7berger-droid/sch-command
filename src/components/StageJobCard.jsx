@@ -555,7 +555,6 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
             <FieldSowModal
               job={job}
               onClose={() => setShowPrintModal(false)}
-              onUpdated={() => { setShowPrintModal(false); if (onJobUpdate) onJobUpdate() }}
             />
           </div>
         </div>
