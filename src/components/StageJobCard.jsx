@@ -5,6 +5,7 @@ import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
+import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 
@@ -367,7 +368,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -375,12 +376,15 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const [panels, setPanels] = useState({ planning: false, management: false, details: false })
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
+  const [sowFocus, setSowFocus] = useState(null)        // { wtcId, dayIndex } from DaysModal handoff (Option 3)
+  const [showPrintModal, setShowPrintModal] = useState(false)
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
   const matRows = matsByJobId[job.job_id] || []
+  const proposalMaterials = proposalMaterialsByCallLog[job.call_log_id] || []
   const logsCount = logsByCallLog[job.call_log_id] || 0
   const assignmentDates = assignmentsByJobId[job.job_id] || null
 
@@ -469,7 +473,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           crewRows={crewRows}
           matRows={matRows}
           assignmentDates={assignmentDates}
-          onSowClick={() => setShowSowModal(true)}
+          onSowClick={() => { setSowFocus(null); setShowSowModal(true) }}
           onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={goCrewSchedule}
           onDateClick={() => setShowDaysModal(true)}
@@ -521,12 +525,25 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
       </div>
 
       {showSowModal && (
-        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowSowModal(false) }}>
+        <CardSowModal
+          job={job}
+          proposalMaterials={proposalMaterials}
+          changedBy={changedBy}
+          initialWtcId={sowFocus?.wtcId ?? null}
+          initialDayIndex={sowFocus?.dayIndex ?? null}
+          onClose={() => setShowSowModal(false)}
+          onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
+          onPrint={() => setShowPrintModal(true)}
+        />
+      )}
+
+      {showPrintModal && (
+        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowPrintModal(false) }}>
           <div className="mdl mdl-lg">
             <FieldSowModal
               job={job}
-              onClose={() => setShowSowModal(false)}
-              onUpdated={() => { setShowSowModal(false); if (onJobUpdate) onJobUpdate() }}
+              onClose={() => setShowPrintModal(false)}
+              onUpdated={() => { setShowPrintModal(false); if (onJobUpdate) onJobUpdate() }}
             />
           </div>
         </div>

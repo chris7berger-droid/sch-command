@@ -23,9 +23,18 @@ const newDay = (idx) => ({
   materials: [],
 })
 
-export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [] }) {
+export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], focusDayIndex = null }) {
   const [days, setDays] = useState(() => Array.isArray(value) ? value : [])
   const [dirty, setDirty] = useState(false)
+  const wrapRef = useRef(null)
+
+  // Option-3 day focus: scroll the requested day into view on mount (best-effort;
+  // no-op if the index is out of range). Set by the DaysModal click-to-edit handoff.
+  useEffect(() => {
+    if (focusDayIndex == null || !wrapRef.current) return
+    const el = wrapRef.current.querySelector(`[data-day-idx="${focusDayIndex}"]`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusDayIndex])
 
   const update = useCallback((next) => {
     setDays(next)
@@ -144,7 +153,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   }
 
   return (
-    <div className="fsb-wrap">
+    <div className="fsb-wrap" ref={wrapRef}>
       <div className="fsb-header">
         <div className="fsb-title">Field SOW · {days.length} day{days.length !== 1 ? 's' : ''} planned</div>
         <div className="fsb-header-actions">
@@ -170,7 +179,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
       )}
 
       {days.map((day, dayIdx) => (
-        <div key={day.id} className="fsb-day">
+        <div key={day.id} className="fsb-day" data-day-idx={dayIdx}>
           <div className="fsb-day-header">
             <div className="fsb-field">
               <label className="fsb-label">Day Label</label>
