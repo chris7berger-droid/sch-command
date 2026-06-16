@@ -184,6 +184,8 @@ function IdentityRow({ job }) {
     : chips.length === 1
       ? (wtcs[0]?.work_type_name || job.work_type || '—')
       : (job.work_type || '—')
+  // SCH4 (#11): a sent WTC with no calendar dates yet (job_wtcs.start_date null).
+  const datesTbd = wtcs.length > 0 && wtcs.some(w => !w.start_date)
 
   return (
     <div className="sjc-identity">
@@ -197,7 +199,17 @@ function IdentityRow({ job }) {
       </div>
       <div className="sjc-id-bubble">
         <span className="sjc-id-label">WORK TYPES</span>
-        <span className="sjc-id-value">{workTypeLabel}</span>
+        <span className="sjc-id-value">
+          {workTypeLabel}
+          {datesTbd && (
+            <span
+              title="One or more work types still need calendar dates"
+              style={{ marginLeft: 8, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '1px 7px', borderRadius: 9, background: '#1c1814', color: '#30cfac', whiteSpace: 'nowrap' }}
+            >
+              Dates TBD
+            </span>
+          )}
+        </span>
       </div>
     </div>
   )
