@@ -1,7 +1,7 @@
 # Billing Triage + 90-Day Cash-Flow Forecast — Integration Plan
 
 **Repo:** sch-command (Schedule Command) · **Branch:** `feat/billing-forecast`
-**Status:** DESIGN/PLANNING only. No code yet. Card + technical decisions **RATIFIED by Chris 2026-06-17** (§5 cards, §8 items 2–8) — moved to [LOCKED]. **Round-1 audit response applied 2026-06-17 (Option 1 — patch status-derivation in v1; see §8.1):** A1–A5/B1–B3 status-derivation arithmetic, C1–C7 forecast, D1–D5 card rewire, E1–E4 migration all [LOCKED — round-1 audit fix]; cross-tenant RLS read CONFIRMED SAFE (§9); Budget infuse DEFERRED to fast-follow. Remaining open items: completion signal (§3.3), portal nuance (§3.1), Hold–Sales role-gating (§9-queue).
+**Status:** DESIGN/PLANNING only. No code yet. Card + technical decisions **RATIFIED by Chris 2026-06-17** (§5 cards, §8 items 2–8) — moved to [LOCKED]. **Round-1 audit response applied 2026-06-17 (Option 1 — patch status-derivation in v1; see §8.1):** A1–A5/B1–B3 status-derivation arithmetic, C1–C7 forecast, D1–D5 card rewire, E1–E4 migration all [LOCKED — round-1 audit fix]; cross-tenant RLS read CONFIRMED SAFE (§9); Budget infuse DEFERRED to fast-follow. **Round-2 audit response applied 2026-06-17 (Option 1 continues; see §8.1a): REG-1/2/3 corrected 3 regressions where pass-1 asserted wrong code facts (pay-app GROSS amount, canonical `getMonday` copy, count-in-memo); N1–N10 added (discount in net formula, zero-invoice proposal selection, fully-billed-paid-this-week, `tg_set_updated_at` clobber-avoidance, `loadAllRows` signature, gross-of-partials past-due, + 4 cleanups) — all [LOCKED — round-2 audit fix], re-verified against live source.** Remaining open items: completion signal (§3.3), portal nuance (§3.1), Hold–Sales role-gating (§9-queue).
 **Author:** planning agent · **Date:** 2026-06-17
 
 Goal: rebuild Chris's proven Excel billing tool natively in Schedule Command's billing surface —
@@ -203,9 +203,27 @@ to the terminal "fully billed / All Ready Billed" state, not flicker to "Paid" o
 invoice while billable balance remains. So evaluate **fully-billed coverage FIRST**, then per-invoice
 Paid/Sent states for the remaining (not-yet-fully-billed) jobs. **[LOCKED — round-1 audit fix (B3)]**
 
+**N3 — close the fully-billed-AND-paid-in-CURRENT-week hole (round-2 audit fix).** The B3 ordering
+split fully-billed coverage (row 1) from the prior-week recency clause (A5). That left a gap: a job
+that is **fully covered by sent invoices AND those are all paid, but the most-recent send was in the
+CURRENT week** fails row 1's `max(sent_at) < current week` clause, and then could be read as either
+row 2 (Paid) or — if neither clause cleanly owns it — fall through to Needs-Triage. To close it,
+**split the fully-billed terminal into two explicit, mutually-exclusive outcomes evaluated FIRST,
+before per-invoice Paid/Sent**:
+- **`fully_billed` is computed once** (coverage test, §3.2 — independent of send recency).
+- If `fully_billed` is TRUE, the row resolves terminally to **All Ready Billed** regardless of which
+  week the last send landed in (the A5 prior-week clause only governs the *cosmetic* "no action this
+  week" label/sort, NOT whether the row is terminal). A fully-billed-and-paid-this-week job is **All
+  Ready Billed**, not Paid, and never falls through to Needs-Triage.
+- Only if `fully_billed` is FALSE do we evaluate rows 2–4 (Paid / Sent-to-QB / Sent) per-invoice.
+
+So the resolution order is strictly: **`fully_billed`? → All Ready Billed (terminal). Else → Paid →
+Sent-to-QB → Sent → manual flags → Needs-Triage.** No job is both classified twice nor dropped to
+Needs-Triage while fully billed. **[LOCKED — round-2 audit fix]**
+
 | # | Excel status | Source | Rule |
 |---|---|---|---|
-| 1 | **All Ready Billed** (fully billed) | AUTO | The job's authoritative value is fully covered by sent, non-void, non-deleted invoices (`fully_billed`, §3.2) AND the most-recent send was in a **prior** week (`max(sent_at)` across the job's invoices < current worklist week — A5). "No action this week." Evaluated FIRST so it dominates a single-invoice Paid match (B3). **[LOCKED — round-1 audit fix (A5/B3)]** |
+| 1 | **All Ready Billed** (fully billed) | AUTO | The job's authoritative value is fully covered by sent, non-void, non-deleted invoices (`fully_billed`, §3.2). **Terminal and evaluated FIRST** so it dominates a single-invoice Paid match (B3) AND a current-week paid send (N3). The A5 `max(sent_at) < current week` test is **cosmetic only** — it drives the "No action this week" label/sort, NOT whether the row is terminal; a fully-billed job whose last send was THIS week is still All Ready Billed, not Paid/Needs-Triage (N3). **[LOCKED — round-2 audit fix (A5/B3/N3)]** |
 | 2 | **Paid** | AUTO | An invoice for this call_log has `status='Paid'` (or `paid_at NOT NULL`), `voided_at IS NULL`, `deleted_at IS NULL`, and the job is NOT already resolved as fully-billed above. Removes row from active worklist; drops from forecast. **[LOCKED]** |
 | 3 | **✅ Invoice Sent to QB** | AUTO | Invoice exists with `qb_invoice_id NOT NULL` (posted to QB) — and, per Chris's note, also submitted through the customer's portal. `qb_invoice_id` is the DB-knowable half. Portal-submission is NOT in the DB → see §3.1. **[LOCKED for QB half / DESIGN-OPEN for portal half]** |
 | 4 | **✅ Invoice Sent** | AUTO | Invoice exists with `sent_at NOT NULL` (or `status IN ('Sent','Waiting for Payment','Past Due')`), not yet QB-posted/paid. Drafts/New invoices (`sent_at IS NULL`) do NOT count toward "Sent" or billed coverage (A3). **[LOCKED — round-1 audit fix (A3)]** |
@@ -250,6 +268,17 @@ active sold/signed proposal (`'Sold'`, or `'Signed'` once Multi-GC ships, §2.4)
 against an archive proposal's total. If multiple live proposals exist on one call_log (multi-GC), the
 authoritative total is the live proposal that the job's invoices belong to (match on `proposal_id`).
 
+**N2 — ZERO-invoice multi-proposal rows (round-2 audit fix):** a job can have **no invoices yet but
+multiple proposals** (e.g. archive + live, or multi-GC). With no invoices, the "match on
+`proposal_id`" rule above has nothing to match — so the authoritative-total proposal selection must
+**fall back to the live, non-archive proposal selection directly**: pick the proposal with
+`is_archive_proposal = false` AND an active sold/signed `status` (`'Sold'`, or `'Signed'` once Multi-GC
+ships). **Verified `is_archive_proposal` exists** (`~/sales-command/supabase/migrations/20260420140000_proposals_is_archive_proposal.sql`
+— `boolean NOT NULL DEFAULT false`). If still ambiguous (multiple live non-archive proposals, no
+invoices to disambiguate), the row is a Needs-Triage row with `authoritative_total` flagged unresolved
+rather than silently summing against an archive total. Such a zero-invoice row can never be
+"fully billed" (billed_total = 0), so it correctly surfaces as Needs-Triage. **[LOCKED — round-2 audit fix]**
+
 - Schedule's `jobs.amount` string is the **legacy placeholder and must NEVER be authoritative** —
   it is for display only.
 - For SOV/pay-app jobs, "fully billed" can also be confirmed via `billing_schedule` fully drawn
@@ -291,6 +320,27 @@ This replaces the manual "copy schedule in" step. Production-complete + WTC-comp
 [DESIGN-OPEN]** — Chris ran it off "end date this week"; we can keep that or upgrade to DPR-approved.
 **Each CO call_log surfaces as its own row (§3.0a B1).**
 
+### 3.4 Worklist cleanup rules (round-2 audit — Low) [LOCKED — round-2 audit fix]
+Small correctness guards on what surfaces in the actionable worklist:
+- **N7 — draft/un-sent invoices are never surfaced as billable/sent.** An invoice with `sent_at IS NULL`
+  (status `New`/draft) is NOT "sent" and does NOT count toward billed coverage. This is already enforced
+  by the A3 filter (`sent_at IS NOT NULL` in the billed-sum, §3.2) and the row-4 "Sent" rule, but make it
+  explicit at the population/status layer: a job whose only invoices are drafts surfaces as
+  **Needs-Triage** (work done, nothing actually sent), never as Sent/Sent-to-QB/All-Ready-Billed.
+- **N8 — CO completion is picked up independently of the parent.** **Verified** a CO is its own
+  `call_log` (`is_change_order = true`, own `co_number`, `parent_job_id`) with its own `jobs` row
+  (sales-command schema). A CO can complete on a **different** schedule than its parent. The §3.3
+  population query is keyed per-`call_log`/`jobs` row, so the **CO's own completion signal** (its
+  `jobs.status='Complete'`/end-date-this-week/DPR) drives whether the CO row populates — the parent's
+  completion state does NOT gate it. A completed CO with an un-completed parent still surfaces its own
+  Needs-Triage row, and vice-versa. (Reinforces §3.0a B1's separate-row grain.)
+- **N9 — suppress `$0-net` rows from the ACTIONABLE worklist.** A row whose entire net is withheld
+  (fully-retention) or fully-discounted — i.e. `amount − COALESCE(discount,0) − COALESCE(retention_amount,0)
+  = 0` — has nothing collectable to act on. Suppress such rows from the actionable Needs-Triage worklist
+  (they carry no billable action this week). They remain visible in history/drill-down and the
+  retention-held bucket (§4.5) when their release later produces a non-zero invoice; they are only hidden
+  from the *actionable* list to avoid noise.
+
 ---
 
 ## 4. The 90-day cash-flow forecast [DERIVED, sources LOCKED]
@@ -298,8 +348,8 @@ This replaces the manual "copy schedule in" step. Production-complete + WTC-comp
 ### 4.1 Source query
 Read canonical invoices, one row per non-void/non-deleted invoice that has been sent but not paid:
 ```
-SELECT i.id, i.call_log_id, i.amount, i.retention_amount, i.retention_release_of,
-       i.sent_at, i.due_date, i.status,
+SELECT i.id, i.call_log_id, i.amount, i.discount, i.retention_amount, i.retention_release_of,
+       i.sent_at, i.due_date, i.status,                 -- N1: discount selected for the net formula
        cl.display_job_number, cl.customer_id,
        c.billing_terms,
        tc.default_billing_terms                 -- C6: source for the §4.2 tenant fallback
@@ -315,6 +365,25 @@ WHERE i.voided_at IS NULL
 **C3 — pagination (LOCKED, round-1 audit fix):** `loadInvoicesForForecast` MUST route through
 `loadAllRows` (queries.js) so the read pages past PostgREST's 1000-row cap. A naive single `.select()`
 silently truncates at 1000 invoices and undercounts the forecast — never fetch this set unpaginated.
+
+**N5 — `loadAllRows` exact call signature pinned (round-2 audit fix). Verified against
+`src/lib/queries.js:7–33`:** the signature is
+`loadAllRows(tableName, selectStr, { orderBy, orderAsc = true, filterFn })`. Pin for
+`loadInvoicesForForecast`:
+- `tableName` = `'invoices'`.
+- `selectStr` = the **embedded** PostgREST select string pulling the joins inline, e.g.
+  `'id, call_log_id, amount, discount, retention_amount, retention_release_of, sent_at, due_date, status, tenant_id, call_log:call_log_id(display_job_number, customer_id, customers:customer_id(billing_terms)), tenant_config:tenant_id(default_billing_terms)'`
+  (PostgREST embedded resources replace the SQL JOINs in §4.1; column names per §2/§4.1).
+- `orderBy` = **REQUIRED** — `loadAllRows` throws `orderBy is required` if omitted
+  (`queries.js:12`). Use a stable PK/`sent_at`, e.g. `orderBy: 'id'`.
+- `filterFn` = a function `(chain) => chain.is('voided_at', null).is('deleted_at', null).is('paid_at', null).not('sent_at', 'is', null)`
+  — it receives the query chain and returns it with the §4.1 WHERE filters applied
+  (`queries.js:16` calls `filterFn(chain)` before `.order()`).
+- Returns `{ data, error, partial }`; `partial: true` signals a truncated/error page — surface it as a
+  "counts may be stale" warning like `Jobs.jsx` does.
+
+Paging correctness is **verified at build** (the DEV chunk-repeat guard at `queries.js:23–26` warns if
+`.range()` reuse breaks). **[LOCKED — round-2 audit fix]**
 
 **C6 — terms source (LOCKED, round-1 audit fix):** the query JOINs `tenant_config` so the §4.2 fallback
 chain `customers.billing_terms → tenant_config.default_billing_terms → 30` actually has a source row for
@@ -350,10 +419,40 @@ first forward week, with its own Σ inflow + count. These are the most-collectab
 dollars — Excel surfaced them as overdue; the native forecast must not drop them by bucketing only
 today→+90d forward.
 
-**D5 (round-1 audit fix) — `getMonday`/`fmtWk` are LIFTED to a shared lib first:** these helpers
-currently live in `Billing.jsx`. They are extracted into a shared lib (e.g. `src/lib/weeks.js`)
-**before** `Billing.jsx` is retired/rebuilt, so both the worklist and the forecast import them rather
-than depending on the doomed view. Sequencing is pinned in §7.
+**N6 — partially-paid invoices in the past-due bucket (round-2 audit fix).** **Verified against the
+invoices schema 2026-06-17:** `invoices` has **NO partial-payment / amount-paid / balance field** —
+only `paid_at` (timestamptz, NULL until fully paid) and `amount` (the gross total). There is no
+`amount_paid`/`balance_due` column (confirmed: sales-command CLAUDE.md invoices reference lists none;
+no such ALTER in `~/sales-command/supabase/migrations/`). Therefore the DB cannot net out partial
+payments — an invoice is binary (`paid_at` set ⇒ fully paid and dropped; `paid_at` NULL ⇒ counted at
+its full net). So the past-due bucket's Σ is **explicitly GROSS-of-partial-payments**: it counts each
+still-unpaid (`paid_at IS NULL`) overdue invoice at its full
+`amount − COALESCE(discount,0) − COALESCE(retention_amount,0)` net, even if the GC has paid part of it
+outside the system. **Label the past-due bucket "(gross of any partial payments — DB tracks no partial
+amount)"** so the number is not mistaken for a precise collectable balance. If precise partial-payment
+tracking is later needed, it requires a new `invoices` column (out of scope; note for backlog).
+**[LOCKED — round-2 audit fix]**
+
+**D5 (round-2 audit fix — REGRESSION corrected; round-1 prose was wrong about which copy is
+canonical) — lift the CANONICAL `getMonday`/`fmtWk` into a shared lib, then reconcile the variants:**
+**Verified by reading all 5 cited sites 2026-06-17:**
+- **3-way IDENTICAL canonical form** lives in `src/lib/exports.js:3–21`, `src/views/Schedule.jsx:12–30`,
+  `src/views/Daily.jsx:9–27`: `getMonday` = `const diff = dt.getDate() - day + (day === 0 ? -6 : 1);
+  dt.setDate(diff)`, and a matching `fmtWk(monday)` (Mon→+5 Sat range). This is the canonical form.
+- `src/views/Billing.jsx:9–35` holds a **VARIANT** — `getMonday` = `const diff = (day === 0 ? -6 : 1)
+  - day; dt.setDate(dt.getDate() + diff)` (functionally equivalent but a different expression), and a
+  **richer `fmtWk`** that also accepts a string arg (`monday + 'T00:00:00'`). Do **NOT** lift Billing's
+  variant.
+- `src/components/JobsPicker.jsx:6` holds a **4th copy** — yet another `getMonday` variant
+  (`dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))`); JobsPicker has **no `fmtWk`**.
+
+**Plan (corrected):** lift the **canonical exports.js form** of `getMonday`/`fmtWk` into a shared lib
+(e.g. `src/lib/weeks.js`) **before** `Billing.jsx` is retired/rebuilt. Then **reconcile Billing.jsx's
+variant to the canonical** (replace Billing's local copies with the shared import; preserve the
+string-arg handling in the shared `fmtWk` so Billing's callers don't regress), and **account for the
+4th copy at `JobsPicker.jsx:6`** (re-point it to the shared `getMonday`). The worklist + forecast
+import from the shared lib, never from the doomed `Billing.jsx`. Sequencing is pinned in §7.
+**[LOCKED — round-2 audit fix]**
 
 ### 4.4 Per-week drill-down [DERIVED]
 "Select Week" → list invoices expected to pay that week (job #, customer, amount, sent date, terms,
@@ -363,13 +462,23 @@ expected date). This is the collections-call worklist. Direct port of the Excel 
 - **Retention default is 5% (customizable per job)**, stored as `billing_schedule.retainage_pct`
   (default 5) and per-invoice as `invoices.retention_pct` / `retention_amount`. Forecast math uses
   the actual `retention_amount` on each invoice, not a hardcoded rate.
-- **Retention (locked: forecast is NET of retention).** Each invoice's expected-inflow contribution =
-  `amount − COALESCE(retention_amount, 0)` — only collectable-now dollars. **C2 (round-1 audit fix):
-  every place the forecast subtracts retention uses `COALESCE(retention_amount, 0)`** so a NULL
-  retention column (regular non-retention invoices) nets to the full amount rather than producing
-  `amount − NULL = NULL` and dropping the invoice from the inflow total. Retention withheld is
+- **Uniform net formula (locked: forecast is NET of retention AND discount).** EVERY invoice's
+  expected-inflow contribution uses the SAME formula — there is **no special pay-app path**:
+  ```
+  net = amount − COALESCE(discount, 0) − COALESCE(retention_amount, 0)
+  ```
+  Only collectable-now dollars. **C2 (round-1 audit fix):
+  every place the forecast subtracts retention/discount uses `COALESCE(…, 0)`** so a NULL
+  retention/discount column (regular non-retention invoices) nets to the full amount rather than
+  producing `amount − NULL = NULL` and dropping the invoice from the inflow total. Retention withheld is
   **excluded** from the expected-inflow forecast and shown as its **own separate bucket/line** ("held
   retention / future release").
+- **N1 — `discount` included (round-2 audit fix):** the net formula subtracts
+  `COALESCE(invoices.discount, 0)` as well. **Verified against code:** `invoices.discount` exists
+  (sales-command CLAUDE.md column reference: `invoices: id, job_id, …, amount, discount, sent_at, …`;
+  and `NewPayAppModal.jsx:187` writes `discount: 0` on insert). A discounted invoice collects
+  `amount − discount`, so the forecast inflow must net it out the same way it nets retention.
+  **[LOCKED — round-2 audit fix]**
 - A **retention release** invoice (`retention_release_of NOT NULL`) is its own invoice row with its
   own `sent_at`/`due_date`, so the released retention **appears as future inflow when released** —
   flowing through the normal §4.1 invoice path at that time.
@@ -379,12 +488,19 @@ expected date). This is the collections-call worklist. Direct port of the Excel 
   COUNTED when its release invoice (`retention_release_of NOT NULL`) is sent and flows through §4.1.*
   This pairs with §3.2's A1 filter (release invoices excluded from billed-coverage) so the same dollars
   are never both held-out AND re-counted, nor dropped entirely.
-- **Pay apps:** fold in through the invoice each pay app generates (§2.5). **C1 (round-1 audit fix —
-  prose corrected):** the pay-app invoice amount **is already net of retainage** — when a pay app is
-  submitted it produces an SC invoice for `current_payment_due` (this-app amount **minus**
-  `retainage_withheld`), so the invoice `amount` is the collectable-now (net) figure, NOT the gross
-  this-app amount. It therefore lands in the forecast as collectable-now dollars directly, with no
-  additional retention subtraction needed beyond the null-safe `COALESCE` above. No separate path.
+- **Pay apps:** fold in through the invoice each pay app generates (§2.5) — via the **SAME uniform net
+  formula above, with NO special-casing.** **C1 (round-2 audit fix — REGRESSION corrected; prior prose
+  was inverted/self-contradictory):** **Verified against `~/sales-command/src/components/NewPayAppModal.jsx`
+  lines 178–192:** when a pay app is submitted the SC invoice is inserted with
+  `amount: grossThisBilling` (line 186 — the **GROSS** this-app amount, NOT net), `discount: 0`
+  (line 187), and `retention_amount: retentionThisPeriod` (line 191 — the withheld retainage stored
+  **separately** on the invoice). The pay-app invoice `amount` is therefore **GROSS, not net of
+  retainage** — the round-1 prose claiming it "is already net of retainage" was **WRONG** and is
+  removed. Because retention lives in `retention_amount`, the uniform formula
+  `amount − COALESCE(discount,0) − COALESCE(retention_amount,0)` already nets it out correctly for
+  pay-app invoices exactly as it does for regular invoices. **There is no separate pay-app forecast
+  path and no special-case math** — the forecast arithmetic was already correct; only the rationale was
+  inverted. **[LOCKED — round-2 audit fix]**
 
 ### 4.6 "Paid removes the row" [LOCKED]
 `paid_at NOT NULL` (set by status change or Stripe/QB webhook) auto-excludes the invoice from the
@@ -412,12 +528,29 @@ All three decisions accepted as recommended. Locked outcomes below.
 - **Locked:** keep the card; **rewire** its "ready to bill" footer to the new worklist's **needs-triage
   count** so the two surfaces agree on one source. Card stays a stage filter (`?tab=complete`); only its
   money sub-stat changes source.
-- **D2 (round-1 audit fix) — derive the footer count in the PARENT, not in `JobsPicker`'s `counts` memo:**
-  the Production-Complete "{n} ready to bill" footer must be computed in the **parent component** that
-  owns the worklist/needs-triage data and passed down as a prop — NOT inside `JobsPicker`'s `counts`
-  memo (which today reads `billing_log`). Computing it in the memo would re-introduce a `billing_log`
-  read on the very card we're trying to wean off the percent proxy. The parent reads the worklist
-  needs-triage source (§3) and hands `JobsPicker` the finished number.
+- **D2 (round-2 audit fix — corrected against code) — relocate the needs-triage count OUT of
+  `JobsPicker`'s `counts` memo, WITHOUT adding an invoice join to the `/jobs` landing.**
+  **Verified against `src/components/JobsPicker.jsx:23–62` and `src/views/Jobs.jsx:185–204`:** the
+  `readyToBill` count (which feeds both the Ready-to-Bill tile and the Production-Complete
+  "{readyToBill} ready to bill" footer) is computed **TODAY INSIDE `JobsPicker`'s `counts` memo**
+  (`JobsPicker.jsx:44–49`): it reads the `billingLog` prop, sums `billing_log.percent` per `job_id`,
+  and counts `Complete` jobs with `<100%`. The parent `Jobs.jsx:191` fetches `billing_log` via
+  `supabase.from('billing_log').select('*')` in its `Promise.all` and passes it down as the `billingLog`
+  prop. **(Round-1 prose wrongly claimed the count is "in the parent today" — it is in the memo.)**
+  - **The rewire:** stop computing the count from the `billingLog` prop inside the memo. Compute the
+    **needs-triage count from the worklist source (§3)** and pass it into `JobsPicker` as a finished
+    prop (e.g. `needsTriageCount`), so the memo no longer reads `billing_log`.
+  - **CRITICAL CONSTRAINT — keep the landing light (no invoice query on first paint):** the `/jobs`
+    landing must NOT add an `invoices` join/query. A full needs-triage computation needs the invoice
+    join (§3.3), which is heavy. So the count must reach the footer **without** that join on first
+    paint. Options (pick at build, do NOT join invoices into `Jobs.jsx`'s landing `Promise.all`):
+    (a) **derive the count lazily** — render the footer count from a lightweight already-loaded signal
+    on first paint (e.g. count of `Complete` jobs with no `billing_worklist` resolution flag), and
+    hydrate the exact invoice-reconciled number only when the worklist surface itself is opened; or
+    (b) **a cheap server-side count** — a dedicated lightweight count read (not the full joined
+    worklist payload) that returns just the integer, kept off the landing's critical render path.
+    Either way the heavy `loadInvoicesForForecast`/worklist join stays on the worklist surface, NOT on
+    the `/jobs` landing. **[LOCKED — round-2 audit fix]**
 
 ### 5.2a `billing_log` reader/writer census — all 9 sites the Replace/Sync rewire must touch [LOCKED — round-1 audit fix (D1)]
 The round-1 audit found the rewire census understated at 2 sites; there are **9 enumerated
@@ -432,7 +565,7 @@ view will drift. Verified by grep over `src/` 2026-06-17:
 | 3 | `src/lib/exports.js` | 110 | READ (select — Billing Report export) | Re-point to worklist/invoice source, or retire the percent export |
 | 4 | `src/views/JobDetail.jsx` | 76 | READ (select — per-job billing history) | Keep READ-ONLY (history view); no new writes — `billing_log` stays read-only |
 | 5 | `src/views/Jobs.jsx` | 191 | READ (select — feeds JobsPicker counts) | This is the read that powers the percent proxy; rewire to worklist needs-triage (D2) |
-| 6 | `src/components/JobsPicker.jsx` | 24–62 (`counts` memo: 44–49) | READ-CONSUMER (`readyToBill` percent proxy + Production-Complete footer) | Replace percent proxy; footer count derived in PARENT (D2), not in this memo |
+| 6 | `src/components/JobsPicker.jsx` | 24–62 (`counts` memo: 44–49) | READ-CONSUMER (`readyToBill` percent proxy + Production-Complete footer) — **count computed HERE in the memo today** (D2, verified) | Remove the `billing_log`-based count from the memo; pass needs-triage count in as a prop, computed off the worklist source without an invoice join on the landing (D2) |
 | 7 | `src/views/Billing.jsx` | 94 | READ (select — 3-column pipeline) | Retired with the percent view (§5.1) |
 | 8 | `src/views/Billing.jsx` | 239 | **WRITE** (insert — `confirmBill`) | Remove write (stop writing `billing_log`, §8 item 2) |
 | 9 | `src/views/Billing.jsx` | 290 / 303 / 314 / 324 | **WRITE/READ** (`markInvoiced` + status updates) | Remove writes; retired with the percent view |
@@ -461,7 +594,7 @@ the old percent model as a live source.
 > | # | Card | Decision | Rationale (short) | Chris's take |
 > |---|---|---|---|---|
 > | 1 | Ready to Bill | **Replace** | Worklist subsumes it; keep tile→opens worklist, retire old percent view | ✅ Accept |
-> | 2 | Production Complete | **Synchronize** | Keep stage card ("is work done"), rewire money footer to worklist needs-triage count (count derived in PARENT, D2) | ✅ Accept |
+> | 2 | Production Complete | **Synchronize** | Keep stage card ("is work done"), rewire money footer to worklist needs-triage count (count moved out of JobsPicker memo → prop; no invoice join on landing, D2 corrected round-2) | ✅ Accept |
 > | 3 | Budget | **Infuse — DEFERRED to fast-follow (D4)** | v1 leaves Budget as-is; revenue-side infuse moves to fast-follow with `weekly_billing_snapshot`; margin/cost stays DPR-gated | ✅ Accept (v1 = no Budget change) |
 
 ---
@@ -486,7 +619,7 @@ billing_worklist:
                                             --   null = use customers.billing_terms default (§4.2)
   chris_notes     text                      -- the Excel "Chris Notes" column
   created_at      timestamptz NOT NULL DEFAULT now()
-  updated_at      timestamptz NOT NULL DEFAULT now()   -- set_updated_at() trigger
+  updated_at      timestamptz NOT NULL DEFAULT now()   -- public.tg_set_updated_at() trigger (sch-command-owned; NOT set_updated_at, §6.3/N4)
 ```
 **Key (locked): `job_id`** — matches every other Schedule child table (`billing_log`, `materials`)
 and the existing audit chain. **`terms_override` is locked IN** (real GCs vary terms by job, §4.2);
@@ -515,17 +648,30 @@ weekly_billing_snapshot:   -- DEFERRED (fast-follow, not v1)
 - `ENABLE ROW LEVEL SECURITY`.
 - 4 policies (select/insert/update/delete) each `EXISTS (SELECT 1 FROM jobs j JOIN call_log cl ON
   cl.id = j.call_log_id WHERE j.job_id = <tbl>.job_id AND cl.tenant_id = public.get_user_tenant_id())`.
-- `set_updated_at()` BEFORE UPDATE trigger. **E1 (round-1 audit fix) — inline the function in the
-  migration:** rather than gating the build on verifying `set_updated_at()` already exists in this
-  schema, the migration **inlines `CREATE OR REPLACE FUNCTION public.set_updated_at()`** (idempotent —
-  `CREATE OR REPLACE` is safe whether or not it already exists) before creating the trigger. This
-  removes the unverified-existence dependency entirely:
-  ```sql
-  CREATE OR REPLACE FUNCTION public.set_updated_at()
-  RETURNS trigger LANGUAGE plpgsql AS $$
-  BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
-  ```
-  Then `CREATE TRIGGER ... BEFORE UPDATE ON billing_worklist ... EXECUTE FUNCTION public.set_updated_at();`
+- BEFORE UPDATE `updated_at` touch trigger. **E1 (round-2 audit fix — REGRESSION corrected; round-1
+  would have CLOBBERED a sales-owned function):** use sch-command's **own** trigger function
+  `public.tg_set_updated_at()` — do **NOT** `CREATE OR REPLACE public.set_updated_at()`.
+  **Verified against migrations 2026-06-17:**
+  - sch-command's canonical updated_at function is `public.tg_set_updated_at()`, defined at
+    `20260528120000_jobs_ready_confirmed_hold_reason_triggers.sql:37–40` and used by the `jobs` table's
+    own `updated_at` trigger (line 45). Body: `BEGIN NEW.updated_at := now(); RETURN NEW; END;`.
+  - The name `set_updated_at()` (no `tg_` prefix) is a **SALES-OWNED** function in the shared DB —
+    referenced by `EXECUTE FUNCTION set_updated_at()` across `~/sales-command/supabase/migrations/`
+    (`20260417140000_pay_apps.sql:57,195`, `20260416200000_materials_catalog.sql:30`,
+    `20260416175646_billing_schedule_and_archive_links.sql:56,112`). A `CREATE OR REPLACE
+    public.set_updated_at()` from sch-command would **replace a sibling-owned function body in the
+    shared DB** — exactly the clobber risk. **Do not touch it.**
+  - **Verified approach (no new function, no replace):** `tg_set_updated_at()` already exists in the
+    shared DB (sch-command owns it), so the migration **references it directly** — no `CREATE`/`CREATE
+    OR REPLACE` of any updated_at function is needed:
+    ```sql
+    CREATE TRIGGER billing_worklist_set_updated_at_trg
+    BEFORE UPDATE ON public.billing_worklist
+    FOR EACH ROW EXECUTE FUNCTION public.tg_set_updated_at();
+    ```
+    (Guard with `DROP TRIGGER IF EXISTS billing_worklist_set_updated_at_trg ON public.billing_worklist;`
+    first for re-runnability — matching the `jobs` trigger pattern at the same migration, lines 42–45.)
+  **[LOCKED — round-2 audit fix]**
 - Wrap in `BEGIN/COMMIT`, `IF NOT EXISTS` guards, 14-digit timestamp.
 
 > NOTE [LOCKED]: the RLS+tenant_id "4 standard policies, tenant_id default+FK" pattern in
@@ -574,7 +720,8 @@ NEW Billing surface in Schedule Command (/billing, rebuilt)
 │     │    via loadAllRows pagination (C3)
 │     ├─ expected pay date = terms_override(sent_at) ?? due_date ?? sent_at + COALESCE(terms…)  (per §4.2, C4)
 │     ├─ buckets: PAST-DUE (overdue unpaid, C5) + weekly (today→+90d): Σ expected inflow + count
-│     ├─ net-of-retention via − COALESCE(retention_amount,0) (C2); releases = own future invoices;
+│     ├─ uniform net = amount − COALESCE(discount,0) − COALESCE(retention_amount,0) (C2/N1);
+│     │    NO special pay-app path (pay-app amount is GROSS, C1); releases = own future invoices;
 │     │    retention counted exactly once (C7)
 │     └─ Select-Week drill-down → collections call list
 └── Data layer: queries.js gains loadInvoicesForForecast() (via loadAllRows), loadBillingWorklist(),
@@ -583,7 +730,8 @@ NEW Billing surface in Schedule Command (/billing, rebuilt)
 
 Cards (JobsPicker):
   Ready to Bill   → REPLACE  (tile routes to Tab A; retire billing_log percent view)
-  Production Comp. → SYNC    (keep stage card; footer "needs triage" count derived in PARENT, D2)
+  Production Comp. → SYNC    (keep stage card; move needs-triage count OUT of JobsPicker memo → prop,
+                              NO invoice join on the /jobs landing, D2)
   Budget          → NO CHANGE in v1 (INFUSE DEFERRED to fast-follow, D4)
 ```
 
@@ -592,12 +740,17 @@ Cards (JobsPicker):
 `terms_override` wins over `due_date`). It now reads, consistent with §4.2:
 `terms_override applied to sent_at  ??  due_date  ??  sent_at + COALESCE(billing_terms, default_billing_terms, 30)`.
 
-**Build sequencing [LOCKED — round-1 audit fix (D5)]:** lift `getMonday`/`fmtWk` out of `Billing.jsx`
-into a shared lib (e.g. `src/lib/weeks.js`) **as the first build step, BEFORE retiring/rebuilding
+**Build sequencing [LOCKED — round-2 audit fix (D5, corrected)]:** lift the **CANONICAL**
+`getMonday`/`fmtWk` (the 3-way-identical `exports.js`/`Schedule.jsx`/`Daily.jsx` form — verified, see
+§4.3) into a shared lib (e.g. `src/lib/weeks.js`) **as the first build step, BEFORE retiring/rebuilding
 `Billing.jsx`**, so the forecast (Tab B) and worklist (Tab A) import them from the shared lib rather
-than from the view being torn down. (Note: copies of these helpers also exist in several other views —
-exports.js, Schedule.jsx, Daily.jsx, etc. — but only the `Billing.jsx` copy is load-bearing for this
-rebuild; consolidating the rest is out of scope for v1.)
+than from the view being torn down. **Correction to round-1 prose:** the helpers do NOT "currently live
+in Billing.jsx" — Billing.jsx holds a *variant*, not the canonical. There are **4 copies** total
+(`exports.js:3`, `Schedule.jsx:12`, `Daily.jsx:9` = identical canonical; `Billing.jsx:9` = variant;
+`JobsPicker.jsx:6` = a separate 4th variant of `getMonday`). v1 lifts the canonical form, **reconciles
+Billing.jsx's variant to it** (preserving Billing's string-arg `fmtWk` in the shared version), and
+**re-points `JobsPicker.jsx:6`**. (Consolidating the remaining exports/Schedule/Daily copies onto the
+shared import is a tidy-up that can ride along but is not load-bearing for the rebuild.)
 
 Legacy handling [LOCKED — Chris-ratified 2026-06-17]: stop writing to the percent-based `billing_log`
 model, retire the current `Billing.jsx` 3-column view + `JobCardList`'s "Add to Bill List" percent
@@ -607,6 +760,18 @@ removing the 3 writers and rewiring/retiring the 6 readers — so no card or exp
 after the new surface is proven (reversible decision). `jobs.amount` remains display-only and is
 **never** authoritative (§3.2). **Budget is left unchanged in v1 (infuse deferred, §5.3 / D4).**
 
+**N10 — replace the `jobs.billed_to_date` side-effect with the invoice-derived figure (round-2 audit —
+Low) [LOCKED — round-2 audit fix].** **Verified against code 2026-06-17:** `jobs.billed_to_date` is
+written today as a **side-effect of the percent model** — `Billing.jsx:250` (`confirmBill` →
+`{ billed_to_date: String(newBilled) }`) and `Billing.jsx:322–332` (`markInvoiced` recomputes from
+`billing_log` percent and writes via `auditUpdateJobField(jobId,'billed_to_date',…)`); it is then
+read/edited as a percent in `Schedule.jsx:763`. Since those `billing_log` writers are removed (§5.2a
+#7/#8/#9), the `billed_to_date` side-effect goes away with them. **Replace** it: wherever a billed-to-date
+figure is still shown, derive it from the **invoice-dollar source** — `billed_total` per §3.2
+(`Σ sent, non-void, non-deleted, non-retention-release invoice.amount`) — not from the retired
+`billing_log` percent. Do not leave a stale `jobs.billed_to_date` percent as a live source; if any view
+still needs the value, it reads the invoice-derived number.
+
 ---
 
 ## 8. Decision queue — RATIFICATION STATUS (updated 2026-06-17)
@@ -614,9 +779,10 @@ after the new surface is proven (reversible decision). `jobs.amount` remains dis
 **RESOLVED / LOCKED (Chris-ratified 2026-06-17):**
 
 1. ✅ **Cards (§5):** **Replace** Ready-to-Bill (tile→opens worklist, retire old percent view) ·
-   **Synchronize** Production-Complete (keep stage card, rewire footer to worklist needs-triage count,
-   footer count derived in PARENT per D2) · **Budget: INFUSE DEFERRED to fast-follow (round-1 audit D4)
-   — v1 leaves Budget as-is**; revenue-side infuse moves to the fast-follow with `weekly_billing_snapshot`.
+   **Synchronize** Production-Complete (keep stage card, rewire footer to worklist needs-triage count;
+   count moved OUT of JobsPicker's `counts` memo to a prop, NO invoice join on the `/jobs` landing —
+   D2 corrected round-2) · **Budget: INFUSE DEFERRED to fast-follow (round-1 audit D4) — v1 leaves
+   Budget as-is**; revenue-side infuse moves to the fast-follow with `weekly_billing_snapshot`.
 2. ✅ **Legacy billing_log (§1.2, §3.2, §7):** keep **READ-ONLY, stop writing to it; do NOT delete**
    the table. Retire fully after the new surface is proven (reversible).
 3. ✅ **"Fully billed" authority (§3.2):** **`billing_schedule.contract_sum` (SOV) where it exists,
@@ -654,16 +820,42 @@ Applied this pass (all newly-decided fixes are [LOCKED — round-1 audit fix]):
   `jobs.deleted` filter on population; `customers.billing_terms`-populated verify retained.
 - **RLS:** §9 cross-tenant read marked **RESOLVED / CONFIRMED SAFE**.
 
-### 8.2 Adjacent findings — to file (round-1 audit)
-3 adjacent (NOT caused-by) findings from the round-1 audit are pending backlog filing — **text to come
-from the audit terminal** (not yet provided here; do not invent). File as 3 backlog rows once their
-text is supplied.
+### 8.1a Round-2 audit response (applied 2026-06-17) — pattern: prose-patch-regressions
+Round-2 verification-pass (0C/4H/5M/4L). **Pass 1 regressed 3 fixes by asserting wrong code facts;**
+this pass re-verified every claim against live source before patching. All new fixes are
+**[LOCKED — round-2 audit fix]**.
+- **REGRESSIONS corrected (re-verified against code):**
+  - **REG-1 (§4.5/C1):** `NewPayAppModal.jsx:186` writes the pay-app invoice `amount` **GROSS**
+    (`grossThisBilling`), with retention separate in `retention_amount` (line 191). The round-1 claim
+    that pay-app amount "is already net of retainage" was inverted — removed. There is **no special
+    pay-app path**; the uniform net formula handles it.
+  - **REG-2 (§4.3/§7/D5):** canonical `getMonday`/`fmtWk` is the 3-way-identical
+    `exports.js`/`Schedule.jsx`/`Daily.jsx` form; `Billing.jsx:9` is a VARIANT and `JobsPicker.jsx:6` is
+    a 4th copy. Lift the canonical (exports.js), reconcile Billing's variant, re-point JobsPicker —
+    round-1's "helpers live in Billing.jsx, only that copy matters" was wrong.
+  - **REG-3 (§5.2/D2):** the needs-triage/`readyToBill` count is in `JobsPicker`'s `counts` memo TODAY
+    (`JobsPicker.jsx:44–49`), not the parent. Relocate it to a prop fed from the worklist source WITHOUT
+    adding an invoice join to the `/jobs` landing.
+- **NEW (High/Med):** N1 `discount` in net formula (`invoices.discount` verified to exist) · N2
+  zero-invoice multi-proposal authoritative_total via live non-archive selection · N3 fully-billed-AND-paid-
+  this-week classified as All-Ready-Billed (no fall-through) · N4 use sch-command's own
+  `tg_set_updated_at()` — do NOT `CREATE OR REPLACE` the sales-owned `set_updated_at()` (clobber risk) ·
+  N5 `loadAllRows(tableName, selectStr, {orderBy, orderAsc, filterFn})` signature pinned · N6 past-due
+  bucket labeled gross-of-partials (no partial-payment column on `invoices`).
+- **CLEANUP (Low):** N7 drafts not surfaced as sent · N8 CO completion picked up independently · N9
+  suppress `$0-net` rows from actionable worklist · N10 replace `billed_to_date` side-effect with
+  invoice-derived figure.
+
+### 8.2 Adjacent findings — to file
+5 adjacent findings (3 from round 1 + 2 from round 2) pending backlog filing — text to come from the
+audit synthesis. File as backlog rows once their text is supplied. (Do not invent their text.)
 
 ## 9. Things to verify before build (cheap pre-build checks)
 
-- ~~Confirm `set_updated_at()` trigger function exists~~ — **RESOLVED by E1 (round-1 audit):** the
-  migration **inlines `CREATE OR REPLACE FUNCTION public.set_updated_at()`** (§6.3), so existence no
-  longer needs verifying — no longer a blocker.
+- ~~Confirm `set_updated_at()` trigger function exists~~ — **RESOLVED by E1, corrected round-2 (N4):**
+  the migration references sch-command's **own** `public.tg_set_updated_at()` (already exists, verified
+  at `20260528120000_…:37`, used by the `jobs` table). No `CREATE OR REPLACE` of any updated_at
+  function — avoids clobbering the sales-owned `set_updated_at()`. No longer a blocker.
 - **E2 (build-start step, not a pre-check):** run `node scripts/check-migration-collision.mjs` AT BUILD
   START to pin a collision-free 14-digit timestamp against the live ledger (§6.5).
 - Confirm whether ANY non-void live invoices have NULL `due_date` (drives whether the §4.2 fallback is
@@ -758,7 +950,7 @@ Cross-tenant findings cap at Med while `live_tenants == 1` (and the RLS read is 
 - **§3.0a grain/CO-row model is NEW and unverified** — CO-as-separate-row + one-row-per-call_log aggregate is freshly introduced; attack it for its own aggregation/double-count bugs (e.g., a job with 2 COs now yields 3 worklist rows — is fully-billed computed per-row correctly?).
 - **Past-due bucket vs counted-once invariant** (C5 + C7) — does adding a past-due bucket preserve "retention counted exactly once"? Could an overdue retention-held invoice land in two buckets?
 - **9-site census completeness** (§5.2a) — claims exactly 9 `billing_log` reader/writer sites; a missed 10th site = silent drift. Grep-verify exhaustiveness.
-- **3 adjacent findings still unfiled** (§8.2 stub) — text pending from the audit terminal; not yet in the plan or a backlog.
+- **5 adjacent findings still unfiled** (§8.2 — 3 round-1 + 2 round-2) — text pending from the audit synthesis; not yet in the plan or a backlog.
 - **set_updated_at inline idempotency** (E1) — `CREATE OR REPLACE` in a shared DB: confirm it doesn't clobber a differing sibling-owned definition.
 
 ### Open questions
