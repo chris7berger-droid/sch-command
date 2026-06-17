@@ -1,7 +1,7 @@
 # Billing Triage + 90-Day Cash-Flow Forecast — Integration Plan
 
 **Repo:** sch-command (Schedule Command) · **Branch:** `feat/billing-forecast`
-**Status:** DESIGN/PLANNING only. No code yet. Card + technical decisions **RATIFIED by Chris 2026-06-17** (§5 cards, §8 items 2–8) — moved to [LOCKED]. **Round-1 audit response applied 2026-06-17 (Option 1 — patch status-derivation in v1; see §8.1):** A1–A5/B1–B3 status-derivation arithmetic, C1–C7 forecast, D1–D5 card rewire, E1–E4 migration all [LOCKED — round-1 audit fix]; cross-tenant RLS read CONFIRMED SAFE (§9); Budget infuse DEFERRED to fast-follow. **Round-2 audit response applied 2026-06-17 (Option 1 continues; see §8.1a): REG-1/2/3 corrected 3 regressions where pass-1 asserted wrong code facts (pay-app GROSS amount, canonical `getMonday` copy, count-in-memo); N1–N10 added (discount in net formula, zero-invoice proposal selection, fully-billed-paid-this-week, `tg_set_updated_at` clobber-avoidance, `loadAllRows` signature, gross-of-partials past-due, + 4 cleanups) — all [LOCKED — round-2 audit fix], re-verified against live source.** Remaining open items: completion signal (§3.3), portal nuance (§3.1), Hold–Sales role-gating (§9-queue).
+**Status:** DESIGN/PLANNING only. No code yet. Card + technical decisions **RATIFIED by Chris 2026-06-17** (§5 cards, §8 items 2–8) — moved to [LOCKED]. **Round-1 audit response applied 2026-06-17 (Option 1 — patch status-derivation in v1; see §8.1):** A1–A5/B1–B3 status-derivation arithmetic, C1–C7 forecast, D1–D5 card rewire, E1–E4 migration all [LOCKED — round-1 audit fix]; cross-tenant RLS read CONFIRMED SAFE (§9); Budget infuse DEFERRED to fast-follow. **Round-2 audit response applied 2026-06-17 (Option 1 continues; see §8.1a): REG-1/2/3 corrected 3 regressions where pass-1 asserted wrong code facts (pay-app GROSS amount, canonical `getMonday` copy, count-in-memo); N1–N10 added (discount in net formula, zero-invoice proposal selection, fully-billed-paid-this-week, `tg_set_updated_at` clobber-avoidance, `loadAllRows` signature, gross-of-partials past-due, + 4 cleanups) — all [LOCKED — round-2 audit fix], re-verified against live source.** **Round-3 audit response applied 2026-06-17 (see §8.1b): CONVERGED 24→13→1; CEN-1 corrected the `getMonday` census (8 copies, not 4 — off-surface); forecast/worklist math confirmed correct. PLAN IS BUILD-READY — no round-4 audit.** Remaining open items: completion signal (§3.3), portal nuance (§3.1), Hold–Sales role-gating (§9-queue).
 **Author:** planning agent · **Date:** 2026-06-17
 
 Goal: rebuild Chris's proven Excel billing tool natively in Schedule Command's billing surface —
@@ -434,8 +434,9 @@ tracking is later needed, it requires a new `invoices` column (out of scope; not
 **[LOCKED — round-2 audit fix]**
 
 **D5 (round-2 audit fix — REGRESSION corrected; round-1 prose was wrong about which copy is
-canonical) — lift the CANONICAL `getMonday`/`fmtWk` into a shared lib, then reconcile the variants:**
-**Verified by reading all 5 cited sites 2026-06-17:**
+canonical. Census corrected again round-3 — there are 8 copies, not 4) — lift the CANONICAL
+`getMonday`/`fmtWk` into a shared lib, then reconcile the variants:**
+**Verified by `grep -rn getMonday src/` 2026-06-17 — 8 `getMonday` definitions + 1 `_getMonday` variant:**
 - **3-way IDENTICAL canonical form** lives in `src/lib/exports.js:3–21`, `src/views/Schedule.jsx:12–30`,
   `src/views/Daily.jsx:9–27`: `getMonday` = `const diff = dt.getDate() - day + (day === 0 ? -6 : 1);
   dt.setDate(diff)`, and a matching `fmtWk(monday)` (Mon→+5 Sat range). This is the canonical form.
@@ -443,16 +444,21 @@ canonical) — lift the CANONICAL `getMonday`/`fmtWk` into a shared lib, then re
   - day; dt.setDate(dt.getDate() + diff)` (functionally equivalent but a different expression), and a
   **richer `fmtWk`** that also accepts a string arg (`monday + 'T00:00:00'`). Do **NOT** lift Billing's
   variant.
-- `src/components/JobsPicker.jsx:6` holds a **4th copy** — yet another `getMonday` variant
+- `src/components/JobsPicker.jsx:6` holds another `getMonday` variant
   (`dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))`); JobsPicker has **no `fmtWk`**.
+- **4 further copies, OFF the billing surface** (no forecast/worklist math impact, surfaced by the
+  round-3 census correction): `src/components/StatsBar.jsx:6`, `src/views/Jobs.jsx:29`,
+  `src/views/Schedules.jsx:18` (each its own `getMonday`), plus a renamed `_getMonday` at
+  `src/lib/queries.js:426`. These are NOT required for this feature.
 
 **Plan (corrected):** lift the **canonical exports.js form** of `getMonday`/`fmtWk` into a shared lib
-(e.g. `src/lib/weeks.js`) **before** `Billing.jsx` is retired/rebuilt. Then **reconcile Billing.jsx's
-variant to the canonical** (replace Billing's local copies with the shared import; preserve the
-string-arg handling in the shared `fmtWk` so Billing's callers don't regress), and **account for the
-4th copy at `JobsPicker.jsx:6`** (re-point it to the shared `getMonday`). The worklist + forecast
-import from the shared lib, never from the doomed `Billing.jsx`. Sequencing is pinned in §7.
-**[LOCKED — round-2 audit fix]**
+(e.g. `src/lib/weeks.js`) **before** `Billing.jsx` is retired/rebuilt. Then **reconcile the on-surface
+copies** to it: `Billing.jsx:9` (replace local copies with the shared import; preserve the string-arg
+handling in the shared `fmtWk` so Billing's callers don't regress) and `JobsPicker.jsx:6` (re-point to
+the shared `getMonday`). The worklist + forecast import from the shared lib, never from the doomed
+`Billing.jsx`. The 4 off-surface copies (StatsBar/Jobs/Schedules/`_getMonday`) are noted for a future
+consolidation sweep but are **out of scope for v1** — they don't touch billing. Sequencing pinned in §7.
+**[LOCKED — round-2 audit fix; census corrected round-3]**
 
 ### 4.4 Per-week drill-down [DERIVED]
 "Select Week" → list invoices expected to pay that week (job #, customer, amount, sent date, terms,
@@ -745,12 +751,13 @@ Cards (JobsPicker):
 §4.3) into a shared lib (e.g. `src/lib/weeks.js`) **as the first build step, BEFORE retiring/rebuilding
 `Billing.jsx`**, so the forecast (Tab B) and worklist (Tab A) import them from the shared lib rather
 than from the view being torn down. **Correction to round-1 prose:** the helpers do NOT "currently live
-in Billing.jsx" — Billing.jsx holds a *variant*, not the canonical. There are **4 copies** total
-(`exports.js:3`, `Schedule.jsx:12`, `Daily.jsx:9` = identical canonical; `Billing.jsx:9` = variant;
-`JobsPicker.jsx:6` = a separate 4th variant of `getMonday`). v1 lifts the canonical form, **reconciles
-Billing.jsx's variant to it** (preserving Billing's string-arg `fmtWk` in the shared version), and
-**re-points `JobsPicker.jsx:6`**. (Consolidating the remaining exports/Schedule/Daily copies onto the
-shared import is a tidy-up that can ride along but is not load-bearing for the rebuild.)
+in Billing.jsx" — Billing.jsx holds a *variant*, not the canonical. **Census corrected round-3: there
+are 8 `getMonday` copies, not 4** (`grep -rn getMonday src/`): `exports.js:3`, `Schedule.jsx:12`,
+`Daily.jsx:9` = identical canonical; `Billing.jsx:9` = variant; `JobsPicker.jsx:6` = variant; and 4
+OFF-surface copies `StatsBar.jsx:6`, `Jobs.jsx:29`, `Schedules.jsx:18`, plus `_getMonday` at
+`queries.js:426`. v1 lifts the canonical form and **reconciles only the on-surface copies**
+(`Billing.jsx:9` — preserving its string-arg `fmtWk` in the shared version — and `JobsPicker.jsx:6`).
+The 4 off-surface copies don't touch billing and are a future tidy-up, **out of scope for v1**.
 
 Legacy handling [LOCKED — Chris-ratified 2026-06-17]: stop writing to the percent-based `billing_log`
 model, retire the current `Billing.jsx` 3-column view + `JobCardList`'s "Add to Bill List" percent
@@ -846,9 +853,20 @@ this pass re-verified every claim against live source before patching. All new f
   suppress `$0-net` rows from actionable worklist · N10 replace `billed_to_date` side-effect with
   invoice-derived figure.
 
+### 8.1b Round-3 audit response (applied 2026-06-17) — pattern: false-census-claim
+Round-3 CONVERGENCE confirm (0C/1H/0M/0L — single finding). Trend **24 → 13 → 1**; converged on Option 1,
+Option-2 defer NOT invoked. The forecast/worklist math was confirmed **CORRECT**. The one finding was a
+plan-accuracy regression, off-surface, no math impact:
+- **CEN-1 (§4.3/§7/D5):** the `getMonday` census claimed 4 copies; `grep -rn getMonday src/` shows **8**
+  (+ a `_getMonday` variant). Missed: `StatsBar.jsx:6`, `Jobs.jsx:29`, `Schedules.jsx:18`, and
+  `queries.js:426` (`_getMonday`). All 4 are OFF the billing surface. Corrected §4.3/§7 to list all 8 and
+  scope the v1 lift to the on-surface copies (`Billing.jsx`, `JobsPicker.jsx`) only. **[LOCKED — round-3 audit fix]**
+
+**Plan is BUILD-READY** — no round-4 audit. Next: file §8.2 backlog rows, then T3 build after `/erd-start`.
+
 ### 8.2 Adjacent findings — to file
-5 adjacent findings (3 from round 1 + 2 from round 2) pending backlog filing — text to come from the
-audit synthesis. File as backlog rows once their text is supplied. (Do not invent their text.)
+6 adjacent findings (3 from round 1 + 2 from round 2 + 1 from round 3) pending backlog filing — text to
+come from the audit synthesis. File as backlog rows once their text is supplied. (Do not invent their text.)
 
 ## 9. Things to verify before build (cheap pre-build checks)
 
