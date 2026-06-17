@@ -1,7 +1,7 @@
 # Billing Triage + 90-Day Cash-Flow Forecast — Integration Plan
 
 **Repo:** sch-command (Schedule Command) · **Branch:** `feat/billing-forecast`
-**Status:** DESIGN/PLANNING only. No code yet. Card reconciliation decisions are for Chris to ratify.
+**Status:** DESIGN/PLANNING only. No code yet. Card + technical decisions **RATIFIED by Chris 2026-06-17** (§5 cards, §8 items 2–8) — moved to [LOCKED]. Remaining open items: completion signal (§3.3), portal nuance (§3.1), Hold–Sales role-gating (§9-queue).
 **Author:** planning agent · **Date:** 2026-06-17
 
 Goal: rebuild Chris's proven Excel billing tool natively in Schedule Command's billing surface —
@@ -167,8 +167,8 @@ state** layered with **manual operational overrides**. Resolution order (first m
 | 2 | **✅ Invoice Sent to QB** | AUTO | Invoice exists with `qb_invoice_id NOT NULL` (posted to QB) — and, per Chris's note, also submitted through the customer's portal. `qb_invoice_id` is the DB-knowable half. Portal-submission is NOT in the DB → see §3.1. **[LOCKED for QB half / DESIGN-OPEN for portal half]** |
 | 3 | **✅ Invoice Sent** | AUTO | Invoice exists with `sent_at NOT NULL` (or `status IN ('Sent','Waiting for Payment','Past Due')`), not yet QB-posted/paid. **[LOCKED]** |
 | 4 | **All Ready Billed** | AUTO | Invoice(s) exist covering this job's scheduled value with no remaining billable balance, sent in a **prior** week (sent_at before current worklist week). "No action this week." **[DERIVED — needs a 'fully billed' definition, see §3.2]** |
-| 5 | **❌ Hold – Sales** | MANUAL | Operational flag set by sales: do not invoice. Stored in new `billing_worklist` table (`hold_sales` + `hold_reason`). **[DESIGN-OPEN — who can set it; role-gated?]** |
-| 6 | **Nothing to bill** | MANUAL | Operational flag: no billable work this week. New `billing_worklist.nothing_to_bill`. **[DESIGN-OPEN]** |
+| 5 | **❌ Hold – Sales** | MANUAL | Operational flag set by sales: do not invoice. Stored in `billing_worklist` (`hold_sales` + `hold_reason`) — **storage LOCKED (§6.1)**. **[DESIGN-OPEN — who can set it; role-gated? = queue item 9]** |
+| 6 | **Nothing to bill** | MANUAL | Operational flag: no billable work this week. Stored in `billing_worklist.nothing_to_bill` — **storage LOCKED (§6.1)**. |
 
 Plus the implicit Excel "no status yet" = **Needs Triage** (work done, no invoice, no manual flag) —
 the actionable rows. **[DERIVED]**
@@ -178,13 +178,20 @@ The DB knows `qb_invoice_id` (QB posting) but has **no field for "submitted thro
 payment portal."** Options: (a) treat QB-posted as the canonical "Sent to QB" and drop the portal
 nuance; (b) add a manual `portal_submitted_at` to `billing_worklist`. Chris decides — most likely (a).
 
-### 3.2 "Fully billed" definition [DESIGN-OPEN]
-For statuses 3/4 we need "is this job's billable value exhausted?" Candidates:
-- Sum of non-voided invoice `amount` for the call_log ≥ proposal/contract total, OR
-- For SOV/pay-app jobs: `billing_schedule` fully drawn (all lines 100%).
-Chris must confirm which total is authoritative (proposal `total` vs `billing_schedule.contract_sum`
-vs Schedule's `jobs.amount` string). **The legacy `billing_log` percent model should be retired in
-favor of invoice-dollar reconciliation (see §5/§6).**
+### 3.2 "Fully billed" definition [LOCKED — Chris-ratified 2026-06-17]
+For statuses 3/4 we need "is this job's billable value exhausted?" **Authoritative total (locked):**
+- **`billing_schedule.contract_sum` (SOV) where a billing schedule exists for the job's proposal**,
+  **else the proposal `total`.**
+- Schedule's `jobs.amount` string is the **legacy placeholder and must NEVER be authoritative** —
+  it is for display only.
+- For SOV/pay-app jobs, "fully billed" can also be confirmed via `billing_schedule` fully drawn
+  (all lines 100%), which is consistent with the `contract_sum` basis above.
+
+Rule: `fully_billed = Σ(non-void, non-deleted invoice.amount for call_log) ≥ authoritative_total`,
+where `authoritative_total = billing_schedule.contract_sum ?? proposals.total`.
+
+The legacy `billing_log` percent model is **retired** in favor of invoice-dollar reconciliation
+(kept read-only, never written; see §5.1/§7).
 
 ### 3.3 Worklist population query (self-populating) [DERIVED]
 "Jobs that had work and may need billing this week" =
@@ -217,15 +224,18 @@ WHERE i.voided_at IS NULL
   AND i.sent_at IS NOT NULL
 ```
 
-### 4.2 Expected pay date [DERIVED]
+### 4.2 Expected pay date [LOCKED — Chris-ratified 2026-06-17]
 Resolution order (first non-null wins):
-1. `i.due_date` (already required at creation, so usually present). **[LOCKED present]**
-2. Fallback: `i.sent_at + (customers.billing_terms || tenant_config.default_billing_terms || 30) days`.
+1. **`billing_worklist.terms_override`** (per-invoice/job override, 15/30/45/60/75/90) applied to
+   `i.sent_at` when set. Real GCs vary terms by job, so this override **is in scope** — see §6.1.
+2. `i.due_date` (already required at creation, so usually present). **[LOCKED present]**
+3. Fallback: `i.sent_at + (customers.billing_terms || tenant_config.default_billing_terms || 30) days`.
 
-This means **payment terms already live in the DB** (`customers.billing_terms`) — Schedule does NOT
-need to store a terms column for the common case. A **per-invoice terms override** (Excel's
-15/30/45/60/75/90 dropdown) is only needed when a user wants to override the customer default for one
-invoice; if Chris wants that, store it in the worklist table (§6), NOT on the Sales-owned invoice.
+Decision (locked): payment terms **default from `customers.billing_terms`** (which already lives in
+the DB — Schedule stores no terms column at the customer level), **but the per-invoice override IS
+supported** and persists to `billing_worklist.terms_override` (§6.1) — NOT on the Sales-owned invoice.
+When `terms_override` is set, expected pay date = `sent_at + terms_override days`, taking precedence
+over both `due_date` and the customer default.
 
 ### 4.3 Weekly buckets [DERIVED]
 Bin expected-pay-dates into Monday-anchored weekly buckets spanning **today → today+90d**. Per bucket:
@@ -236,14 +246,21 @@ total expected inflow ($) + invoice count. Mirrors Excel's "Total to Bill This W
 "Select Week" → list invoices expected to pay that week (job #, customer, amount, sent date, terms,
 expected date). This is the collections-call worklist. Direct port of the Excel forecast drill-down.
 
-### 4.5 Retention + pay apps fold-in [DERIVED]
-- **Retention:** each invoice's collectible-now amount = `amount − retention_amount` (retention is
-  withheld, paid later). A **retention release** invoice (`retention_release_of NOT NULL`) is its own
-  invoice row with its own `sent_at`/`due_date`, so it **naturally appears as future inflow** when
-  billed. Decision: does the forecast show gross `amount` or net-of-retention? **[DESIGN-OPEN]** —
-  recommend net-of-retention for cash realism, with retention shown as a separate "held / future
-  release" line.
-- **Pay apps:** fold in through the invoice each pay app generates (§2.5). No separate path.
+### 4.5 Retention + pay apps fold-in [LOCKED — Chris-ratified 2026-06-17]
+- **Retention default is 5% (customizable per job)**, stored as `billing_schedule.retainage_pct`
+  (default 5) and per-invoice as `invoices.retention_pct` / `retention_amount`. Forecast math uses
+  the actual `retention_amount` on each invoice, not a hardcoded rate.
+- **Retention (locked: forecast is NET of retention).** Each invoice's expected-inflow contribution =
+  `amount − retention_amount` — only collectable-now dollars. Retention withheld is **excluded** from
+  the expected-inflow forecast and shown as its **own separate bucket/line** ("held retention /
+  future release").
+- A **retention release** invoice (`retention_release_of NOT NULL`) is its own invoice row with its
+  own `sent_at`/`due_date`, so the released retention **appears as future inflow when released** —
+  flowing through the normal §4.1 invoice path at that time. (No double counting: it was excluded
+  while held, counted once when its release invoice is sent.)
+- **Pay apps:** fold in through the invoice each pay app generates (§2.5). The pay-app invoice is
+  already net of its `retainage_withheld`, so it lands in the forecast as collectable-now dollars
+  consistent with the rule above. No separate path.
 
 ### 4.6 "Paid removes the row" [LOCKED]
 `paid_at NOT NULL` (set by status change or Stripe/QB webhook) auto-excludes the invoice from the
@@ -251,76 +268,80 @@ forecast — exactly Excel's "change status to Paid removes the row," but now au
 
 ---
 
-## 5. The three money cards — reconciliation [DESIGN-OPEN: Chris ratifies each]
+## 5. The three money cards — reconciliation [LOCKED — Chris-ratified 2026-06-17]
 
-Format: recommendation + 2-bullet rationale. These are product calls, not finalized.
+All three decisions accepted as recommended. Locked outcomes below.
 
-### 5.1 Ready to Bill → **REPLACE** (recommended)
+### 5.1 Ready to Bill → **REPLACE** [LOCKED]
 - The new triage worklist *is* "ready to bill," done properly: it self-populates from completed work
   and reconciles against real invoices, whereas the current card counts Complete-jobs-with-`billing_log`
   `<100%` — a percent proxy with no invoice link. The card's job is fully subsumed.
-- Keep the **tile** as a labeled entry point that routes to the new worklist; retire the old
-  percent-based `/billing` 3-column view and `billing_log` write path behind it. (Replace the
-  destination, preserve the navigation affordance.)
+- **Locked:** keep the **tile** on the All Jobs screen as the entry point that **opens the worklist**;
+  **retire the old percent view behind it** (the percent-based `/billing` 3-column view and the
+  `billing_log` write path). Replace the destination, preserve the navigation affordance. `billing_log`
+  itself stays read-only (not deleted) — see §7 / §8 item 2.
 
-### 5.2 Production Complete → **SYNCHRONIZE** (recommended)
-- This card is a legitimate **lifecycle/stage** signal (crew off site, work finished) that is
-  upstream of billing — it should not be retired. But its "{readyToBill} ready to bill" footer reads
-  the same stale `billing_log` proxy.
-- Keep the card; **rewire** its "ready to bill" footer to the new worklist's "needs triage" count so
-  both surfaces cite one source. Card stays a stage filter (`?tab=complete`); only its money sub-stat
-  changes source.
+### 5.2 Production Complete → **SYNCHRONIZE** [LOCKED]
+- This card is a legitimate **lifecycle/stage** signal — it answers "**is the work done**," a different
+  question than "is it billed" — and is upstream of billing, so it is **kept**, not retired. But its
+  "{readyToBill} ready to bill" footer currently reads the stale `billing_log` proxy.
+- **Locked:** keep the card; **rewire** its "ready to bill" footer to the new worklist's **needs-triage
+  count** so the two surfaces agree on one source. Card stays a stage filter (`?tab=complete`); only its
+  money sub-stat changes source.
 
-### 5.3 Budget → **INFUSE** (recommended) — with a caveat
+### 5.3 Budget → **INFUSE** [LOCKED]
 - Budget is a pure placeholder (renders `—`, stub view). It is a different question from billing:
   *margin/cost* (revenue − cost), not *cash timing*. The new tool's revenue + invoiced-to-date data
   **infuses the revenue/billed side** of Budget, but Budget's cost side still needs Field Command DPR
   actuals (labor/materials) that this tool does not provide.
-- Recommendation: **infuse** the billing/forecast revenue numbers now (real contract value + billed +
-  expected inflow), and keep Budget's margin completion gated on DPR cost data as a separate track.
-  Do **not** let "this tool replaces Budget" delete the margin ambition — they overlap on revenue,
+- **Locked:** **infuse** the revenue/billed side **now** from real invoices (real contract value +
+  billed + expected inflow). **Margin (revenue − cost) stays gated on Field DPR cost data — out of
+  scope for this pass.** "This tool replaces Budget" is explicitly rejected; they overlap on revenue,
   not on cost.
 
-> **Chris ratification table** (fill in Accept / Partial / Reject):
+> **Chris ratification table** — RATIFIED 2026-06-17:
 >
-> | # | Card | Agent rec | Rationale (short) | Chris's take |
+> | # | Card | Decision | Rationale (short) | Chris's take |
 > |---|---|---|---|---|
-> | 1 | Ready to Bill | **Replace** | Worklist subsumes it; keep tile, retire old percent view | ☐ |
-> | 2 | Production Complete | **Synchronize** | Keep stage card, rewire money footer to worklist | ☐ |
-> | 3 | Budget | **Infuse** | Feed revenue side now; cost/margin stays DPR-gated | ☐ |
+> | 1 | Ready to Bill | **Replace** | Worklist subsumes it; keep tile→opens worklist, retire old percent view | ✅ Accept |
+> | 2 | Production Complete | **Synchronize** | Keep stage card ("is work done"), rewire money footer to worklist needs-triage count | ✅ Accept |
+> | 3 | Budget | **Infuse** | Feed revenue side now from real invoices; margin/cost stays DPR-gated, out of scope this pass | ✅ Accept |
 
 ---
 
-## 6. Minimal new persistence Schedule must own [DESIGN-OPEN shape, pattern LOCKED]
+## 6. Minimal new persistence Schedule must own [shape LOCKED 2026-06-17, pattern LOCKED]
 
 Everything auto-derivable (Sent / Sent-to-QB / Paid / amounts / expected dates) is **read-only from
-canonical tables — store nothing**. Schedule writes back ONLY operational judgment + the weekly ritual
-snapshot. Two new tables proposed (names open):
+canonical tables — store nothing**. Schedule writes back ONLY operational judgment + the per-invoice
+terms override. **v1 ships ONE new table (`billing_worklist`)**; `weekly_billing_snapshot` is designed
+below but **deferred to a fast-follow** (§6.2).
 
-### 6.1 `billing_worklist` — per-job operational state (the manual overrides)
+### 6.1 `billing_worklist` — per-job operational state (the manual overrides) [LOCKED, v1]
 One row per job that needs a manual flag (sparse; absence = "no override").
 ```
 billing_worklist:
   id              uuid PK default gen_random_uuid()
-  job_id          int8 NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE   -- or call_log_id; see note
+  job_id          int8 NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE
   hold_sales      boolean NOT NULL DEFAULT false
   hold_reason     text
   nothing_to_bill boolean NOT NULL DEFAULT false
-  terms_override  int                       -- per-invoice/job terms override (15..90); null = use customer default
+  terms_override  int                       -- LOCKED: per-invoice/job terms override (15/30/45/60/75/90);
+                                            --   null = use customers.billing_terms default (§4.2)
   chris_notes     text                      -- the Excel "Chris Notes" column
   created_at      timestamptz NOT NULL DEFAULT now()
   updated_at      timestamptz NOT NULL DEFAULT now()   -- set_updated_at() trigger
 ```
-**Open:** key on `job_id` (Schedule-native, matches billing_log/materials) vs `call_log_id`
-(suite-canonical, survives WTC splits). **Recommend `job_id`** to match every other Schedule child
-table and the existing `billing_log`. `terms_override` is only needed if Chris wants the Excel
-per-invoice terms dropdown to override `customers.billing_terms`; otherwise drop it. **[DESIGN-OPEN]**
+**Key (locked): `job_id`** — matches every other Schedule child table (`billing_log`, `materials`)
+and the existing audit chain. **`terms_override` is locked IN** (real GCs vary terms by job, §4.2);
+it is the persistence home for the per-invoice override and takes precedence over the customer default.
+Constrain to the allowed set (15/30/45/60/75/90) via a CHECK, or NULL.
 
-### 6.2 `weekly_billing_snapshot` — the Monday-tab ritual (optional)
-Excel kept one tab per Monday. If Chris wants the historical weekly record (what was decided each
-week, "Total to Bill This Week," %Planned vs %Billed), store a per-week snapshot:
+### 6.2 `weekly_billing_snapshot` — the Monday-tab ritual [DESIGN LOCKED, DEFERRED to fast-follow]
+**Decision (locked): v1 ships a LIVE derived worklist (always current) — this table is NOT built in
+v1.** It is designed here so the fast-follow has a ready spec, but the live view + `job_changes` audit
+is sufficient for v1. Build it only when Chris wants frozen per-Monday history.
 ```
-weekly_billing_snapshot:
+weekly_billing_snapshot:   -- DEFERRED (fast-follow, not v1)
   id            uuid PK default gen_random_uuid()
   week_start    date NOT NULL              -- Monday
   job_id        int8 REFERENCES jobs(job_id) ON DELETE CASCADE
@@ -330,8 +351,6 @@ weekly_billing_snapshot:
   created_at    timestamptz NOT NULL DEFAULT now()
   UNIQUE (week_start, job_id)
 ```
-**Open:** is the live derived worklist enough, or does Chris need frozen weekly history? If the
-live view + `job_changes` audit suffices, **skip this table** for v1. **[DESIGN-OPEN]**
 
 ### 6.3 RLS pattern (LOCKED — copy from `20260512120100_job_wtcs_create.sql`)
 `jobs` has **no `tenant_id` column**; sch-command child tables scope tenant via the
@@ -385,28 +404,38 @@ Cards (JobsPicker):
   Budget          → INFUSE   (revenue from this tool; cost/margin stays DPR-gated)
 ```
 
-Legacy to retire (pending §5 ratification): the percent-based `billing_log` model + the current
-`Billing.jsx` 3-column view + `JobCardList`'s "Add to Bill List" percent input. **[DESIGN-OPEN]** —
-keep `billing_log` as a read-only historical artifact, or migrate/drop it.
+Legacy handling [LOCKED — Chris-ratified 2026-06-17]: stop writing to the percent-based `billing_log`
+model, retire the current `Billing.jsx` 3-column view + `JobCardList`'s "Add to Bill List" percent
+input behind the new worklist. **`billing_log` is kept READ-ONLY (no new writes); the table is NOT
+deleted.** Retire it fully only after the new surface is proven (reversible decision). `jobs.amount`
+remains display-only and is **never** authoritative (§3.2).
 
 ---
 
-## 8. Open questions for Chris (decision queue)
+## 8. Decision queue — RATIFICATION STATUS (updated 2026-06-17)
 
-1. **Cards (§5):** ratify Replace / Synchronize / Infuse for Ready-to-Bill / Production-Complete / Budget.
-2. **Legacy billing_log (§1.2, §7):** retire the percent model and its `/billing` view entirely, or
-   keep it read-only? The new tool reconciles against invoice *dollars*, not job-amount *percent*.
-3. **"Fully billed" authority (§3.2):** which total is canonical — proposal `total`,
-   `billing_schedule.contract_sum`, or Schedule's `jobs.amount`?
+**RESOLVED / LOCKED (Chris-ratified 2026-06-17):**
+
+1. ✅ **Cards (§5):** **Replace** Ready-to-Bill (tile→opens worklist, retire old percent view) ·
+   **Synchronize** Production-Complete (keep stage card, rewire footer to worklist needs-triage count) ·
+   **Infuse** Budget (revenue from real invoices now; margin/cost DPR-gated, out of scope this pass).
+2. ✅ **Legacy billing_log (§1.2, §3.2, §7):** keep **READ-ONLY, stop writing to it; do NOT delete**
+   the table. Retire fully after the new surface is proven (reversible).
+3. ✅ **"Fully billed" authority (§3.2):** **`billing_schedule.contract_sum` (SOV) where it exists,
+   else proposal `total`.** `jobs.amount` is the legacy placeholder and is **never** authoritative.
+6. ✅ **Forecast retention (§4.5):** **NET of retention** — expected-inflow counts only collectable-now
+   dollars; retention is a separate bucket/line, appearing as inflow when released.
+7. ✅ **Per-invoice terms override (§4.2/§6.1):** default from `customers.billing_terms` **plus** a
+   per-invoice override (15/30/45/60/75/90), persisted to `billing_worklist.terms_override`.
+8. ✅ **Weekly snapshot (§6.2):** v1 ships the **LIVE derived worklist** (always current);
+   `weekly_billing_snapshot` is designed but **deferred to a fast-follow**, not built in v1.
+
+**STILL OPEN (not ratified this pass):**
+
 4. **Completion signal (§3.3):** keep Excel's "end date this week" trigger, or upgrade to
    DPR-approved / WTC-complete?
 5. **Portal-submitted nuance (§3.1):** fold "submitted to customer portal" into "Sent to QB" (no new
    field), or track it separately?
-6. **Forecast gross vs net retention (§4.5):** show collectible (net of retention) or gross invoice amount?
-7. **Per-invoice terms override (§4.2/§6.1):** is `customers.billing_terms` enough, or do you need the
-   Excel 15/30/45/60/75/90 per-invoice override (→ `billing_worklist.terms_override`)?
-8. **Weekly snapshot history (§6.2):** need frozen per-Monday tabs, or is the live derived worklist +
-   `job_changes` audit sufficient for v1?
 9. **Who sets Hold–Sales (§3, role-gating):** role-gated (sales only) per the role-gating memory, or
    open to all Schedule users?
 
