@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJob, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
+import { loadJobWithWTCs, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
-import FieldSowBuilder from '../components/FieldSowBuilder'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -61,7 +60,6 @@ export default function JobDetail() {
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
   const [materials, setMaterials] = useState([])
-  const [proposalMaterials, setProposalMaterials] = useState([])
   const [changes, setChanges] = useState([])
   const [fieldCrew, setFieldCrew] = useState([])
   const [prts, setPrts] = useState([])
@@ -73,7 +71,7 @@ export default function JobDetail() {
     setLoading(true)
     const jid = parseInt(jobId)
     const [jobRes, asgnRes, blRes, matRes, chgRes] = await Promise.all([
-      loadJob(jid),
+      loadJobWithWTCs(jid),  // SCH1: populate job._wtcs so the Field SOW editor binds to canonical job_wtcs
       supabase.from('assignments').select('crew_name, date').eq('job_id', jid).order('date', { ascending: false }),
       supabase.from('billing_log').select('*').eq('job_id', jid).order('date', { ascending: false }),
       supabase.from('materials').select('*').eq('job_id', jid).order('ordinal'),
@@ -81,9 +79,9 @@ export default function JobDetail() {
     ])
     if (jobRes.data) {
       setJob(jobRes.data)
-      // Default tab: planning → fieldsow (top of planning tab list), else overview.
-      // The legacy 'schedule' tab is gone; the planning tab now starts at Field SOW.
-      setTab(prev => prev || (mode === 'planning' ? 'fieldsow' : 'overview'))
+      // Field SOW editing moved to the in-card CardSowModal (remediation step 3);
+      // JobDetail no longer hosts the SOW editor. Planning default → materials.
+      setTab(prev => prev || (mode === 'planning' ? 'materials' : 'overview'))
     }
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
@@ -92,31 +90,21 @@ export default function JobDetail() {
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
     if (clId) {
-      const [{ data: fcData }, prtRes, dlRes, tmRes, pwRes] = await Promise.all([
+      const [{ data: fcData }, prtRes, dlRes, tmRes] = await Promise.all([
         supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId),
         loadPRTsForJob(clId),
         loadDailyLogsForJob(clId),
         loadTeamMemberMap(),
-        supabase
-          .from('proposal_wtc')
-          .select('id, materials, proposals!inner(call_log_id)')
-          .eq('proposals.call_log_id', clId),
       ])
       setFieldCrew(fcData || [])
       setPrts(prtRes.data || [])
       setDailyLogs(dlRes.data || [])
       setTeamMap(tmRes.data || {})
-      const flat = []
-      ;(pwRes.data || []).forEach(w => (w.materials || []).forEach(m => {
-        if (m && m.id != null) flat.push({ ...m, _wtc_id: w.id })
-      }))
-      setProposalMaterials(flat)
     } else {
       setFieldCrew([])
       setPrts([])
       setDailyLogs([])
       setTeamMap({})
-      setProposalMaterials([])
     }
     setLoading(false)
   }, [jobId])
@@ -145,7 +133,6 @@ export default function JobDetail() {
   }
 
   const PLANNING_TABS = [
-    { key: 'fieldsow', label: 'Field SOW' },
     { key: 'materials', label: 'Materials' },
   ]
 
@@ -168,6 +155,15 @@ export default function JobDetail() {
           <span className={`jh-status-badge ${getStatusBadgeClass(getJobStatus(job))}`}>
             {getJobStatus(job)}
           </span>
+          {Array.isArray(job._wtcs) && job._wtcs.length > 0 && job._wtcs.some(w => !w.start_date) && (
+            <span
+              className="jd-tbd-badge"
+              title="One or more work types still need calendar dates"
+              style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 10, background: '#1c1814', color: '#30cfac' }}
+            >
+              Dates TBD
+            </span>
+          )}
           {weekMonday && (
             <button
               className="jd-sched-link"
@@ -436,28 +432,8 @@ export default function JobDetail() {
         )}
 
         {/* ── Field SOW ──────────────────────────────────── */}
-        {tab === 'fieldsow' && (
-          <div className="jd-section">
-            <FieldSowBuilder
-              key={job.job_id}
-              value={job.field_sow}
-              saving={false}
-              availableMaterials={proposalMaterials}
-              onSave={async (next) => {
-                await updateJobField(job.job_id, 'field_sow', next, changedBy)
-                setJob(prev => ({ ...prev, field_sow: next }))
-              }}
-            />
-            {job.sow && (
-              <details className="jd-sales-sow-collapse" style={{ marginTop: 20 }}>
-                <summary style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--sand-dark)', cursor: 'pointer' }}>
-                  Sales SOW (read-only reference)
-                </summary>
-                <pre className="jd-sow-text" style={{ marginTop: 8 }}>{job.sow}</pre>
-              </details>
-            )}
-          </div>
-        )}
+        {/* Field SOW editing moved to the in-card CardSowModal (remediation step 3) —
+            JobDetail is management/audit only (staged_ready_card_design.md §376). */}
 
         {/* ── Production (PRT list from Field Command) ───── */}
         {tab === 'production' && (

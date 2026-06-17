@@ -1,10 +1,11 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { updateJobField, updateJobFields } from '../lib/queries'
+import { updateJobField, updateJobStatus } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
-import { baseChecklistPasses } from '../lib/queries'
+import { baseChecklistPasses, hasFieldSow } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
+import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 
@@ -108,7 +109,7 @@ function StageBanner({ job, stage, crewRows, matRows, billingLog, prtMap, today 
 
   if (stage === 'staged') {
     const missing = []
-    if (job.field_sow == null) missing.push('📋')
+    if (!hasFieldSow(job)) missing.push('📋')
     if (crewRows.length === 0) missing.push('👷')
     if (matRows.length > 0 && matRows.some(m => ['Not Ordered', 'Delayed'].includes(m.status))) missing.push('📦')
     if ((job.scheduled_start || job.start_date) == null) missing.push('📅')
@@ -183,6 +184,8 @@ function IdentityRow({ job }) {
     : chips.length === 1
       ? (wtcs[0]?.work_type_name || job.work_type || '—')
       : (job.work_type || '—')
+  // SCH4 (#11): a sent WTC with no calendar dates yet (job_wtcs.start_date null).
+  const datesTbd = wtcs.length > 0 && wtcs.some(w => !w.start_date)
 
   return (
     <div className="sjc-identity">
@@ -196,14 +199,24 @@ function IdentityRow({ job }) {
       </div>
       <div className="sjc-id-bubble">
         <span className="sjc-id-label">WORK TYPES</span>
-        <span className="sjc-id-value">{workTypeLabel}</span>
+        <span className="sjc-id-value">
+          {workTypeLabel}
+          {datesTbd && (
+            <span
+              title="One or more work types still need calendar dates"
+              style={{ marginLeft: 8, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', padding: '1px 7px', borderRadius: 9, background: '#1c1814', color: '#30cfac', whiteSpace: 'nowrap' }}
+            >
+              Dates TBD
+            </span>
+          )}
+        </span>
       </div>
     </div>
   )
 }
 
 function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, onCrewClick, onMtrlClick, onDateClick }) {
-  const hasSOW = job.field_sow != null
+  const hasSOW = hasFieldSow(job)
   const hasCrew = crewRows.length >= 1
   const undecidedMats = matRows.filter(m => ['Not Ordered', 'Delayed'].includes(m.status)).length
   const matsOk = matRows.length === 0 || undecidedMats === 0
@@ -367,7 +380,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -375,12 +388,15 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const [panels, setPanels] = useState({ planning: false, management: false, details: false })
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
+  const [sowFocus, setSowFocus] = useState(null)        // { wtcId, dayIndex } from DaysModal handoff (Option 3)
+  const [showPrintModal, setShowPrintModal] = useState(false)
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
   const matRows = matsByJobId[job.job_id] || []
+  const proposalMaterials = proposalMaterialsByCallLog[job.call_log_id] || []
   const logsCount = logsByCallLog[job.call_log_id] || 0
   const assignmentDates = assignmentsByJobId[job.job_id] || null
 
@@ -400,7 +416,8 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const handleKickoff = useCallback(async () => {
     setActing(true)
-    const { error } = await updateJobField(job.job_id, 'status', 'In Progress', changedBy)
+    // Stage-sync chokepoint (SCH3): syncs call_log.stage → 'In Progress' too.
+    const { error } = await updateJobStatus(job.job_id, 'In Progress', changedBy)
     if (error) { console.error(error); setActing(false); return }
     if (onJobUpdate) onJobUpdate()
     setActing(false)
@@ -408,12 +425,15 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   const handleResume = useCallback(async () => {
     setActing(true)
-    const { error } = await updateJobFields(
+    // Stage-sync chokepoint (SCH3): resume writes status 'Scheduled' →
+    // call_log.stage 'Scheduled' (in-filter). ready_confirmed_at is cleared as
+    // a paired field; its audit row is still skipped (DB trigger handles it).
+    const { error } = await updateJobStatus(
       job.job_id,
-      { status: 'Scheduled', ready_confirmed_at: null },
+      'Scheduled',
       changedBy,
       'on_hold_resume',
-      { skipAuditFields: ['ready_confirmed_at'] }
+      { extraFields: { ready_confirmed_at: null }, skipAuditFields: ['ready_confirmed_at'] }
     )
     if (error) { console.error(error); setActing(false); return }
     if (onJobUpdate) onJobUpdate()
@@ -465,7 +485,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           crewRows={crewRows}
           matRows={matRows}
           assignmentDates={assignmentDates}
-          onSowClick={() => setShowSowModal(true)}
+          onSowClick={() => { setSowFocus(null); setShowSowModal(true) }}
           onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={goCrewSchedule}
           onDateClick={() => setShowDaysModal(true)}
@@ -517,12 +537,24 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
       </div>
 
       {showSowModal && (
-        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowSowModal(false) }}>
+        <CardSowModal
+          job={job}
+          proposalMaterials={proposalMaterials}
+          changedBy={changedBy}
+          initialWtcId={sowFocus?.wtcId ?? null}
+          initialDayIndex={sowFocus?.dayIndex ?? null}
+          onClose={() => setShowSowModal(false)}
+          onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
+          onPrint={() => setShowPrintModal(true)}
+        />
+      )}
+
+      {showPrintModal && (
+        <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowPrintModal(false) }}>
           <div className="mdl mdl-lg">
             <FieldSowModal
               job={job}
-              onClose={() => setShowSowModal(false)}
-              onUpdated={() => { setShowSowModal(false); if (onJobUpdate) onJobUpdate() }}
+              onClose={() => setShowPrintModal(false)}
             />
           </div>
         </div>
@@ -537,7 +569,18 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
       )}
 
       {showDaysModal && (
-        <DaysModal job={job} assignmentDates={assignmentDates} onClose={() => setShowDaysModal(false)} />
+        <DaysModal
+          job={job}
+          assignmentDates={assignmentDates}
+          onClose={() => setShowDaysModal(false)}
+          onDayClick={(wtcId, dayIndex) => {
+            // Option-3 handoff: close DAYS, open the canonical SOW modal focused on
+            // that WTC + day. DAYS modal writes nothing — it only navigates.
+            setShowDaysModal(false)
+            setSowFocus({ wtcId, dayIndex })
+            setShowSowModal(true)
+          }}
+        />
       )}
     </div>
   )

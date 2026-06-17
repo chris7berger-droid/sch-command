@@ -4,27 +4,47 @@ const safeName = m => m.product || m.name || 'Unnamed material'
 const safeKit  = m => m.kit_size || m.kit || ''
 const safeId   = m => String(m.id)
 
-const newCustomId = () => {
-  const rand = (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  return `custom_${rand}`
-}
+const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const newCustomId = () => `custom_${uid()}`
 const isCustomId = (id) => String(id || '').startsWith('custom_')
 
-const newTask = () => ({ id: Date.now() + Math.random(), description: '', pct_complete: 0 })
+const newTask = () => ({ id: uid(), description: '', pct_complete: 0 })
 const newDay = (idx) => ({
-  id: Date.now() + Math.random(),
+  id: uid(),
   day_label: `Day ${idx + 1}`,
+  date: null,           // Schedule sets the calendar date (SCH2); null = TBD
   tasks: [newTask()],
   crew_count: 0,
   hours_planned: 0,
   materials: [],
 })
 
-export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [] }) {
-  const [days, setDays] = useState(() => Array.isArray(value) ? value : [])
+// Assign stable ids to loaded days/tasks that lack them. CRITICAL: updateDayField/
+// updateTask match by id (days.map(d => d.id === id ? …)). Persisted SOW that was
+// saved without ids comes back with id===undefined on EVERY day, so a single-day
+// edit would hit ALL days (observed: editing Day 2 set all 3 days to one date).
+// Normalizing on load guarantees each day/task is uniquely addressable.
+const withIds = (val) => (Array.isArray(val) ? val : []).map(d => ({
+  ...d,
+  id: d.id ?? uid(),
+  tasks: (Array.isArray(d.tasks) ? d.tasks : []).map(t => ({ ...t, id: t.id ?? uid() })),
+}))
+
+export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], focusDayIndex = null }) {
+  const [days, setDays] = useState(() => withIds(value))
   const [dirty, setDirty] = useState(false)
+  const wrapRef = useRef(null)
+
+  // Option-3 day focus: scroll the requested day into view on mount (best-effort;
+  // no-op if the index is out of range). Set by the DaysModal click-to-edit handoff.
+  useEffect(() => {
+    if (focusDayIndex == null || !wrapRef.current) return
+    const el = wrapRef.current.querySelector(`[data-day-idx="${focusDayIndex}"]`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [focusDayIndex])
 
   const update = useCallback((next) => {
     setDays(next)
@@ -34,7 +54,9 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   const addDay = () => update([...days, newDay(days.length)])
   const removeDay = (id) => update(days.filter(d => d.id !== id))
   const updateDayField = (id, key, val) => update(days.map(d =>
-    d.id === id ? { ...d, [key]: key === 'day_label' ? val : (parseFloat(val) || 0) } : d
+    // 'date' is exempt from numeric coercion (it's an ISO string, not a number);
+    // without this the per-day date would NaN→0 on any other day-field edit (SCH2).
+    d.id === id ? { ...d, [key]: ['day_label', 'date'].includes(key) ? val : (parseFloat(val) || 0) } : d
   ))
 
   const addTask = (dayId) => update(days.map(d =>
@@ -113,12 +135,17 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   }, [days])
 
   const handleSave = async () => {
-    // Strip transient ids before save (keep stable shape: tasks, materials, day fields)
+    // PERSIST stable day/task ids (do NOT strip) so a later reload can address
+    // each day individually — stripping caused id===undefined collisions where a
+    // single-day edit hit every day. ids are durable, render+update keys.
     const clean = days.map(d => ({
+      id: d.id,
       day_label: d.day_label,
+      date: d.date || null,   // Schedule calendar layer (SCH2) — preserve per-day date
       crew_count: d.crew_count || 0,
       hours_planned: d.hours_planned || 0,
       tasks: (d.tasks || []).map(t => ({
+        id: t.id,
         description: t.description || '',
         pct_complete: parseFloat(t.pct_complete) || 0,
       })),
@@ -140,7 +167,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   }
 
   return (
-    <div className="fsb-wrap">
+    <div className="fsb-wrap" ref={wrapRef}>
       <div className="fsb-header">
         <div className="fsb-title">Field SOW · {days.length} day{days.length !== 1 ? 's' : ''} planned</div>
         <div className="fsb-header-actions">
@@ -155,6 +182,10 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
         </div>
       </div>
 
+      <div className="fsb-scope-note" style={{ fontSize: 12, color: 'var(--sand-dark)', margin: '0 0 12px', lineHeight: 1.4 }}>
+        <strong>Scope is frozen (from the sale).</strong> You're setting the calendar — per-day dates, crew, and hours. Editing here never changes the bid.
+      </div>
+
       {days.length === 0 && (
         <div className="fsb-empty">
           No day entries yet. Click <strong>+ Add Day</strong> to define the field plan.
@@ -162,7 +193,7 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
       )}
 
       {days.map((day, dayIdx) => (
-        <div key={day.id} className="fsb-day">
+        <div key={day.id} className="fsb-day" data-day-idx={dayIdx}>
           <div className="fsb-day-header">
             <div className="fsb-field">
               <label className="fsb-label">Day Label</label>
@@ -171,6 +202,15 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
                 className="fsb-input fsb-input-sm"
                 value={day.day_label || ''}
                 onChange={e => updateDayField(day.id, 'day_label', e.target.value)}
+              />
+            </div>
+            <div className="fsb-field">
+              <label className="fsb-label">Date{!day.date && ' (TBD)'}</label>
+              <input
+                type="date"
+                className="fsb-input fsb-input-sm"
+                value={day.date || ''}
+                onChange={e => updateDayField(day.id, 'date', e.target.value)}
               />
             </div>
             <div className="fsb-field">

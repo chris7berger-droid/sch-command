@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { STATUS_OPTIONS_PICKER } from './jobStatus'
 
 // ── Paginating loader ──────────────────────────────────────────────────────
 // PostgREST caps at 1000 rows. This helper pages through with .range().
@@ -33,9 +34,20 @@ export async function loadAllRows(tableName, selectStr, {
 
 // ── Staged/Ready checklist ─────────────────────────────────────────────────
 // Base checklist: SOW + date + crew + materials-decided.
+// Canonical "does this job have a Field SOW?" test (§4.1). Mirrored VERBATIM by
+// SQL job_base_checklist_passes. WTC branch: a job_wtcs row with a non-empty
+// ARRAY field_sow — Array.isArray guards the jsonb-NOT-NULL-but-unconstrained
+// column (a non-array row ⇒ "no SOW", never a throw). Parent branch: legacy
+// merged jobs fall back to the nullable jobs.field_sow. Every JS SOW-present
+// reader imports THIS — no inline field_sow null-checks (grep gate §7.1 O3).
+export function hasFieldSow(job) {
+  return (job?._wtcs?.some(w => Array.isArray(w.field_sow) && w.field_sow.length))
+    || job?.field_sow != null
+}
+
 // Uses blacklist for materials to match SQL job_base_checklist_passes().
 export function baseChecklistPasses(job, crewRows, materialRows) {
-  const hasSOW = job.field_sow != null
+  const hasSOW = hasFieldSow(job)
   const hasDate = (job.scheduled_start || job.start_date) != null
   const hasCrew = crewRows.length >= 1
   const materialsDecided = materialRows.length === 0
@@ -232,6 +244,73 @@ export async function updateJobFields(jobId, updates, changedBy, source = 'sched
   return { error: null }
 }
 
+// ── Stage-sync chokepoint (SCH3) ────────────────────────────────────────────
+// Every jobs.status write MUST go through updateJobStatus() so the paired
+// call_log.stage (which drives Field's PowerSync visibility filter) can never
+// drift out of sync. Stage resolution lives INSIDE the helper, so no caller can
+// forget it; the map is fully enumerated and the helper THROWS (fail-closed) on
+// any unmapped status rather than silently skipping the stage write.
+//
+// On Hold → 'In Progress' (Option 1, LOCKED 2026-06-12): 'In Progress' is
+// already in the Field call_log.stage filter, so a held job stays synced to the
+// crew with NO powersync-sync-rules.yaml edit. See plan §3.6 + §SCH3.
+const STATUS_TO_STAGE = {
+  'Scheduled':   'Scheduled',
+  'In Progress': 'In Progress',
+  'On Hold':     'In Progress',
+  'Ongoing':     'In Progress',
+  'Complete':    'Complete',
+}
+
+// Startup invariant: every status the user can assign from the dropdown must
+// have a stage mapping, else updateJobStatus would throw the moment it's picked.
+// This converts "someone added a dropdown option without a map entry" into a
+// loud, pre-ship failure instead of a silently-stale stage that drops the job
+// from the crew.
+for (const pickerStatus of STATUS_OPTIONS_PICKER) {
+  if (STATUS_TO_STAGE[pickerStatus] === undefined) {
+    throw new Error(
+      `STATUS_TO_STAGE is missing an entry for picker status "${pickerStatus}" — ` +
+      `every STATUS_OPTIONS_PICKER value must map to a call_log stage (SCH3 fail-closed invariant).`
+    )
+  }
+}
+
+// Write jobs.status (plus any paired fields) and unconditionally sync the
+// paired call_log.stage. Routes the jobs write through updateJobFields so audit
+// logging + the on_hold_resume source/skipAuditFields behavior are preserved.
+//   opts.extraFields     — extra jobs columns to write alongside status
+//                          (e.g. { ready_confirmed_at: null } on resume)
+//   opts.skipAuditFields — fields to skip in the job_changes audit log
+export async function updateJobStatus(jobId, newStatus, changedBy, source = 'schedule_command', { extraFields = {}, skipAuditFields = [] } = {}) {
+  // Fail-closed: resolve the stage BEFORE any write. An unmapped status throws
+  // here, so neither jobs.status nor call_log.stage is touched.
+  const newStage = STATUS_TO_STAGE[newStatus]
+  if (newStage === undefined) {
+    throw new Error(
+      `updateJobStatus: unmapped status "${newStatus}" — add it to STATUS_TO_STAGE ` +
+      `(fail-closed: refusing to write a status with no paired call_log stage).`
+    )
+  }
+
+  // 1) write jobs.status (+ paired fields) through the audit-logged path
+  const { error } = await updateJobFields(jobId, { status: newStatus, ...extraFields }, changedBy, source, { skipAuditFields })
+  if (error) return { error }
+
+  // 2) unconditionally sync the paired call_log.stage when the job has a call_log
+  const { data: jobRow } = await supabase
+    .from('jobs')
+    .select('call_log_id')
+    .eq('job_id', jobId)
+    .single()
+  if (jobRow?.call_log_id) {
+    const { error: stageErr } = await updateCallLogStage(jobRow.call_log_id, newStage, changedBy, source)
+    if (stageErr) return { error: stageErr }
+  }
+
+  return { error: null }
+}
+
 // ── PRT readers (Field Command writes via PowerSync) ───────────────────────
 // daily_production_reports.job_id is FK to call_log.id (NOT jobs.job_id).
 // Always pass job.call_log_id, not job.job_id.
@@ -410,6 +489,58 @@ export async function updateCallLogStage(callLogId, newStage, changedBy, source 
       field: 'stage',
       old_value: oldStage || null,
       new_value: newStage,
+      changed_by: changedBy,
+      source,
+    })
+  }
+
+  return { error: null }
+}
+
+// ── Schedule calendar-layer write on job_wtcs (SCH1) ────────────────────────
+// Schedule owns the calendar on job_wtcs: per-day dates live in
+// field_sow[*].date and the WTC span lives in start_date/end_date (derived here
+// from the per-day dates). All Schedule field_sow / per-day-date writes route
+// through this helper so they are audit-logged like every other job write — do
+// NOT write job_wtcs via a raw supabase.from('job_wtcs').update(). Scope is
+// frozen at the proposal; this only moves the calendar, never financials.
+//
+// NOTE: field_sow is an ARRAY of day objects, so old/new values are serialized
+// with JSON.stringify — NOT String() (which the scalar helpers use). String()
+// on an array yields structure-losing garbage in the audit row. See plan §SCH1.
+export async function updateJobWtcFieldSow(jobWtcId, nextFieldSow, changedBy, source = 'schedule_command') {
+  // read current field_sow + parent job/call_log for the audit row
+  const { data: current, error: readErr } = await supabase
+    .from('job_wtcs')
+    .select('field_sow, job_id, jobs(call_log_id)')
+    .eq('id', jobWtcId)
+    .single()
+  if (readErr) return { error: readErr }
+
+  // Derive the WTC calendar span from the per-day dates (null when none dated —
+  // the §6.6 migration made start_date/end_date nullable for exactly this).
+  const dates = (nextFieldSow || []).map(d => d && d.date).filter(Boolean).sort()
+  const startDate = dates[0] || null
+  const endDate = dates.length ? dates[dates.length - 1] : null
+
+  // write field_sow + derived span
+  const { error } = await supabase
+    .from('job_wtcs')
+    .update({ field_sow: nextFieldSow, start_date: startDate, end_date: endDate })
+    .eq('id', jobWtcId)
+  if (error) return { error }
+
+  // audit-log — JSON.stringify (not String()); keyed on the parent job so the
+  // history view still attributes the change to the job.
+  const oldStr = JSON.stringify(current?.field_sow ?? [])
+  const newStr = JSON.stringify(nextFieldSow ?? [])
+  if (oldStr !== newStr) {
+    await supabase.from('job_changes').insert({
+      job_id: current?.job_id ?? null,
+      call_log_id: current?.jobs?.call_log_id ?? null,
+      field: `job_wtc.field_sow:${jobWtcId}`,
+      old_value: oldStr,
+      new_value: newStr,
       changed_by: changedBy,
       source,
     })

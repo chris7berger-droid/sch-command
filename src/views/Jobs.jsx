@@ -133,6 +133,7 @@ export default function Jobs() {
   const [materials, setMaterials] = useState([])
   const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
+  const [proposalMaterialsByCallLog, setProposalMaterialsByCallLog] = useState({})
   const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -203,6 +204,30 @@ export default function Jobs() {
     setSyncWarning(matsRes.partial || logsRes.partial ? 'Counts may be stale — partial data loaded' : null)
 
     const loadedJobs = jobsRes.data || []
+
+    // Batched proposal_wtc materials for the in-card SOW editor's per-WTC picker
+    // (remediation §6.1 Finding C). ONE query keyed on all loaded jobs'
+    // call_log_ids — NOT N per-card queries. Flattened + tagged with
+    // _wtc_id = proposal_wtc.id, grouped by call_log_id; the card filters per WTC.
+    const pmCallLogIds = [...new Set(loadedJobs.map(j => j.call_log_id).filter(Boolean))]
+    if (pmCallLogIds.length > 0) {
+      const { data: pwData } = await supabase
+        .from('proposal_wtc')
+        .select('id, materials, proposals!inner(call_log_id)')
+        .in('proposals.call_log_id', pmCallLogIds)
+      if (thisLoad !== loadIdRef.current) return
+      const pmMap = {}
+      ;(pwData || []).forEach(w => {
+        const clId = w.proposals?.call_log_id
+        if (clId == null) return
+        const arr = pmMap[clId] || (pmMap[clId] = [])
+        ;(w.materials || []).forEach(m => { if (m && m.id != null) arr.push({ ...m, _wtc_id: w.id }) })
+      })
+      setProposalMaterialsByCallLog(pmMap)
+    } else {
+      setProposalMaterialsByCallLog({})
+    }
+
     const activeCallLogIds = loadedJobs
       .filter(j => j.status === 'In Progress' || j.status === 'Ongoing')
       .map(j => j.call_log_id)
@@ -442,6 +467,7 @@ export default function Jobs() {
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
@@ -456,6 +482,7 @@ export default function Jobs() {
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
@@ -473,6 +500,7 @@ export default function Jobs() {
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               billingLog={billingLog}
               prtMap={prtMap}
               today={today}
@@ -492,6 +520,7 @@ export default function Jobs() {
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               prtMap={prtMap}
               onJobUpdate={loadData}
             />
@@ -504,6 +533,7 @@ export default function Jobs() {
               matsByJobId={matsByJobId}
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
