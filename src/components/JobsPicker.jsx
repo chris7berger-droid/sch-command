@@ -2,14 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getJobStatus } from '../lib/jobStatus'
 import { getJobMultiWeekAlert, isReady, hasFieldSow } from '../lib/queries'
-
-function getMonday(d) {
-  const dt = new Date(d)
-  const day = dt.getDay()
-  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1))
-  dt.setHours(0, 0, 0, 0)
-  return dt
-}
+import { getMonday } from '../lib/weeks'
 
 function isThisWeek(dateStr, today) {
   if (!dateStr) return false
