@@ -80,7 +80,7 @@ Two real-data corrections also came out of the walkthrough and are recorded for 
 - `billing_worklist` table **live on prod** (additive, RLS, ledger-reconciled). No other prod changes.
 - T4 buildvsplan: **SMOKE GO**, 0 blockers; its 3 Tier-2 findings fixed.
 - Preview validated by Chris on the Vercel branch deploy.
-- **9-item refinement punch-list** captured as session tasks (#1 header/back · #2 time-filters · #3 card-picker = lifecycle categories · #4 deposit feature · #5 clickable→Sales · #6 bubble restyle · #7 AR aging · #8 per-section time-scoping + scheduled-only population + section renames · #9 forward billing-calendar). Plus the lifecycle Delta (merges into #3/#8).
+- **9-item refinement punch-list filed durably in `docs/BACKLOG.md` as BF-1..9** (full specs in the Notes column): BF-1 header/back · BF-2 time-filters · BF-3 card-picker = lifecycle categories (absorbs the lifecycle Delta + "Job not started" flag + clean-rows/controls-in-drill-in + section renames) · BF-4 deposit feature (cross-repo) · BF-5 clickable→Sales · BF-6 bubble restyle + clickable forecast · BF-7 Past-Due AR aging + caveat reword · BF-8 per-section time-scoping + scheduled-only population · BF-9 forward billing-calendar.
 - Backlog: ADJ-1 verified forecast-safe; ADJ-3/N9/N10 closed in-build; ADJ-6 re-scoped (partial *payment*, non-GC); ADJ-7 narrowed (only JobDetail history read deferred).
 - **Loop #35 closed** (`~/erd-loop/LOG.md`): big build · came out drifted (happy) · weight lighter.
 
