@@ -1,17 +1,11 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
 import { updateJobStatus, updateJobFields } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus } from '../lib/jobStatus'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
-
-function fmtD(d) {
-  const dt = d instanceof Date ? d : new Date(d)
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
-}
 
 function isPW(j) {
   return j && (j.prevailing_wage === 'Yes' || j.prevailing_wage === true)
@@ -31,13 +25,6 @@ function gTagClass(t) {
   return 'tg-default'
 }
 
-function getBilledTotal(billingLog, jobId) {
-  if (!billingLog || !billingLog.length) return 0
-  return billingLog
-    .filter(b => b.job_id === jobId)
-    .reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
-}
-
 function daysBetween(dateStr, refDate) {
   if (!dateStr) return null
   const d = new Date(dateStr + 'T00:00:00')
@@ -51,7 +38,7 @@ function fmtMoney(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-function getJobFlags(job, billingLog, today) {
+function getJobFlags(job, today) {
   const flags = []
   const status = getJobStatus(job)
 
@@ -61,16 +48,9 @@ function getJobFlags(job, billingLog, today) {
     if (daysLeft !== null && daysLeft < 0) flags.push('OVERDUE')
   }
 
-  if (status !== 'Complete' && job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
-    const billed = getBilledTotal(billingLog, job.job_id)
-    if (billed === 0) flags.push('UNBILLED')
-  }
-
-  if (job.partial_billing === 'Yes' && job.billing_paused !== 'Yes' && job.amount && parseFloat(job.amount) > 0) {
-    const billed = getBilledTotal(billingLog, job.job_id)
-    if (billed < 100) flags.push('READY TO INVOICE')
-  }
-
+  // Billing-derived flags (UNBILLED / READY TO INVOICE) removed: they were
+  // computed off the retired billing_log percent placeholder. Billing status
+  // now lives on the /billing worklist.
   return flags
 }
 
@@ -83,18 +63,15 @@ function renderTags(workType) {
 
 /* ── component ──────────────────────────────────────────────────── */
 
-export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, today, emptyText = 'No jobs match this filter' }) {
+export default function JobCardList({ jobs, setJobs, today, emptyText = 'No jobs match this filter' }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || changedBy
 
   const [expandedId, setExpandedId] = useState(null)
-  const [pctInput, setPctInput] = useState('')
-  const [saving, setSaving] = useState(false)
 
   const toggleExpand = useCallback((job) => {
     setExpandedId(prev => prev === job.job_id ? null : job.job_id)
-    setPctInput('')
   }, [])
 
   const updateStatus = useCallback(async (jobId, newStatus) => {
@@ -115,30 +92,6 @@ export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, 
     if (expandedId === jobId) setExpandedId(null)
   }, [expandedId, setJobs, changedBy])
 
-  const addToBillList = useCallback(async (job) => {
-    const pct = parseFloat(pctInput)
-    if (isNaN(pct) || pct <= 0 || pct > 100) {
-      alert('Enter a valid percent (1-100)')
-      return
-    }
-    setSaving(true)
-    const existing = getBilledTotal(billingLog, job.job_id)
-    const { error: err } = await supabase.from('billing_log').insert({
-      job_id: job.job_id,
-      date: fmtD(new Date()),
-      percent: pct,
-      cumulative_percent: existing + pct,
-      type: 'partial',
-      notes: '',
-      invoiced: 'No',
-    })
-    if (err) { console.error(err); setSaving(false); return }
-    const { data } = await supabase.from('billing_log').select('*')
-    if (data) setBillingLog(data)
-    setPctInput('')
-    setSaving(false)
-  }, [pctInput, billingLog, setBillingLog])
-
   if (!jobs.length) return <div className="jh-empty">{emptyText}</div>
 
   return (
@@ -146,11 +99,9 @@ export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, 
       {jobs.map(j => {
         const status = getJobStatus(j)
         const statusClass = status === 'Ongoing' || status === 'Scheduled' || status === 'In Progress' ? 'og' : status === 'On Hold' ? 'oh' : 'cp'
-        const billedPct = getBilledTotal(billingLog, j.job_id)
         const amount = j.amount ? parseFloat(j.amount) : 0
-        const billedAmt = amount > 0 ? Math.round(amount * billedPct / 100) : 0
         const daysLeft = daysBetween(effectiveEnd(j), today)
-        const flags = getJobFlags(j, billingLog, today)
+        const flags = getJobFlags(j, today)
         const isExpanded = expandedId === j.job_id
 
         return (
@@ -188,25 +139,9 @@ export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, 
                 {j.no_bill === 'Yes' && <span className="nb-tag">NO BILL</span>}
               </div>
 
-              {amount > 0 && j.no_bill !== 'Yes' && (
-                <div className="jh-progress-row">
-                  <div className="jh-progress-bar">
-                    <div
-                      className={`jh-progress-fill${billedPct >= 100 ? ' done' : ''}`}
-                      style={{ width: `${Math.min(billedPct, 100)}%` }}
-                    />
-                  </div>
-                  <span className={`jh-progress-lbl${billedPct >= 100 ? ' done' : ''}`}>
-                    {Math.round(billedPct)}%
-                  </span>
-                </div>
-              )}
-
               <div className="jh-card-meta">
                 {amount > 0 && (
-                  <span className="jh-money">
-                    {fmtMoney(billedAmt)} / {fmtMoney(amount)}
-                  </span>
+                  <span className="jh-money">{fmtMoney(amount)}</span>
                 )}
                 {flags.map(f => (
                   <span key={f} className={`jh-flag ${f === 'OVERDUE' ? 'flag-red' : f === 'UNBILLED' ? 'flag-orange' : 'flag-cyan'}`}>
@@ -230,28 +165,6 @@ export default function JobCardList({ jobs, setJobs, billingLog, setBillingLog, 
                     <option value="On Hold">On Hold</option>
                     <option value="Complete">Complete</option>
                   </select>
-
-                  {amount > 0 && j.no_bill !== 'Yes' && (
-                    <div className="jh-bill-action">
-                      <input
-                        type="number"
-                        className="jh-pct-input"
-                        placeholder="% to bill"
-                        min="1"
-                        max="100"
-                        value={pctInput}
-                        onChange={e => setPctInput(e.target.value)}
-                        onClick={e => e.stopPropagation()}
-                      />
-                      <button
-                        className="jh-bill-btn"
-                        disabled={saving}
-                        onClick={e => { e.stopPropagation(); addToBillList(j) }}
-                      >
-                        {saving ? 'Saving...' : 'Add to Bill List'}
-                      </button>
-                    </div>
-                  )}
 
                   {/* "Job Planning" deep-link removed (remediation step 3) — JobDetail
                       planning is deprecated; SOW edits happen in the in-card modal. */}

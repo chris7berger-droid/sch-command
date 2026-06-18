@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { loadJobs, loadBillingSurfaceData, setBillingWorklistFlag } from '../lib/queries'
 import { buildBillingSurface } from '../lib/billingForecast'
@@ -28,6 +28,7 @@ export default function Billing() {
   const [surface, setSurface] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busyJobId, setBusyJobId] = useState(null)
+  const loadIdRef = useRef(0)
 
   const setTab = useCallback((next) => {
     setSearchParams((prev) => {
@@ -38,13 +39,19 @@ export default function Billing() {
   }, [setSearchParams])
 
   const loadData = useCallback(async () => {
+    const thisLoad = ++loadIdRef.current
     setLoading(true)
     const [jRes, data] = await Promise.all([loadJobs(), loadBillingSurfaceData()])
+    if (thisLoad !== loadIdRef.current) return // a newer load superseded this one
     setJobs(jRes.data || [])
     setSurface(data)
     setLoading(false)
   }, [])
 
+  // Mount data-load (same idiom as Jobs.jsx loadData). The set-state-in-effect
+  // rule false-positives on this short loadData but not Jobs.jsx's longer one;
+  // the loadIdRef guard already prevents the cascading-render concern.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadData() }, [loadData])
 
   const built = useMemo(() => {

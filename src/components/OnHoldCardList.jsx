@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { getJobStatus } from '../lib/jobStatus'
 import StageJobCard from './StageJobCard'
 
-export default function OnHoldCardList({ filteredJobs, jobs, setJobs, billingLog, setBillingLog, today, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, prtMap = new Map(), onJobUpdate }) {
+export default function OnHoldCardList({ filteredJobs, jobs, setJobs, today, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, prtMap = new Map(), onJobUpdate }) {
   const onHold = useMemo(
     () => filteredJobs.filter(j => getJobStatus(j) === 'On Hold'),
     [filteredJobs]
@@ -24,7 +24,6 @@ export default function OnHoldCardList({ filteredJobs, jobs, setJobs, billingLog
           logsByCallLog={logsByCallLog}
           assignmentsByJobId={assignmentsByJobId}
           proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-          billingLog={billingLog}
           prtMap={prtMap}
           today={today}
           onJobUpdate={onJobUpdate}

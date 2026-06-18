@@ -25,12 +25,6 @@ function fmtMoney(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
-function getBilledTotal(billingLog, jobId) {
-  if (!billingLog || !billingLog.length) return 0
-  return billingLog
-    .filter(b => b.job_id === jobId)
-    .reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
-}
 
 function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -98,7 +92,7 @@ function getPrtStatus(prts) {
   return { label: 'on target', color: 'ok' }
 }
 
-function StageBanner({ job, stage, crewRows, matRows, billingLog, prtMap, today }) {
+function StageBanner({ job, stage, crewRows, matRows, prtMap, today }) {
   const start = effectiveStart(job)
   const daysToKickoff = start ? daysBetween(start, today) : null
   const kickoffText = daysToKickoff !== null
@@ -161,14 +155,10 @@ function StageBanner({ job, stage, crewRows, matRows, billingLog, prtMap, today 
   if (stage === 'complete') {
     const endDate = effectiveEnd(job)
     const ago = endDate ? daysBetween(new Date().toISOString().slice(0, 10), endDate) : null
-    const billedPct = getBilledTotal(billingLog, job.job_id)
-    const amount = job.amount ? parseFloat(job.amount) : 0
-    const unbilled = amount > 0 && billedPct < 100
     return (
       <div className="sjc-banner sjc-banner-complete">
         <span className="sjc-banner-stage">COMPLETE</span>
         {ago != null && <span className="sjc-banner-countdown">finished {Math.abs(ago)}d ago</span>}
-        {unbilled && <span className="sjc-banner-warn">{fmtMoney(amount - (amount * billedPct / 100))} unbilled</span>}
       </div>
     )
   }
@@ -262,13 +252,8 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
   )
 }
 
-function ManagementPanel({ job, stage, logsCount = 0, billingLog, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
+function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
   const amount = job.amount ? parseFloat(job.amount) : 0
-  const billedPct = getBilledTotal(billingLog, job.job_id)
-  const billedClass = billedPct >= 100 ? 'sjc-score-ok'
-    : billedPct > 0 ? 'sjc-score-warn'
-    : stage === 'complete' && amount > 0 ? 'sjc-score-bad'
-    : 'sjc-score-neutral'
 
   return (
     <div className="sjc-panel sjc-panel-management">
@@ -278,10 +263,10 @@ function ManagementPanel({ job, stage, logsCount = 0, billingLog, prtMap, onBill
           <span className="sjc-score-label">PROP</span>
           <span className="sjc-score-val">{amount > 0 ? fmtMoney(amount) : '—'}</span>
         </div>
-        <div className={`sjc-score sjc-score-click ${billedClass}`} onClick={onBilledClick}>
+        <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onBilledClick}>
           <span className="sjc-score-icon">{'📊'}</span>
-          <span className="sjc-score-label">BILLED</span>
-          <span className="sjc-score-val">{amount > 0 ? `${Math.round(billedPct)}%` : '—'}</span>
+          <span className="sjc-score-label">BILLING</span>
+          <span className="sjc-score-val">View &rarr;</span>
         </div>
         {(() => {
           const prts = prtMap instanceof Map ? (prtMap.get(job.call_log_id) || []) : []
@@ -380,7 +365,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, billingLog = [], prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -441,7 +426,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   }, [job.job_id, changedBy, onJobUpdate])
 
   const handleSendToBilling = useCallback(() => {
-    navigate('/billing')
+    navigate('/billing?tab=worklist')
   }, [navigate])
 
   // Scorecard click handlers — navigate to JobDetail with the right tab
@@ -465,7 +450,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
 
   return (
     <div className="sjc-card">
-      <StageBanner job={job} stage={stage} crewRows={crewRows} matRows={matRows} billingLog={billingLog} prtMap={prtMap} today={today} />
+      <StageBanner job={job} stage={stage} crewRows={crewRows} matRows={matRows} prtMap={prtMap} today={today} />
 
       <div className="sjc-header" onClick={() => navigate(`/jobs/${job.job_id}?mode=management`)}>
         <span className="sjc-header-title">{getCardTitle(job, job._wtcs)}</span>
@@ -496,9 +481,8 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           job={job}
           stage={stage}
           logsCount={logsCount}
-          billingLog={billingLog}
           prtMap={prtMap}
-          onBilledClick={() => navigate('/billing')}
+          onBilledClick={() => navigate('/billing?tab=worklist')}
           onPrtClick={() => goManagementTab('production')}
           onLogsClick={() => goManagementTab('daily-log')}
           onNotesClick={() => setShowNotes(prev => !prev)}

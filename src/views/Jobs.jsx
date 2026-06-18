@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady } from '../lib/queries'
+import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist } from '../lib/queries'
 import JobsPicker from '../components/JobsPicker'
 import JobCardList from '../components/JobCardList'
 import StagedCardList from '../components/StagedCardList'
@@ -15,8 +15,8 @@ const TAB_REDIRECTS = {
   pipeline: '/jobs?tab=scheduled',
   ready: '/schedule',
   schedule: '/schedule',
-  billing: '/billing',
-  'ready-to-bill': '/billing',
+  billing: '/billing?tab=worklist',
+  'ready-to-bill': '/billing?tab=worklist',
 }
 
 /* ── helpers (shared with PipelineTab; kept here for shell-level filters) ── */
@@ -49,13 +49,6 @@ function getQuarterEnd(d) {
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
 
-function getBilledTotal(billingLog, jobId) {
-  if (!billingLog || !billingLog.length) return 0
-  return billingLog
-    .filter(b => b.job_id === jobId)
-    .reduce((sum, b) => sum + (parseFloat(b.percent) || 0), 0)
-}
-
 function daysBetween(dateStr, refDate) {
   if (!dateStr) return null
   const d = new Date(dateStr + 'T00:00:00')
@@ -64,7 +57,7 @@ function daysBetween(dateStr, refDate) {
   return Math.ceil((d - r) / (1000 * 60 * 60 * 24))
 }
 
-function urgencyScore(job, billingLog, today) {
+function urgencyScore(job, today) {
   const status = getJobStatus(job)
   // Plan §4 row 15(f): replace legacy "Parked → -5000" with a softer pin for
   // Scheduled jobs whose kickoff isn't imminent, so they still float to the top
@@ -91,11 +84,6 @@ function urgencyScore(job, billingLog, today) {
     }
   } else {
     score += 5000
-  }
-
-  if (job.amount && parseFloat(job.amount) > 0 && job.no_bill !== 'Yes') {
-    const billed = getBilledTotal(billingLog, job.job_id)
-    if (billed === 0) score -= 500
   }
 
   return score
@@ -128,7 +116,7 @@ export default function Jobs() {
 
   const [jobs, setJobs] = useState([])
   const [assignments, setAssignments] = useState([])
-  const [billingLog, setBillingLog] = useState([])
+  const [billingWorklist, setBillingWorklist] = useState([])
   const [teamMembers, setTeamMembers] = useState([])
   const [materials, setMaterials] = useState([])
   const [dailyLogs, setDailyLogs] = useState([])
@@ -188,7 +176,7 @@ export default function Jobs() {
     const [jobsRes, assignRes, billRes, tmRes, matsRes, logsRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
       supabase.from('assignments').select('*'),
-      supabase.from('billing_log').select('*'),
+      loadBillingWorklist(),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
       loadAllRows('materials', 'id, job_id, status', { orderBy: 'id' }),
       loadAllRows('daily_log_entries', 'id, job_id', { orderBy: 'id' }),
@@ -197,7 +185,7 @@ export default function Jobs() {
     if (jobsRes.error) { setError(jobsRes.error.message); setLoading(false); return }
     setJobs(jobsRes.data || [])
     setAssignments(assignRes.data || [])
-    setBillingLog(billRes.data || [])
+    setBillingWorklist(billRes.data || [])
     setTeamMembers(tmRes.data || [])
     setMaterials(matsRes.data || [])
     setDailyLogs(logsRes.data || [])
@@ -319,9 +307,9 @@ export default function Jobs() {
       })
     }
 
-    list = [...list].sort((a, b) => urgencyScore(a, billingLog, today) - urgencyScore(b, billingLog, today))
+    list = [...list].sort((a, b) => urgencyScore(a, today) - urgencyScore(b, today))
     return list
-  }, [jobs, search, dateRange, billingLog, today])
+  }, [jobs, search, dateRange, today])
 
   // scoreboard buckets (Parked is gone — legacy Parked rows normalize to Scheduled)
   const scheduledCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Scheduled').length, [filteredJobs])
@@ -441,7 +429,7 @@ export default function Jobs() {
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} assignments={assignments} billingLog={billingLog} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} />
+        <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} />
       )}
 
       {!showPicker && (
@@ -468,7 +456,6 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
               emptyText="No staged jobs in this date range"
@@ -483,7 +470,6 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
               emptyText="No ready jobs in this date range"
@@ -501,7 +487,6 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              billingLog={billingLog}
               prtMap={prtMap}
               today={today}
               onJobUpdate={loadData}
@@ -513,8 +498,6 @@ export default function Jobs() {
               filteredJobs={filteredJobs}
               jobs={jobs}
               setJobs={setJobs}
-              billingLog={billingLog}
-              setBillingLog={setBillingLog}
               today={today}
               crewByCallLog={crewByCallLog}
               matsByJobId={matsByJobId}
@@ -534,7 +517,6 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              billingLog={billingLog}
               today={today}
               onJobUpdate={loadData}
               emptyText="No production-complete jobs in this date range"
@@ -545,8 +527,6 @@ export default function Jobs() {
               jobs={filteredJobs}
               allJobs={jobs}
               setJobs={setJobs}
-              billingLog={billingLog}
-              setBillingLog={setBillingLog}
               today={today}
               emptyText="No jobs match the current filters"
             />

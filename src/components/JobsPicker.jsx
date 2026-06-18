@@ -13,7 +13,7 @@ function isThisWeek(dateStr, today) {
   return d >= mon && d <= sun
 }
 
-export default function JobsPicker({ jobs = [], assignments = [], billingLog = [], crewByCallLog = {}, matsByJobId = {}, syncWarning, today = new Date(), onPick }) {
+export default function JobsPicker({ jobs = [], assignments = [], billingWorklist = [], crewByCallLog = {}, matsByJobId = {}, syncWarning, today = new Date(), onPick }) {
   const counts = useMemo(() => {
     const buckets = { Scheduled: 0, 'In Progress': 0, Complete: 0, 'On Hold': 0, Ongoing: 0 }
     jobs.forEach(j => { buckets[getJobStatus(j)] = (buckets[getJobStatus(j)] || 0) + 1 })
@@ -34,12 +34,16 @@ export default function JobsPicker({ jobs = [], assignments = [], billingLog = [
     const startingThisWeek = scheduled.filter(j =>
       isReady(j, crewByCallLog, matsByJobId) && isThisWeek(j.scheduled_start || j.start_date, today)
     ).length
-    const readyToBill = jobs.filter(j => {
-      const billed = (billingLog || [])
-        .filter(b => b.job_id === j.job_id)
-        .reduce((s, b) => s + (parseFloat(b.percent) || 0), 0)
-      return getJobStatus(j) === 'Complete' && billed < 100
-    }).length
+    // Lightweight landing proxy (D2): Complete jobs not manually marked
+    // "nothing to bill". Uses the cheap billing_worklist signal — NO invoice
+    // join on first paint. The exact invoice-reconciled needs-triage count
+    // lives on the /billing worklist surface itself.
+    const nothingToBill = new Set(
+      (billingWorklist || []).filter(o => o.nothing_to_bill).map(o => String(o.job_id))
+    )
+    const readyToBill = jobs.filter(j =>
+      getJobStatus(j) === 'Complete' && !nothingToBill.has(String(j.job_id))
+    ).length
     return {
       scheduled: buckets.Scheduled,
       staged: stagedCount,
@@ -52,7 +56,7 @@ export default function JobsPicker({ jobs = [], assignments = [], billingLog = [
       readyToBill,
       missingSow, missingMats, missingCrew, missingDate,
     }
-  }, [jobs, billingLog, crewByCallLog, matsByJobId, today])
+  }, [jobs, billingWorklist, crewByCallLog, matsByJobId, today])
 
   const multiWeekAlertCount = useMemo(() =>
     jobs.filter(j =>
@@ -65,7 +69,7 @@ export default function JobsPicker({ jobs = [], assignments = [], billingLog = [
   const navigate = useNavigate()
   const goTab = (key) => onPick ? onPick(key) : navigate(`/jobs?tab=${key}`)
   const goSchedule = () => navigate('/schedule')
-  const goBilling = () => navigate('/billing')
+  const goBilling = () => navigate('/billing?tab=worklist')
   const goProductionRate = () => navigate('/production-rate')
   const goBudget = () => navigate('/budget')
   const goDaily = () => navigate('/daily')
