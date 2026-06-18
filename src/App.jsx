@@ -5,7 +5,7 @@ import { supabase } from './lib/supabase'
 import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from './lib/auth'
 import { useSync } from './lib/sync'
 import { useToast } from './lib/toast'
-import { printWeekSchedule, printJobList, printBillingReport, printMaterialsList, printDailyStatus } from './lib/exports'
+import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
 import Jobs from './views/Jobs'
 import Schedule from './views/Schedule'
 import Billing from './views/Billing'
@@ -493,7 +493,6 @@ function AppShell({ session, teamMember }) {
             <div className="mwt-list">
               <div className="mwt-row" onClick={() => { printWeekSchedule(); closeModal() }}>Week Schedule</div>
               <div className="mwt-row" onClick={() => { printJobList(); closeModal() }}>Job List</div>
-              <div className="mwt-row" onClick={() => { printBillingReport(); closeModal() }}>Billing Report</div>
               <div className="mwt-row" onClick={() => { printMaterialsList(); closeModal() }}>Materials List</div>
               <div className="mwt-row" onClick={() => { printDailyStatus(); closeModal() }}>Daily Crew Status</div>
             </div>

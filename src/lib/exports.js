@@ -103,34 +103,9 @@ export async function printJobList() {
   printWin('Job List', b)
 }
 
-export async function printBillingReport() {
-  const monday = getMonday(new Date())
-  const [jobRes, blRes] = await Promise.all([
-    supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
-    supabase.from('billing_log').select('*'),
-  ])
-  const jobs = jobRes.data || []
-  const billingLog = blRes.data || []
-
-  function getBilled(jid) {
-    let t = 0
-    for (const l of billingLog) {
-      if (String(l.job_id) === String(jid)) t += parseFloat(l.percent) || 0
-    }
-    return Math.min(t, 100)
-  }
-
-  let b = '<h2>Billing Report</h2><div class="sub">' + fmtWk(monday) + '</div>'
-  b += '<table><thead><tr><th>Job</th><th>Amount</th><th>Status</th><th>Billed %</th><th>PW</th><th>Billing Type</th></tr></thead><tbody>'
-  for (const j of jobs) {
-    if (j.status === 'Complete' || j.no_bill === 'Yes') continue
-    const billed = getBilled(j.job_id)
-    const type = j.partial_billing === 'Yes' ? 'Partial' : (j.end_date ? 'On Complete' : 'N/A')
-    b += '<tr><td>' + j.job_num + ' - ' + j.job_name + '</td><td>' + (j.amount || '') + '</td><td>' + (j.status || '') + '</td><td>' + Math.round(billed) + '%</td><td>' + (isPW(j) ? 'YES' : '') + '</td><td>' + type + '</td></tr>'
-  }
-  b += '</tbody></table>'
-  printWin('Billing Report', b)
-}
+// printBillingReport removed (billing-forecast §5.2a #3 / N10): it printed the
+// retired billing_log percent placeholder. Billing now lives on the /billing
+// worklist + 90-day forecast. A real invoice-based export is a future feature.
 
 export async function printMaterialsList() {
   const [jobRes, matRes] = await Promise.all([

@@ -759,10 +759,6 @@ export default function Schedule({ embedded = false } = {}) {
                   <input className="sch-dinp" type="number" min="1" max="100" defaultValue={j.partial_percent || ''} style={{ width: 70 }} onBlur={e => handleUpdateJob(j.job_id, 'partial_percent', e.target.value)} />
                 </div>
                 <div>
-                  <label>Billed To Date %</label>
-                  <input className="sch-dinp" type="number" min="0" max="100" defaultValue={parseFloat(j.billed_to_date) || 0} style={{ width: 70, fontWeight: 700, color: 'var(--cyan)' }} onBlur={e => handleUpdateJob(j.job_id, 'billed_to_date', e.target.value)} />
-                </div>
-                <div>
                   <label>Paused</label>
                   <input type="checkbox" checked={j.billing_paused === 'Yes'} onChange={e => handleUpdateJob(j.job_id, 'billing_paused', e.target.checked ? 'Yes' : 'No')} style={{ width: 16, height: 16, accentColor: 'var(--ylw)' }} />
                 </div>

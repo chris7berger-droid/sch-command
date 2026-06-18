@@ -287,13 +287,26 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
 
     // a row surfaces if the trigger fired, a manual flag is set, or there are
     // sent invoices that still need follow-up (Sent / Sent-to-QB / fully billed)
-    const hasSent = jobInvoices.some((i) => isActiveInvoice(i) && isSent(i))
+    const sentInvoices = jobInvoices.filter((i) => isActiveInvoice(i) && isSent(i))
+    const hasSent = sentInvoices.length > 0
     const surfaces = arm != null || !!override?.hold_sales || !!override?.nothing_to_bill || hasSent
     if (!surfaces) continue
 
-    const allPaid = hasSent && jobInvoices.filter((i) => isActiveInvoice(i) && isSent(i)).every(isPaid)
-    const lastSent = jobInvoices
-      .filter((i) => isActiveInvoice(i) && i.sent_at)
+    // N9 (§3.4): suppress $0-net rows from the actionable worklist — a job whose
+    // sent invoices are fully retained/discounted (net <= 0) AND has no remaining
+    // billable balance has nothing collectable to act on. Manual-flagged rows are
+    // kept; deposit/draw rows (arm set, remaining > 0) are kept. Such rows stay
+    // visible in the forecast drill-down / retention bucket, just not here.
+    const remaining = auth.resolved ? Math.max(auth.total - billed, 0) : null
+    const rowNet = sentInvoices.reduce((s, i) => s + netOfInvoice(i), 0)
+    const nothingCollectable =
+      !override?.hold_sales && !override?.nothing_to_bill &&
+      hasSent && rowNet <= 0 && (remaining == null || remaining <= 0)
+    if (nothingCollectable) continue
+
+    const allPaid = hasSent && sentInvoices.every(isPaid)
+    const lastSent = sentInvoices
+      .filter((i) => i.sent_at)
       .map((i) => String(i.sent_at).split('T')[0])
       .sort()
       .pop() || null
@@ -313,9 +326,9 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
       authoritative: auth.total,
       authoritativeResolved: auth.resolved,
       ambiguous: auth.ambiguous,
-      remaining: auth.resolved ? Math.max(auth.total - billed, 0) : null,
+      remaining,
       invoiceCount: jobInvoices.length,
-      sentCount: jobInvoices.filter((i) => isActiveInvoice(i) && isSent(i)).length,
+      sentCount: sentInvoices.length,
       lastSent,
       allPaid,
       fullyBilled,
