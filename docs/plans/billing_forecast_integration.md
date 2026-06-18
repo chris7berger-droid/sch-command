@@ -801,7 +801,7 @@ still needs the value, it reads the invoice-derived number.
 8. ✅ **Weekly snapshot (§6.2):** v1 ships the **LIVE derived worklist** (always current);
    `weekly_billing_snapshot` is designed but **deferred to a fast-follow**, not built in v1.
 
-**STILL OPEN (not ratified this pass):**
+**STILL OPEN (not ratified this pass):** — items 4/5/9 **RESOLVED at build start 2026-06-18, see §8.1c.**
 
 4. **Completion signal (§3.3):** keep Excel's "end date this week" trigger, or upgrade to
    DPR-approved / WTC-complete?
@@ -863,6 +863,44 @@ plan-accuracy regression, off-surface, no math impact:
   scope the v1 lift to the on-surface copies (`Billing.jsx`, `JobsPicker.jsx`) only. **[LOCKED — round-3 audit fix]**
 
 **Plan is BUILD-READY** — no round-4 audit. Next: file §8.2 backlog rows, then T3 build after `/erd-start`.
+
+### 8.1c Design-open resolutions — ratified by Chris at build start (2026-06-18, T3) [LOCKED — build-start]
+The three §8 STILL-OPEN items (4/5/9) were ratified by Chris in the T3 build session via AskUserQuestion.
+Recorded here as an AMENDMENT (the locked sections above are not rewritten; this block governs where it
+refines them). T4 plan-vs-build should treat this block as authoritative for items 4/5/9.
+
+- **#4 Completion signal (§3.3) → RESOLVED: HYBRID trigger.** A single production gate (man-hours OR
+  end-date) structurally misses **deposits**, which bill at *Sold*, before any production. So §3.3's
+  completion-gated population is **amended** to a two-arm OR:
+  - **Arm (a) — first-bill / deposit arm (NO production signal required):** the job is on a **live,
+    non-archive Sold proposal** (`'Sold'`, or `'Signed'` once Multi-GC ships — same selection as §3.2
+    A4/N2) **AND** has authoritative value not yet invoiced (`billed_total < authoritative_total`, §3.2).
+    A freshly-sold job with a deposit due surfaces immediately, with zero invoices and zero man-hours.
+  - **Arm (b) — progress / draw arm:** the job is **partially billed** (`0 < billed_total <
+    authoritative_total`) **AND** production advanced this week. v1 production signal = the existing
+    §3.3 signals (`jobs.status='Complete'` OR `scheduled_end`/`end_date` this week OR `partial_bill_date`
+    this week). **Upgrade path (post-v1):** first man-hour clocked in Field / DPR-approved, once Field
+    labor data is reliably flowing (it is NOT today — Budget stub confirms DPRs not yet flowing, §1.3),
+    so v1 does NOT gate on man-hours.
+  - All §3.3 EXCLUDE filters still apply (jobs.deleted, no_bill, already Paid/All-Ready-Billed, $0-net
+    suppression N9). Each CO call_log evaluates both arms independently (§3.0a B1 / N8).
+  - Net effect: deposits + first bills caught by arm (a) with only Sales-side data (always available);
+    interim/final draws caught by arm (b) so a mid-production job isn't re-nagged weekly with nothing new.
+
+- **#5 Portal-submitted nuance (§3.1 / §3 row 3) → RESOLVED: AUTO-DERIVED, no new field.** Chris: "submitted
+  to the customer portal" **is** "a pay app was submitted" for pay-app GCs. So NO `portal_submitted_at`
+  column. §3 row 3 ("Sent to QB / portal") is **amended** to derive per customer type:
+  - Pay-app GCs (`customers.requires_pay_app = true`): derive from the invoice's linked
+    `billing_schedule_pay_apps.status = 'submitted'` / `submitted_at` (the pay app that generated the
+    invoice, §2.5 — invoice ↔ pay app via `billing_schedule_pay_apps.invoice_id`).
+  - Regular GCs: derive from `qb_invoice_id NOT NULL` / `sent_at` (unchanged).
+  This keeps the portal/pay-app signal fully automatic — strictly better than §3.1 option (a)'s "drop the
+  nuance." No manual step, no schema change.
+
+- **#9 Who sets Hold–Sales (§3 row 5 / §9) → RESOLVED: ROLE-GATED.** Not open-to-all. The exact role
+  (Admin/Manager per the money-config role-gating rule vs. a Sales role) is pinned at Tab-A flag-UI build
+  time from sch-command's existing role model (`team_members` access). **No schema change** to
+  `billing_worklist` — gating is enforced at the UI/`setBillingWorklistFlag` layer.
 
 ### 8.2 Adjacent findings — to file
 6 adjacent findings (3 from round 1 + 2 from round 2 + 1 from round 3) pending backlog filing — text to
