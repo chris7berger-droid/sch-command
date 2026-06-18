@@ -548,3 +548,95 @@ export async function updateJobWtcFieldSow(jobWtcId, nextFieldSow, changedBy, so
 
   return { error: null }
 }
+
+// ── Billing forecast + worklist (billing-forecast feature) ──────────────────
+// Reads canonical Sales-owned invoices read-only (no writes to Sales tables).
+// The only Schedule-owned write target is billing_worklist (manual overrides).
+
+// Allowed manual-override fields on billing_worklist (plan §6.4 D3).
+export const BILLING_WORKLIST_FIELDS = [
+  'hold_sales',
+  'hold_reason',
+  'nothing_to_bill',
+  'terms_override',
+  'chris_notes',
+]
+
+// Forecast source read (plan §4.1, pinned signature §4.1 N5 / C3 / C6).
+// Sent, unpaid, non-void, non-deleted canonical invoices + the joins the
+// forecast needs: customer billing_terms and tenant default_billing_terms for
+// the §4.2 expected-pay-date fallback. Routed through loadAllRows so the read
+// pages past PostgREST's 1000-row cap (C3) — never fetch this set unpaginated.
+// Returns { data, error, partial }; surface partial as a "counts may be stale" warning.
+export async function loadInvoicesForForecast() {
+  return loadAllRows(
+    'invoices',
+    'id, call_log_id, amount, discount, retention_amount, retention_release_of, ' +
+      'sent_at, due_date, status, tenant_id, ' +
+      'call_log:call_log_id(display_job_number, customer_id, ' +
+      'customers:customer_id(billing_terms)), ' +
+      'tenant_config:tenant_id(default_billing_terms)',
+    {
+      orderBy: 'id',
+      filterFn: (chain) =>
+        chain
+          .is('voided_at', null)
+          .is('deleted_at', null)
+          .is('paid_at', null)
+          .not('sent_at', 'is', null),
+    },
+  )
+}
+
+// Read all billing_worklist override rows (sparse table; one row per flagged job).
+// Returns { data, error }.
+export async function loadBillingWorklist() {
+  const { data, error } = await supabase.from('billing_worklist').select('*')
+  return { data: data || [], error }
+}
+
+// Write a single manual-override field to billing_worklist, audit-logged to
+// job_changes (plan §6.4 D3). Pinned signature: setBillingWorklistFlag(jobId,
+// field, value, changedBy). Upserts the sparse row keyed on job_id; no raw
+// billing_worklist writes belong in views.
+export async function setBillingWorklistFlag(jobId, field, value, changedBy, source = 'schedule_command') {
+  if (!BILLING_WORKLIST_FIELDS.includes(field)) {
+    return { error: new Error(`setBillingWorklistFlag: invalid field '${field}'`) }
+  }
+
+  // read current override value (for old→new audit) + the job's call_log_id
+  const { data: currentRow } = await supabase
+    .from('billing_worklist')
+    .select(field)
+    .eq('job_id', jobId)
+    .maybeSingle()
+  const { data: jobRow } = await supabase
+    .from('jobs')
+    .select('call_log_id')
+    .eq('job_id', jobId)
+    .single()
+
+  const oldValue = currentRow ? String(currentRow[field] ?? '') : ''
+  const newStr = String(value ?? '')
+
+  // upsert the sparse row (creates with defaults, or updates just this field)
+  const { error } = await supabase
+    .from('billing_worklist')
+    .upsert({ job_id: jobId, [field]: value }, { onConflict: 'job_id' })
+
+  if (error) return { error }
+
+  if (newStr !== oldValue) {
+    await supabase.from('job_changes').insert({
+      job_id: jobId,
+      call_log_id: jobRow?.call_log_id || null,
+      field: `billing_worklist.${field}`,
+      old_value: oldValue || null,
+      new_value: newStr || null,
+      changed_by: changedBy,
+      source,
+    })
+  }
+
+  return { error: null }
+}
