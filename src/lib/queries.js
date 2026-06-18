@@ -595,6 +595,57 @@ export async function loadBillingWorklist() {
   return { data: data || [], error }
 }
 
+// Assemble everything the worklist + forecast need, in parallel. Reads canonical
+// Sales tables read-only. Invoices are ALL active (incl. paid + qb_invoice_id)
+// so status derivation can see paid/QB state; the forecast filters to unpaid in
+// JS. Embeds flatten onto each invoice as _billing_terms / _default_billing_terms
+// / _customer_id / _display_job_number / _requires_pay_app. All reads paginate
+// (proposals exceed 1000). Returns { invoices, proposals, schedules, payApps,
+// overrides, partial } — partial=true ⇒ a page truncated, counts may be stale.
+export async function loadBillingSurfaceData() {
+  const INVOICE_SEL =
+    'id, call_log_id, proposal_id, amount, discount, retention_amount, retention_release_of, ' +
+    'sent_at, paid_at, due_date, status, qb_invoice_id, tenant_id, ' +
+    'call_log:call_log_id(display_job_number, customer_id, ' +
+    'customers:customer_id(billing_terms, requires_pay_app)), ' +
+    'tenant_config:tenant_id(default_billing_terms)'
+
+  const [invRes, propRes, schedRes, payAppRes, wlRes] = await Promise.all([
+    loadAllRows('invoices', INVOICE_SEL, {
+      orderBy: 'id',
+      filterFn: (c) => c.is('voided_at', null).is('deleted_at', null),
+    }),
+    loadAllRows('proposals', 'id, call_log_id, status, total, is_archive_proposal', { orderBy: 'id' }),
+    loadAllRows('billing_schedule', 'id, proposal_id, contract_sum, retainage_pct, status', { orderBy: 'id' }),
+    loadAllRows('billing_schedule_pay_apps', 'id, invoice_id, status, submitted_at, app_number', { orderBy: 'id' }),
+    loadBillingWorklist(),
+  ])
+
+  const invoices = (invRes.data || []).map((i) => {
+    const cl = i.call_log || {}
+    const cust = cl.customers || {}
+    return {
+      ...i,
+      _display_job_number: cl.display_job_number ?? null,
+      _customer_id: cl.customer_id ?? null,
+      _billing_terms: cust.billing_terms ?? null,
+      _requires_pay_app: cust.requires_pay_app ?? false,
+      _default_billing_terms: i.tenant_config?.default_billing_terms ?? null,
+    }
+  })
+
+  const partial = Boolean(invRes.partial || propRes.partial || schedRes.partial || payAppRes.partial)
+
+  return {
+    invoices,
+    proposals: propRes.data || [],
+    schedules: schedRes.data || [],
+    payApps: payAppRes.data || [],
+    overrides: wlRes.data || [],
+    partial,
+  }
+}
+
 // Write a single manual-override field to billing_worklist, audit-logged to
 // job_changes (plan §6.4 D3). Pinned signature: setBillingWorklistFlag(jobId,
 // field, value, changedBy). Upserts the sparse row keyed on job_id; no raw

@@ -876,6 +876,12 @@ refines them). T4 plan-vs-build should treat this block as authoritative for ite
     non-archive Sold proposal** (`'Sold'`, or `'Signed'` once Multi-GC ships — same selection as §3.2
     A4/N2) **AND** has authoritative value not yet invoiced (`billed_total < authoritative_total`, §3.2).
     A freshly-sold job with a deposit due surfaces immediately, with zero invoices and zero man-hours.
+    **BUILD SHARPENING (T3 2026-06-18, validated on live data):** the deposit arm fires only when
+    `billed_total <= 0` (truly the FIRST bill), not the loose `billed_total < authoritative_total`
+    above — otherwise a partially-billed progress draw gets mislabeled a "deposit." The remaining-balance
+    partial case is owned by arm (b). This matches the arm's own "first-bill" name and Chris's
+    deposit-vs-progress intent; verified against real jobs (6710 $85,793 unbilled → deposit; 10011
+    826/1651 partial → production, not deposit).
   - **Arm (b) — progress / draw arm:** the job is **partially billed** (`0 < billed_total <
     authoritative_total`) **AND** production advanced this week. v1 production signal = the existing
     §3.3 signals (`jobs.status='Complete'` OR `scheduled_end`/`end_date` this week OR `partial_bill_date`
