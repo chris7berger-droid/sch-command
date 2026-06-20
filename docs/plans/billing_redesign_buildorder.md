@@ -81,8 +81,16 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 ### 1a — Schema (sales-command owns `proposals` + `invoices`)
 - `proposals.deposit_required boolean default false` [DERIVED]
 - `proposals.deposit_amount numeric default 0` [DERIVED]
-- `invoices.type text default 'regular'` (check `'regular' | 'deposit' | 'pay-app'`) [LOCKED 2026-06-19 — ratified: `type` column over a boolean; one-time backfill of existing invoices, derivable from line FKs (null `proposal_wtc_id` = archive→`'regular'`, `billing_schedule_line_id` non-null = `'pay-app'`)]
-- Migration lives in **sales-command** (it owns these tables); follow sales-command migration rules — run `scripts/check-migration-safety.sh` + collision check before push.
+- `invoices.type text` column, check `'regular' | 'deposit' | 'pay-app'`, **NOT NULL**. [LOCKED 2026-06-19 — `type` column over boolean.]
+- **Backfill rule [REVISED round-1, RATIFIED 2026-06-19] — mirror the existing per-invoice classifier, not a line-level shortcut.** The app already classifies an invoice by examining **all** its lines (`Invoices.jsx:1224`): `isArchiveInvoice = lines.length > 0 && lines.every(l => !l.proposal_wtc_id && !l.billing_schedule_line_id)`. The round-1 audit (5H) caught that the prior "null `proposal_wtc_id` = archive" *line-level* rule mislabels mixed/pay-app invoices on live data. Correct backfill: any invoice with **any** line carrying `billing_schedule_line_id` → `'pay-app'`; everything else → `'regular'`. No `'deposit'` exists in history (the new create path is the only writer of `'deposit'`).
+- **Pinned DDL order, one transaction (`BEGIN/COMMIT`):**
+  1. `ADD COLUMN type text DEFAULT 'regular'` (every existing row → `'regular'`; column non-null via default).
+  2. `UPDATE invoices SET type='pay-app' WHERE type='regular' AND id IN (SELECT invoice_id FROM invoice_lines WHERE billing_schedule_line_id IS NOT NULL)` — idempotent (re-run skips already-classified pay-apps; never touches `'deposit'`).
+  3. `ADD CONSTRAINT invoices_type_check CHECK (type IN ('regular','deposit','pay-app'))` — added **after** backfill so no existing row violates it.
+  4. `ALTER COLUMN type SET NOT NULL` (default already guarantees it; explicit for the contract).
+- **Post-backfill verify (run + record before declaring done):** `SELECT type, count(*) FROM invoices GROUP BY type;` and cross-check pay-app count against `SELECT count(DISTINCT invoice_id) FROM invoice_lines WHERE billing_schedule_line_id IS NOT NULL;` — the two pay-app numbers must match.
+- **Authoring + deploy [CORRECTED]:** migration lives in **sales-command** (owns `proposals` + `invoices`). **Author and push from the sales-command repo via its `npm run db:push` path + `node scripts/check-migration-collision.mjs`** (and `scripts/check-migration-safety.sh`). Do **NOT** run from sch-command — `db push` is blocked here (cross-repo ledger; see CLAUDE.md). Timestamp must be collision-checked against the prod ledger first.
+- **HOLD FOR ROUND-2:** this §1a (backfill only) goes back to T2 for a quick round-2 re-audit **before** it runs against prod — it mutates live invoice rows. §1c/§1d code can build and ride to T4; the §1a *execution* waits.
 
 ### 1b — Sales UI: deposit control on ProposalDetail summary
 - Add **deposit checkbox + amount** to the `ProposalDetail` summary panel (`ProposalDetail.jsx:1096-1246`). Saves to `proposals`. [DERIVED]
@@ -90,18 +98,26 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 
 ### 1c — Sales invoice flow: create + label the deposit invoice
 - In `NewInvoiceModal` (`Invoices.jsx:39-562`): when the selected proposal has `deposit_required` + `deposit_amount > 0`, offer "create deposit invoice." [DERIVED]
-- Create it by **reusing the archive-invoice path** (`handleCreate`, `Invoices.jsx:213-300`): one `invoice_lines` row with null `proposal_wtc_id`, `type='deposit'`, `amount = proposal.deposit_amount` shown as a **suggested, editable** figure (BF-4). [DERIVED]
-- **Label "MATERIALS DEPOSIT INVOICE"** on the preview (`Invoices.jsx:565-939`) and the PDF (`invoicePdf.js`) — badge near the invoice # / status, mirroring how PAID is shown. [DERIVED]
-- Once sent, the job drops to **Partially Billed**; the deposit keeps its unique invoice ID. [DERIVED]
+- Create it by **reusing the archive-invoice path** (`handleCreate`, `Invoices.jsx:213-300`): one `invoice_lines` row with null `proposal_wtc_id`, `amount = proposal.deposit_amount` shown as a **suggested, editable** figure (BF-4). [DERIVED]
+- **`type` must be set explicitly in EVERY `handleCreate` branch [REVISED round-1].** The audit confirmed nothing in `handleCreate` writes `type` today — it is unbuilt, not "reused." Every create path must set it: deposit branch → `'deposit'`; pay-app branch → `'pay-app'`; archive/proposal branch → `'regular'`. A deposit line is byte-identical to an archive line, so the **only** thing distinguishing them is `type` — if the deposit branch forgets to set it, the deposit is indistinguishable from an archive invoice (DEFAULT `'regular'` would silently mislabel it). [LOCKED]
+- **Deposit label = NEW badge, gated on `type==='deposit'` [REVISED round-1].** No "MATERIALS DEPOSIT INVOICE" badge exists today — it is new code, not an existing pattern to mirror. Add the badge to the preview (`Invoices.jsx:565-939`) **and** `invoicePdf.js`, each rendered only when `invoice.type==='deposit'`, near the invoice # / status. [LOCKED]
+- **Deposit amount validation [REVISED round-1]:** reject `deposit_amount <= 0`; warn (not block) when `deposit_amount > proposal.total`. The figure is suggested-editable, so validate at create time.
+- **Full-amount → Fully Billed decision [REVISED round-1]:** if an editable deposit equals the full authoritative total, the job is **Fully Billed**, not Partially. The worklist already resolves this via `billed >= authoritative` (`billingForecast.js:278`) — no special-casing needed in Schedule; just ensure the deposit invoice's `amount` flows into `billedTotal`. [DERIVED]
+- Once sent, the deposit keeps its unique invoice ID; the job's worklist label follows from `billedTotal` (see §1d — driven by `billed`, not `type`). [DERIVED]
 
 ### 1d — Schedule: surface the deposit, gated on scheduled
-- Add the **schedule-date population gate** (BF-8 core): exclude jobs with no `scheduled_end`/`end_date`/`partial_bill_date` in `buildBillingSurface()` (`billingForecast.js:268-293`). A deposit shows only once the job is scheduled. [DERIVED]
-- Worklist shows the deposit as a **suggested amount** for scheduled jobs with `deposit_required`; reads `invoices.type='deposit'` to know it's been billed → Partially Billed. Data is already loaded (`loadBillingSurfaceData`, `queries.js:605-646`). [DERIVED]
+- **Gate on raw `job.status !== 'Parked'` [REVISED round-1].** The original date-proxy gate (exclude jobs with no `scheduled_end`/`end_date`/`partial_bill_date`) is wrong: the audit showed it **defeats itself** — many scheduled jobs have null date fields, so a date proxy would hide jobs that ARE scheduled. The correct signal is the lifecycle status: a job leaves `'Parked'` the moment Schedule confirms it (the Send-to-Schedule → Confirm flow). Gate `buildBillingSurface()` (`billingForecast.js:247`) on the **raw** `job.status` string `!== 'Parked'` — NOT `getJobStatus()` (a derived/billing status, wrong axis), NOT a date proxy. [LOCKED]
+- **Add the missing SELECT columns [REVISED round-1] — they are not loaded today:**
+  - `INVOICE_SEL` (`queries.js:606`) must add `type` (currently absent — the worklist can't read it without this).
+  - the proposals select (`queries.js:618`, currently `'id, call_log_id, status, total, is_archive_proposal'`) must add `deposit_required, deposit_amount`.
+  - **Both depend on §1a's migration being live** (the columns don't exist until then) — so this part lands after §1a clears round-2 + prod.
+- **DELETE the "reads `invoices.type='deposit'` to flip Partially Billed" claim [REVISED round-1].** It's false. The worklist label/status already flips off `billedTotal` — `billed < authoritative` → "Partially billed", `billed >= authoritative` → "Fully billed" (`billingForecast.js:278,348-351`). Schedule does **not** read `type` to drive status; the deposit invoice's `amount` flowing into `billedTotal` is what moves the job. `type` is read only for the *deposit label/UX*, not the status transition.
+- Worklist shows the deposit as a **suggested amount** for non-Parked jobs with `deposit_required`. [DERIVED]
 - Row click → Sales proposal in a new tab (this is BF-5, pulled forward minimally for the proof). [DERIVED]
 
 ### Phase 1 decisions / risks
 - **`invoices.type` column vs one-off boolean** — [LOCKED 2026-06-19] `type` column: it unifies the currently-implicit archive/pay-app detection and makes future types easy. One-time backfill from line FKs.
-- **How Schedule knows the job is "scheduled"** — use the existing `scheduled_end`/`end_date`/`partial_bill_date` fields (all already loaded). [DERIVED]
+- **How Schedule knows the job is "scheduled"** — [REVISED round-1] use the raw lifecycle status `job.status !== 'Parked'`, NOT the date fields (date proxy defeats itself — scheduled jobs often have null dates). See §1d. [LOCKED]
 - **Deposit invoice ↔ job linkage** — invoice already carries `call_log_id` (`Invoices.jsx:256-257`). Confirm copy-vs-reference: Schedule **references** (reads), never copies. [DESIGN-OPEN]
 - **Can Sales create a deposit invoice before the job is scheduled?** — [LOCKED 2026-06-19] **Gate only the Schedule worklist surfacing; Sales create-invoice stays independent.** Deposits get collected at signing (before scheduling), so Sales must be able to invoice anytime; Schedule's BF-8 date gate handles "don't surface/nag until scheduled." Avoids coupling Sales' invoice action to Schedule's scheduling state.
 
