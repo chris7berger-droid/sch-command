@@ -267,6 +267,12 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
   const rows = []
   for (const job of jobs) {
     if (job.no_bill === 'Yes') continue // §3.3 exclude no_bill (deleted already excluded by loadJobs)
+    // §1d (billing-redesign r1): population gate — exclude jobs still 'Parked'.
+    // A job leaves 'Parked' the moment Schedule confirms it, so raw lifecycle
+    // status is the "scheduled" signal. NOT a date proxy (scheduled jobs often
+    // have null scheduled_end/end_date) and NOT getJobStatus() (a derived billing
+    // status, wrong axis). Deposits + all billable work surface only once off Parked.
+    if (String(job.status || '').trim() === 'Parked') continue
 
     const callLogId = job.call_log_id
     const jobInvoices = invoicesByCallLog.get(callLogId) || []
