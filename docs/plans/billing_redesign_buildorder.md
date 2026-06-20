@@ -32,6 +32,23 @@ Order and per-phase scope were verified by **reading the actual code on 2026-06-
 
 ---
 
+## §0 Reproduction — current state (pre-build, observed 2026-06-19)
+
+This is a feature build, not a bug fix, so "reproduction" = the **observed pre-build state** the Phase-1 deposit work changes. Each item is third-party reproducible; values confirmed in code/migrations on 2026-06-19.
+
+**Schema (sales-command, shared Supabase `pbgvgjjuhnpsumnowuym`):**
+- `grep -rniE "deposit" supabase/migrations | grep -iE "proposal|invoice"` → **0 rows.** No `proposals.deposit_required` / `proposals.deposit_amount`; no `invoices` deposit field. A deposit cannot be flagged on a proposal today.
+- `grep -rniE "add column.*type" supabase/migrations | grep -i invoice` → **0 rows.** No `invoices.type` column. Invoice "kind" is **implicit, enforced per-line in app code**: archive = `invoice_lines` with null `proposal_wtc_id`; pay-app = `billing_schedule_line_id` non-null (`20260416175646_billing_schedule_and_archive_links.sql:140-149`, "a line must reference exactly one of"). → A deposit line built by reusing the archive path (null `proposal_wtc_id`) is **byte-identical to an archive line** — nothing distinguishes a deposit invoice without an explicit marker.
+
+**UI / behavior (observed):**
+- Sales `ProposalDetail` summary (`ProposalDetail.jsx:1096-1246`) has **no deposit control** — no checkbox, no amount.
+- Sales `NewInvoiceModal` (`Invoices.jsx:39-562`) has **no deposit-invoice path**; created invoices carry no "materials deposit" label on preview or PDF.
+- Schedule billing worklist's "Deposit due" is an **unbacked guess** (no backing data anywhere — SCH_HANDOFF_v21); `buildBillingSurface()` (`billingForecast.js:268-293`) does **not** gate on schedule dates, so a job surfaces before it's scheduled.
+
+**Net pre-build state:** a deposit cannot be (a) flagged on a proposal, (b) billed as a distinguishable/labeled invoice, or (c) truthfully surfaced by Schedule. Phase 1 builds exactly that chain; the POINT-AT (ERD Loop #36) is the proof: test job → scheduled → deposit on billing list → click-through → "materials deposit invoice" ships.
+
+---
+
 ## Build order (durable: data model → spine → features → cleanup)
 
 | Phase | What | Why here |
@@ -64,7 +81,7 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 ### 1a — Schema (sales-command owns `proposals` + `invoices`)
 - `proposals.deposit_required boolean default false` [DERIVED]
 - `proposals.deposit_amount numeric default 0` [DERIVED]
-- `invoices.type text default 'regular'` (check `'regular' | 'deposit' | 'pay-app'`) [DESIGN-OPEN → recommend type column]
+- `invoices.type text default 'regular'` (check `'regular' | 'deposit' | 'pay-app'`) [LOCKED 2026-06-19 — ratified: `type` column over a boolean; one-time backfill of existing invoices, derivable from line FKs (null `proposal_wtc_id` = archive→`'regular'`, `billing_schedule_line_id` non-null = `'pay-app'`)]
 - Migration lives in **sales-command** (it owns these tables); follow sales-command migration rules — run `scripts/check-migration-safety.sh` + collision check before push.
 
 ### 1b — Sales UI: deposit control on ProposalDetail summary
@@ -83,10 +100,10 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 - Row click → Sales proposal in a new tab (this is BF-5, pulled forward minimally for the proof). [DERIVED]
 
 ### Phase 1 decisions / risks
-- **`invoices.type` column vs one-off boolean** — recommend the `type` column: it unifies the currently-implicit archive/pay-app detection and makes future types easy. [DESIGN-OPEN]
+- **`invoices.type` column vs one-off boolean** — [LOCKED 2026-06-19] `type` column: it unifies the currently-implicit archive/pay-app detection and makes future types easy. One-time backfill from line FKs.
 - **How Schedule knows the job is "scheduled"** — use the existing `scheduled_end`/`end_date`/`partial_bill_date` fields (all already loaded). [DERIVED]
 - **Deposit invoice ↔ job linkage** — invoice already carries `call_log_id` (`Invoices.jsx:256-257`). Confirm copy-vs-reference: Schedule **references** (reads), never copies. [DESIGN-OPEN]
-- **Can Sales create a deposit invoice before the job is scheduled?** The proof routes through Schedule (scheduled-first), but Sales create-invoice is independent. Decide whether to gate Sales-side or only gate the Schedule worklist surfacing. [DESIGN-OPEN]
+- **Can Sales create a deposit invoice before the job is scheduled?** — [LOCKED 2026-06-19] **Gate only the Schedule worklist surfacing; Sales create-invoice stays independent.** Deposits get collected at signing (before scheduling), so Sales must be able to invoice anytime; Schedule's BF-8 date gate handles "don't surface/nag until scheduled." Avoids coupling Sales' invoice action to Schedule's scheduling state.
 
 ---
 
@@ -142,11 +159,95 @@ Per `command_suite_shared_data_contract.md`, every cross-app field needs source-
 
 ## Open decisions (carry into build)
 
-1. `invoices.type` column vs boolean — **recommend type column.**
-2. `jobs.status` → billing lifecycle card mapping (Phase 2) — design when we reach it.
-3. Whether to gate Sales-side deposit-invoice creation on the job being scheduled, or only gate the Schedule worklist surfacing.
-4. Deposit invoice → job linkage confirm (copy-vs-reference; reads only).
+1. ~~`invoices.type` column vs boolean~~ — **[RATIFIED 2026-06-19] `type` column** (`'regular' | 'deposit' | 'pay-app'`), one-time backfill from line FKs.
+2. `jobs.status` → billing lifecycle card mapping (Phase 2) — design when we reach it. **[OPEN — does not block Phase 1]**
+3. ~~Gate Sales-side deposit-invoice creation, or only Schedule's surfacing~~ — **[RATIFIED 2026-06-19] gate only Schedule's worklist surfacing**; Sales create-invoice stays independent.
+4. Deposit invoice → job linkage confirm (copy-vs-reference; reads only). **[OPEN — low risk; Schedule reads `call_log_id`, never writes]**
+
+Phase 1's two blocking design-opens (#1, #3) are now ratified. #2 and #4 do not block Phase 1 (#2 is Phase 2; #4 is a read-only confirm).
 
 ## Scope guard
 
 **OUT of scope this phase:** Field Command "Job Complete" auto-trigger that kicks a finished job onto the billing list. That's Field Command work; the lifecycle "Production Complete" category builds off the existing `Complete` status for now.
+
+---
+
+## Audit manifest
+
+_Generated by `/auditcriteria` on 2026-06-19. Consumed by `/runaudit` to size the adversarial audit pass._
+
+### Bottom line (plain English)
+This is a small but **money-touching, cross-app** change — the deposit foundation (Phase 1). Three reviewers, each on one risky spot: (1) the database migration + the one-time relabel of existing invoices, (2) the deposit-to-invoice flow itself, and (3) how Schedule reads the new data without writing it. The later restyle phases aren't audited this round — they sit on a forecast that already passed three audit rounds. Quick, focused check.
+
+### Round
+- Current round: 1
+- Plan revision under audit: `d40cf81` (+ this manifest commit)
+- Findings trend: n/a — round 1
+
+### Prior rounds
+none — this is round 1 for `billing_redesign_buildorder.md`.
+
+(Note: the companion `billing_forecast_integration.md` — already shipped — went through rounds 1–3 separately; the restyle phases here sit on that audited surface and are **out of scope** this round.)
+
+**Briefing for agents**: attack ONLY **Phase 1 (deposit foundation)** + **Phase 0 (ADJ-4 dead-branch removal)**. Phases 2–6 are restyle/reshape of the already-3×-audited forecast surface — do not re-find issues there. The §0 Current-state section is the observed pre-build baseline; do not re-derive it.
+
+### Deployment context
+- **Live tenants**: 1 — HDSP only (multi-tenant onboarding blocked). Cross-tenant findings cap at **Med**.
+- **Prod / staging / dev**: affected surface is **live in prod** — sales-command billing (HDSP) and sch-command billing worklist (v7+v8, prod 2026-05-06). Migration + backfill touch live data.
+- **Blocking feature flags**: `customers.requires_pay_app` routes pay-app vs regular invoicing; the deposit is a new third invoice path that must not break that routing.
+- **Concurrency profile**: solo / ≤5 (office staff: Joe, John, Denise). Multi-user race findings cap at **Low**.
+
+### Time budget + finding cap
+- **Time budget**: **60 min [RATIFIED 2026-06-19]** — Loop #36 is outcome-defined (~7 days), no clock lock; 60 min set as the Phase-1 audit-pass budget.
+- **Finding cap**: **6** findings (`max(3, ceil(60/10))`). Surface top-6 most consequential; remainder → "Quarantined (not actionable this loop)."
+
+### Surface
+- Total lines: 171
+- Sections: 14
+- [LOCKED] decisions: 13 (incl. 2 ratified 2026-06-19: `invoices.type` column, gate-Schedule-only)
+- [DESIGN-OPEN] items: 3 (2 are Phase 2; 1 is Phase-1 deposit↔job linkage, low-risk read-only)
+- [OPEN] items: 2 (both non-blocking for Phase 1)
+- Plan-to-code ratio: ~171 : ~400 est (≈0.4:1) — plan smaller than the fix; not scope-crept.
+
+### Layers touched (Phase 1)
+- UI / components (ProposalDetail deposit card, NewInvoiceModal, invoice preview + PDF)
+- State model (new columns: `proposals.deposit_required/deposit_amount`, `invoices.type`)
+- Migrations / schema (additive columns + a **data backfill** of `invoices.type`)
+- Data layer (schedule-date gate in `billingForecast.js`, worklist read in `queries.js`)
+- Cross-repo (sales-command owns `proposals`/`invoices`; sch-command reads via PostgREST)
+
+### New mechanisms introduced
+- New columns: `proposals.deposit_required` (bool), `proposals.deposit_amount` (numeric), `invoices.type` (text + CHECK `'regular'|'deposit'|'pay-app'`)
+- New data backfill: `invoices.type` for all existing rows, derived from line FKs
+- New invoice path: deposit invoice via the reused archive path + "MATERIALS DEPOSIT INVOICE" label (preview + PDF)
+- New gate: schedule-date population gate in `buildBillingSurface()`
+
+### Cross-system reach
+- **sales-command** — owns `proposals` + `invoices`; the migration + backfill + UI live there.
+- **sch-command** — reads `invoices.type='deposit'` + deposit fields via PostgREST to surface + drive Partially Billed.
+- Shared Supabase `pbgvgjjuhnpsumnowuym`; cross-repo migration timestamp/ledger coordination required (see CLAUDE.md + O7).
+
+### Irreversibility
+- Additive columns (reversible) **but** the `invoices.type` backfill **mutates live rows** — misclassification would mislabel real invoices. Backfill correctness is the irreversible risk.
+- Cross-repo migration timestamp must be collision-checked against the prod ledger before push (`check-migration-collision.mjs`); `db push` is blocked from sch-command — migration runs from sales-command per its rules.
+
+### Known weak points
+- **Backfill misclassification** (§1a): a deposit line reuses the archive shape (null `proposal_wtc_id`) — so a deposit line is byte-identical to an archive line. The backfill must classify *existing* rows by FK, and the new deposit path must set `type='deposit'` explicitly, or deposits get mislabeled as 'regular'/archive.
+- **CHECK-constraint ordering** (§1a): existing rows must be backfilled to a valid `type` *before* the CHECK is added, or the migration aborts.
+- **Schedule-date gate over/under-exclusion** (§1d): jobs with a deposit but null/odd `scheduled_end`/`end_date`/`partial_bill_date` could be wrongly hidden (deposit never surfaces) or wrongly shown (surfaces before scheduled).
+- **Partially-Billed transition depends on `invoices.type`** (§1c/1d): if Sales doesn't write `type='deposit'` on the user's actual path, Schedule never flips the job → silent failure of the POINT-AT.
+- **Cross-repo read / RLS** (§1d): Schedule reads new columns via PostgREST — confirm row-level RLS grants the read and that Schedule only *references* (never writes) these sales-owned fields.
+- **PostgREST 1000-row cap** on the billing-surface read (`queries.js:605-646`) — confirm pagination if the deposit gate widens the result set.
+
+### Open questions
+- Count: 1 Phase-1-relevant (deposit↔job linkage copy-vs-ref confirm — low risk, read-only). The two blocking design-opens (`invoices.type` shape, Sales-vs-Schedule gating) were **ratified 2026-06-19**.
+- Highest-pressure: does any code on the obvious user path actually SET `invoices.type='deposit'`? (Angle 2 must confirm the setter exists, not just the reader.)
+
+### Suggested attack angles (3 total)
+1. **Schema + migration + backfill correctness (cross-repo)** — covers migrations/schema, state model (new columns), cross-repo. Required reading: `sales-command/supabase/migrations/20260416175646_billing_schedule_and_archive_links.sql`, sales-command migration rules (`scripts/check-migration-safety.sh`, `check-migration-collision.mjs`), sch-command `CLAUDE.md` (ledger/O7). Specific pressure: `invoices.type` backfill misclassification (archive-vs-deposit ambiguity), CHECK-constraint ordering vs backfill, live-data mutation reversibility, cross-repo timestamp/ledger collision.
+2. **Deposit lifecycle — user-path state trace** (mandatory: §1 root cause names `invoices.type`, a variable a status gate reads). Covers UI flow + state-model transitions. Required reading: `ProposalDetail.jsx:1096-1246`, `Invoices.jsx:39-562,213-300,565-939`, `invoicePdf.js`, `billingForecast.js:87-95`. Specific pressure: trace flag→suggested-editable-amount→deposit invoice→Partially-Billed; **name the code path that SETS `type='deposit'`** (if no setter on the obvious path, the status flip is dead); amount edge cases (0, > proposal total, edited down).
+3. **Schedule surfacing gate + cross-repo read** — covers data layer, the schedule-date gate, RLS-light. Required reading: `billingForecast.js:268-293`, `queries.js:605-646`, `command_suite_shared_data_contract.md`. Specific pressure: gate over/under-exclusion on null/odd date fields, RLS read access to new columns, copy-vs-ref discipline (Schedule reads, never writes), PostgREST 1000-row pagination on the widened surface.
+
+### Suggested agent count: 3
+
+Rationale: 5 layers collapse cleanly into 3 non-overlapping angles (schema/migration, deposit lifecycle, Schedule read-gate); deployment context (1 tenant, ≤5 users) caps most cross-tenant/race severity, so a 4th RLS-only agent would mostly produce capped-Low noise. Sits at the 3–4 boundary — bump to 4 only if you want the migration-backfill split out from cross-repo for extra rigor on the one irreversible, money-touching piece.
