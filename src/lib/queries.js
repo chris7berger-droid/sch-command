@@ -80,7 +80,10 @@ const CALL_LOG_SELECT = `
     customer_id,
     is_change_order,
     co_number,
-    show_cents
+    show_cents,
+    deposit_required,
+    deposit_amount,
+    deposit_invoice_id
   )
 `.replace(/\s+/g, ' ').trim()
 
@@ -108,12 +111,62 @@ function normalizeJob(row) {
     is_change_order:    cl.is_change_order     || false,
     co_number:          cl.co_number           || null,
     show_cents:         cl.show_cents          || false,
+    // deposit tag (Cycle 1, sales-command) — call_log is source of truth.
+    // _deposit (the derived indicator) is attached by loadJobs, not here.
+    deposit_required:   cl.deposit_required    ?? false,
+    deposit_amount:     cl.deposit_amount      ?? null,
+    deposit_invoice_id: cl.deposit_invoice_id  ?? null,
+    _deposit: null,
     // keep raw call_log for detail views
     _call_log: cl,
     // per-WTC attributes (empty for legacy rows; readers fall back to
     // jobs.field_sow / jobs.material_status when this is empty)
     _wtcs: wtcs,
   }
+}
+
+// ── Deposit indicator (Cycle 2) ─────────────────────────────────────────────
+// Pure derivation: a job's deposit_invoice_id pointer + a Map of ACTIVE invoices
+// (id → {sent_at, due_date, paid_at}) → the scheduling-readiness indicator.
+// Returns null when no deposit is required. State (active-filtered by the loader):
+//   required = deposit_required AND no active-sent deposit invoice
+//   sent     = the deposit invoice has sent_at (unpaid) → days since + due date
+//   paid     = the deposit invoice has paid_at
+export function depositState(job, invoicesById) {
+  if (!job?.deposit_required) return null
+  const amount = job.deposit_amount != null ? Number(job.deposit_amount) : null
+  const inv = job.deposit_invoice_id ? invoicesById.get(job.deposit_invoice_id) : null
+  // No active invoice pointed at (or the pointer dangles to a voided/deleted one,
+  // which the loader excludes) → the deposit is still owed.
+  if (!inv) return { status: 'required', amount, daysSince: null, dueDate: null }
+  if (inv.paid_at) return { status: 'paid', amount, daysSince: null, dueDate: inv.due_date || null }
+  if (inv.sent_at) {
+    const daysSince = Math.floor((Date.now() - new Date(inv.sent_at).getTime()) / 86400000)
+    return { status: 'sent', amount, daysSince, dueDate: inv.due_date || null }
+  }
+  // Pointed invoice exists but isn't sent yet → effectively still required.
+  return { status: 'required', amount, daysSince: null, dueDate: inv.due_date || null }
+}
+
+// Best-effort: enrich jobs in place with j._deposit. Reads only the active
+// invoices pointed to by call_log.deposit_invoice_id (small set — one query, no
+// pagination needed). On any error, leaves _deposit null — never blocks the job
+// list. invoices is canonical Sales-owned; read-only.
+async function attachDepositState(jobs) {
+  const ids = [...new Set(
+    jobs.filter((j) => j.deposit_required && j.deposit_invoice_id).map((j) => j.deposit_invoice_id),
+  )]
+  let byId = new Map()
+  if (ids.length) {
+    const { data } = await supabase
+      .from('invoices')
+      .select('id, sent_at, due_date, paid_at')
+      .in('id', ids)
+      .is('voided_at', null)
+      .is('deleted_at', null)
+    byId = new Map((data || []).map((i) => [i.id, i]))
+  }
+  for (const j of jobs) j._deposit = depositState(j, byId)
 }
 
 // ── Load jobs with call_log join ────────────────────────────────────────────
@@ -136,7 +189,9 @@ export async function loadJobs({ includeDeleted = false, withWTCs = false } = {}
 
   const { data, error } = await query
   if (error) return { data: null, error }
-  return { data: (data || []).map(normalizeJob), error: null }
+  const jobs = (data || []).map(normalizeJob)
+  await attachDepositState(jobs)
+  return { data: jobs, error: null }
 }
 
 // ── Load a single job by job_id ─────────────────────────────────────────────
