@@ -30,6 +30,13 @@ function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// 'YYYY-MM-DD' → 'M/D' (no leading zeros) for compact scorecard dates.
+function fmtMD(dateStr) {
+  if (!dateStr) return null
+  const [, m, d] = String(dateStr).split('-')
+  return `${parseInt(m, 10)}/${parseInt(d, 10)}`
+}
+
 // Plan §4.1: calendar days start→end, excluding BOTH weekend days unless an
 // assignment exists on that weekend day. assignmentDates = Set of 'YYYY-MM-DD'
 // for this job (null → no weekend exception applied).
@@ -268,6 +275,31 @@ function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick
           <span className="sjc-score-label">BILLING</span>
           <span className="sjc-score-val">View &rarr;</span>
         </div>
+        {(() => {
+          // Deposit indicator (Cycle 2) — informational, no click. Hidden when the
+          // job has no deposit requirement (job._deposit is null). Pure read of
+          // sale-side state: Sales flags the deposit + marks the invoice; Schedule
+          // only mirrors sent/days-since/due/paid here.
+          const dep = job._deposit
+          if (!dep) return null
+          const color = dep.status === 'paid' ? 'ok' : dep.status === 'sent' ? 'neutral' : 'bad'
+          const due = fmtMD(dep.dueDate)
+          const val = dep.status === 'paid'
+            ? 'Paid'
+            : dep.status === 'sent'
+              ? <>Sent {dep.daysSince}d{due && <span className="sjc-score-dates"> due {due}</span>}</>
+              : 'Due'
+          return (
+            <div
+              className={`sjc-score sjc-score-${color}`}
+              title={dep.amount != null ? `Deposit ${fmtMoney(dep.amount)}` : 'Deposit'}
+            >
+              <span className="sjc-score-icon">{'🏦'}</span>
+              <span className="sjc-score-label">DEPOSIT</span>
+              <span className="sjc-score-val">{val}</span>
+            </div>
+          )
+        })()}
         {(() => {
           const prts = prtMap instanceof Map ? (prtMap.get(job.call_log_id) || []) : []
           const prt = getPrtStatus(prts)
