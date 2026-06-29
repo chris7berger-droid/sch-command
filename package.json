@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "db:push": "node scripts/check-migration-collision.mjs && supabase db push"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.99.3",
