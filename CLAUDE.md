@@ -117,8 +117,9 @@ To make a database change: author and push it from `command-suite-db`
 (`npm run db:push` there), not here. The collision-check tooling relocated to that
 repo, and this repo is unlinked from the Supabase project.
 
-The `supabase/migrations/` files still here are a **read-only historical snapshot**
-(kept pending the local-`supabase start` decision). Plan + 4-round audit:
+There is no `supabase/` dir here anymore — the migrations + rollbacks were removed
+2026-06-29 (§9 decision) and live only in `command-suite-db`. This repo is unlinked
+from the Supabase project. Plan + 4-round audit:
 `~/sales-command/docs/plans/shared_migrations_consolidation.md`. `repair --status
 reverted` on a live ledger entry remains forbidden.
 
