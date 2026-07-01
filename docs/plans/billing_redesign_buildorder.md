@@ -75,7 +75,7 @@ This is a feature build, not a bug fix, so "reproduction" = the **observed pre-b
 |---|---|---|
 | **0** | ADJ-3 (verify+close), ADJ-4 (drop dead branch) | Trivial; clears confusion before building. |
 | **1 — Deposit foundation + proof** | Sales deposit data + invoice + label; Schedule schedule-date gate | Durable source-of-truth data model AND it delivers the loop's POINT-AT. No throwaway. |
-| **2 — Worklist reshape (spine)** | BF-3 card-picker + BF-8 section split + BF-1 header + BF-2 filter | Biggest design item; deposit rows inherit the new style for free. |
+| **2 — Worklist reshape (spine)** | BF-3 **4-card billing-state picker** (Ready to Bill / Partially / Complete / **Pay Apps**) + `StageJobCard` rows + BF-8 done-pile scoping + BF-1 header + BF-2 filter + **forecast relocation** (own home card) | Biggest design item; see "Phase 2 card-mapping decision". Pay Apps card ships off existing data; its monthly due-date alert is a fast-follow (needs new `pay_app_billing_day` field). |
 | **3 — Nav + polish** | BF-5 clickable rows→Sales, BF-6 card restyle + forecast rows | Overlays on the spine. |
 | **4 — Past-due truth** | ADJ-6 `amount_paid/balance_due` → BF-7 AR aging bands | Aging is only honest once net exists. |
 | **5 — Forward calendar** | BF-9 forward/back billing calendar | Builds on BF-2/BF-8. |
@@ -151,47 +151,65 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 
 ## Phase 2 card-mapping decision (Loop #38, 2026-06-30) — [LOCKED — Chris-ratified]
 
-Resolves Open decision #2 and rewrites BF-3 + BF-6 into one move. The old shipped worklist (screenshot: NEEDS TRIAGE / INVOICE SENT / ALL READY BILLED) groups by **billing** state while its badges (DEPOSIT TRIGGER / PRODUCTION TRIGGER) fire on **production** events — the two axes fight. Fix: **production status is the parent; billing status is tucked into the card.**
+Resolves Open decision #2. The old shipped worklist (screenshot: NEEDS TRIAGE / INVOICE SENT / ALL READY BILLED, thin rows with inline buttons) gets **replaced**. Design settled through a walkthrough of the two live pickers (Jobs "Job Crew & Schedule Stages" + the current Billing Worklist).
 
-**Rendering: reuse `StageJobCard.jsx` as the billing-worklist row.** Its colored top banner already carries the production taxonomy (`STAGED / READY / ACTIVE / ON HOLD / COMPLETE`, `StageJobCard.jsx:118-168`) — that banner *is* the parent axis, already built. Billing rides in the existing card slots:
+### The model — two levels, each organized by the axis that fits it
+- **Home screen** (the Jobs picker, "Job Crew & Schedule Stages") stays organized by **production stage** (STAGED/READY/ACTIVE/ON HOLD/…). Production is the parent *there*. This is the scheduling home; everything drives from it.
+- **Billing is one card on the home screen** — rename the existing **"Ready to Bill" card → "Billing."** Clicking it opens →
+- **The Billing screen**, organized by **billing state** (NOT production stage — billing wears billing clothes). A card-picker of **four cards** (mirrors the home-screen card-picker style):
 
+| Card | Who's in it | Notes |
+|---|---|---|
+| **Ready to Bill** | regular-invoice jobs, `billed <= 0` | includes deposit-due (shows a `DEPOSIT` badge on the card) |
+| **Partially Billed** | regular-invoice jobs, `0 < billed < authoritative` | |
+| **Billed Complete** | regular-invoice jobs, `billed >= authoritative` | date-scoped done pile (BF-8) |
+| **Pay Apps** | **all** `requires_pay_app` jobs, regardless of billing state | own lane — different clock (monthly GC cutoffs); see below |
+
+- Open any card → the **rich `StageJobCard`s**. Each card's **banner still shows production status** (ACTIVE/COMPLETE/ON HOLD/…) — so production is "tucked in" per-card, satisfying the original "production-parent, billing-tucked-in" instinct at the right altitude.
+- **Keep the `TOTAL TO BILL` header** on top of the billing picker (sum across the cards) — the at-a-glance $ stays.
+
+### The rich card (`StageJobCard` reuse) — billing rides in existing slots
 | Card slot (exists) | Today | Billing version |
 |---|---|---|
-| Banner left (`sjc-banner-stage`) | production stage | **unchanged — the parent**; sets the card accent color |
+| Banner left (`sjc-banner-stage`) | production stage | **unchanged** — production context per-card |
 | Banner right (`sjc-banner-prt`, "NO PRTS YET") | PRT status | **billing badge:** `DEPOSIT DUE` / `PARTIALLY BILLED` / `FULLY BILLED` / `NEEDS FINAL BILL` |
 | Identity bubbles (`sjc-identity`: JOB/CUSTOMER/WORK TYPES) | job facts | keep JOB + CUSTOMER; swap WORK TYPES → **money bubble: `CONTRACT / BILLED / REMAINING`** |
 | Tabs (PLANNING/MANAGEMENT/DETAILS) | job drill-in | add a **BILLING tab** = manual controls (Hold / N/B / terms / notes) + billing history, moved **off the row** |
 
-**Picker categories = the banner/production states (BF-3), no separate cross-map needed:**
-- `STAGED` / `READY` → **Not Started** · `ACTIVE` → **In Production** · `COMPLETE` → **Production Complete** · `ON HOLD` → **Hold** · **All**
-- Billing state is **never a top-level card** — it's the banner-right badge + row color.
+### The Pay Apps card (4th card) — Chris's at-a-glance monthly lane [LOCKED intent; one new data dep]
+- **Filter:** `_requires_pay_app` (already read on the Schedule side, `queries.js:665,687`) — **buildable today.** Pay-app jobs are pulled **out** of the 3 general cards into this lane (exclusive, no double-count) because pay-app billing is a different animal (SOV / G702-G703, GC-specific format, monthly cycle — see [[project_pay_app_only_customers]], [[project_requires_pay_app_flag]]).
+- **At-a-glance goals (Chris):** (1) which pay-app jobs are *ready to bill*, (2) a **monthly due-date warning** — "these jobs have a cutoff coming up, bill them by X."
+- **⚠ NEW DATA DEPENDENCY:** there is **no monthly pay-app due-date / cutoff field anywhere today** (confirmed: only `requires_pay_app`, `billing_terms`, `terms_override` exist — none is a monthly billing-day). The due-date alert needs a **new per-customer field** (e.g. `customers.pay_app_billing_day` = day-of-month cutoff), on the sales/`command-suite-db` side, from which Schedule computes the next due date + urgency color (reuse BF-7's aging-band color treatment). **Split the build:** the Pay Apps *card* (filter + at-a-glance list) ships in Phase 2 off existing data; the *due-date urgency* is a fast-follow once the cutoff field lands.
 
-**Ratified rules:**
-1. **Billing action = a cross-cutting "Needs billing" filter/chip** (any row not Fully billed), so the daily "what do I bill?" is one tap without making billing the parent.
-2. **On Hold** cards render greyed and are **excluded from the "Needs billing" count**.
-3. **Fully-billed jobs are NOT their own card** — they live inside Production Complete (green/collapsed) or behind the done-filter (= BF-8's date-scoped done pile).
-4. **Money trio = CONTRACT / BILLED / REMAINING.**
-5. **Manual controls move off the row into the card's BILLING tab.** (One extra tap; much cleaner row — the accepted trade vs. today's inline buttons.)
+### Ratified rules
+1. **On Hold** jobs show **inside their billing card** (a held job still has a billing state), rendered **greyed**, not their own bucket.
+2. **90-Day Forecast leaves the billing screen entirely.** Kill the `BILLING WORKLIST / 90-DAY FORECAST` two-tab shell. The forecast becomes **its own card in the home screen's "Job Management Stages" section**, opening to its own screen. Rationale: worklist = invoices *out* ("what do I bill"); forecast = cash *in* ("when does it land") — different questions, shouldn't share a screen (the BF-9 distinction).
+3. **Money trio = `CONTRACT / BILLED / REMAINING`.**
+4. **Manual controls move off the row into the card's BILLING tab** — the accepted trade: one extra tap to act, in exchange for the richer card + "simple screens beats one busy screen."
+5. Entry point: home-screen **"Ready to Bill" card → renamed "Billing."**
 
-**Data caveat [carry into build]:** Not Started (`STAGED`/`READY`) vs In Production (`ACTIVE`) depends on the `In Progress` signal, which flips via Field Command clock-in — **Field isn't live yet**, so near-term almost nothing lands in In Production. **Ship-now decision pending at build:** collapse Not Started + In Production into one card until Field lands, then split. "Production Complete" builds off today's `Complete` status; the Field auto-trigger is the later cross-repo piece (see Scope guard).
-
-**Effect:** collapses BF-3 (categories) + BF-6 (card style) + the parent/child question into a single task — *"reuse `StageJobCard` for the worklist"* — far less new code than a thin-row redesign.
+### What this replaces / touches
+- **Replaces** the current Billing Worklist body (NEEDS TRIAGE / INVOICE SENT / ALL READY BILLED sections + thin rows). Header + tab-shell change (forecast tab removed).
+- **Reuses** `StageJobCard` (rows) + `JobsPicker` shell (the picker). Far less new code than a bespoke thin-row redesign.
+- **Rewrites** BF-3 (categories now billing-state, 4 cards) and BF-6 (forecast-only restyle); adds two structural items: **forecast relocation** and the **Pay Apps card + cutoff field**.
 
 ---
 
 ## Phase 2 — Worklist reshape (the spine)
 
-- **BF-3** — **[SPEC LOCKED → see "Phase 2 card-mapping decision" above.]** Reuse `StageJobCard` as the row, grouped by its production banner (Not Started / In Production / Production Complete / Hold / All). Billing = banner-right badge + `CONTRACT/BILLED/REMAINING` money bubble; manual controls → BILLING tab. Add the "Job not started" manual flag (distinct from Hold). `JobsPicker.jsx:77-244` is the picker-shell reference. [DERIVED]
+- **BF-3** — **[SPEC LOCKED → see "Phase 2 card-mapping decision" above.]** Billing screen = a 4-card picker by **billing state**: **Ready to Bill / Partially Billed / Billed Complete / Pay Apps** (+ optional All). Reuse `JobsPicker.jsx:77-244` for the picker shell and `StageJobCard` for the cards inside (banner = production, banner-right = billing badge, money bubble `CONTRACT/BILLED/REMAINING`, manual controls → BILLING tab). Entry = home-screen "Ready to Bill" card renamed "Billing". [DERIVED]
 - **BF-8** — finish the action-pile vs done-pile section split (gate shipped in Phase 1). Action pile = all still-owed, NOT date-scoped. Done pile = Partially/Fully Billed, scoped to the active window by invoice `sent_at`. [DERIVED]
 - **BF-1** — header + Back button (→ `/jobs` JobsPicker). Currently no header (`Billing.jsx:81-89`). [DERIVED]
 - **BF-2** — time-period filter in the header (day/week/month/quarter/year + custom), mirroring `Jobs.jsx:129-133`. The header date IS the active window and scopes the done pile. [DERIVED]
+- **Pay Apps card (new, Loop #38)** — 4th picker card; filter `_requires_pay_app` (`queries.js:665,687`, already read). Pulls pay-app jobs out of the 3 general cards (exclusive). Ships off existing data. **Monthly due-date alert = fast-follow** pending a new `customers.pay_app_billing_day` (day-of-month cutoff) field in `command-suite-db`; then compute next-due + urgency color (reuse BF-7 aging bands). [DERIVED + one new field]
 
 ---
 
 ## Phase 3 — Nav + visual polish
 
 - **BF-5** — worklist row click → `salescommand.app/calllog/<call_log_id>` in a new tab (every row carries `call_log_id`). [DERIVED]
-- **BF-6** — **worklist rows are handled by the Phase 2 `StageJobCard` reuse** (see "Phase 2 card-mapping decision"). BF-6 here reduces to: **card/bubble restyle of the 90-Day Forecast per-week drill-down** (a plain table today) + make forecast rows clickable → Sales job (new tab, like BF-5). Design ref: Sales Command Proposals + Invoices lists. [DERIVED]
+- **BF-6** — **worklist rows are handled by the Phase 2 `StageJobCard` reuse** (see "Phase 2 card-mapping decision"). BF-6 here reduces to the **forecast** restyle — which now lives on its **own screen** (relocated out of the billing tabs, see decision rule #2): card/bubble restyle of the per-week drill-down (a plain table today) + clickable forecast rows → Sales job (new tab, like BF-5). Design ref: Sales Command Proposals + Invoices lists. [DERIVED]
+- **Forecast relocation (new, Loop #38)** — move the 90-Day Forecast off the billing screen into its own **"Job Management Stages" card** on the home screen; remove the `BILLING WORKLIST / 90-DAY FORECAST` two-tab shell. [DERIVED]
 
 ---
 
@@ -233,7 +251,7 @@ Per `command_suite_shared_data_contract.md`, every cross-app field needs source-
 ## Open decisions (carry into build)
 
 1. ~~`invoices.type` column vs boolean~~ — **[SHIPPED] `type` column** (`'regular' | 'deposit' | 'pay-app'`), backfilled. Live in `command-suite-db` migration `20260620120000`.
-2. ~~`jobs.status` → billing lifecycle card mapping (Phase 2, BF-3)~~ — **[RESOLVED Loop #38, 2026-06-30]**. Production-parent model, rendered by reusing `StageJobCard`. Full spec in **"Phase 2 card-mapping decision (Loop #38)"** below.
+2. ~~`jobs.status` → billing lifecycle card mapping (Phase 2, BF-3)~~ — **[RESOLVED Loop #38, 2026-06-30]**. Billing screen = 4-card picker by **billing state** (Ready to Bill / Partially Billed / Billed Complete / Pay Apps), rich `StageJobCard`s inside (production shown per-card via banner), forecast relocated to its own home-screen card. Full spec in **"Phase 2 card-mapping decision (Loop #38)"** below.
 3. ~~Gate Sales-side deposit-invoice creation, or only Schedule's surfacing~~ — **[SHIPPED] gate only Schedule's worklist surfacing** (`billingForecast.js:275`, raw `job.status !== 'Parked'`); Sales create-invoice independent.
 4. ~~Deposit invoice → job linkage~~ — **[SHIPPED/RESOLVED] explicit `call_log.deposit_invoice_id` pointer** set via "Mark as the job's deposit invoice" (`Invoices.jsx:2058`); Schedule reads it, never writes. Not the old "read the invoice's `call_log_id`" model.
 
