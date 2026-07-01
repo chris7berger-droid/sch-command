@@ -16,9 +16,12 @@ Confidence tags: **[LOCKED]** confirmed in code · **[DERIVED]** inferred from c
 Loops #36–#37 built most of **Phase 0–1** after this doc was written, and did it with a **revised data model** the original prose didn't capture. Corrected here so Phases 2–6 build on reality.
 
 **SHIPPED + smoke-verified (Chris confirmed sales-side end-to-end 2026-06-30):**
-- **§1a schema** — deposit fields + `invoices.type` live. **Revised location: on `call_log`, NOT `proposals`** (the "one-field model", migrations `20260620120000_deposit_fields_and_invoice_type` + `20260621120000_deposit_one_field`, in **`command-suite-db`**). Columns: `call_log.deposit_required`, `call_log.deposit_amount`, `call_log.deposit_invoice_id`, `invoices.type ('regular'|'deposit'|'pay-app')`.
+- **§1a schema — canonical model = `call_log` pointer [corrected round-2 A2].** Two migrations landed, and only the second is canonical:
+  - `20260620120000_deposit_fields_and_invoice_type` added `proposals.deposit_*` **and** `invoices.type` — its own header marks it **⚠ EXECUTION HELD FOR ROUND-2 RE-AUDIT** (the `invoices.type` backfill mutates live rows), so its **backfill is UNVERIFIED against prod**.
+  - `20260621120000_deposit_one_field` (**canonical**) collapsed the feature to the pointer model: **`call_log.deposit_required`, `call_log.deposit_amount`, `call_log.deposit_invoice_id`** (`→ invoices.id`, active-filtered by readers). Its header declares the `20260620` columns (`proposals.deposit_*`, `invoices.type`) **"vestigial … fully unused … cleanup is a backlog one-liner."**
+  - **So: `invoices.type` is vestigial (backfill unverified); `proposals.deposit_*` is vestigial. Do NOT read either.** Canonical deposit state = `call_log.*` + the pointer.
 - **§1b** — Materials Deposit callout on `ProposalDetail.jsx:1140` (green-accented card).
-- **§1c** — deposit invoice + "MATERIALS DEPOSIT INVOICE" badge (`invoicePdf.js:160`, `Invoices.jsx:834`, `PublicInvoicePage.jsx:177`) + "Mark as the job's deposit invoice" (`Invoices.jsx:2058`).
+- **§1c** — deposit invoice + "MATERIALS DEPOSIT INVOICE" badge (`invoicePdf.js:160`, `Invoices.jsx:834`, `PublicInvoicePage.jsx:177`) + "Mark as the job's deposit invoice" (`Invoices.jsx:2058`). **Badge is driven by the `call_log.deposit_invoice_id` pointer, NOT `invoices.type==='deposit'`** [corrected round-2 A2 — the pointer model superseded the type-based badge].
 - **§1d** — Schedule surfaces it: Parked gate (`billingForecast.js:275`), deposit reads (`queries.js:84-86,116-118`), `deposit_invoice_id`-based derivation (`billingForecast.js:129-157`), indicators on `StageJobCard.jsx:283` + `BillingWorklist.jsx:77`.
 - **Linkage — revised:** job → deposit invoice via explicit **`call_log.deposit_invoice_id`** pointer (Open decision #4 resolved), NOT by reading the invoice's `call_log_id` as the old §1d prose said.
 
@@ -75,7 +78,7 @@ This is a feature build, not a bug fix, so "reproduction" = the **observed pre-b
 |---|---|---|
 | **0** | ADJ-3 (verify+close), ADJ-4 (drop dead branch) | Trivial; clears confusion before building. |
 | **1 — Deposit foundation + proof** | Sales deposit data + invoice + label; Schedule schedule-date gate | Durable source-of-truth data model AND it delivers the loop's POINT-AT. No throwaway. |
-| **2 — Worklist reshape (spine)** | BF-3 **4-card billing-state picker** (Ready to Bill / Partially / Complete / **Pay Apps**) + `StageJobCard` rows + BF-8 done-pile scoping + BF-1 header + BF-2 filter + **forecast relocation** (own home card) | Biggest design item; see "Phase 2 card-mapping decision". Pay Apps card ships off existing data; its monthly due-date alert is a fast-follow (needs new `pay_app_billing_day` field). |
+| **2 — Worklist reshape (spine)** | BF-3 **4-card billing-state picker** (Ready to Bill / Partially / Complete / **Pay Apps**, keyed on derived fields) + **purpose-built billing card** (Option B) + BF-8 done-pile scoping + BF-1 header + BF-2 filter + **forecast relocation** (own home card) | Biggest design item; see "Phase 2 card-mapping decision". Pay Apps needs a `loadJobs` embed (C1); its monthly due-date alert is a fast-follow (needs new `pay_app_billing_day` field). |
 | **3 — Nav + polish** | BF-5 clickable rows→Sales, BF-6 card restyle + forecast rows | Overlays on the spine. |
 | **4 — Past-due truth** | ADJ-6 `amount_paid/balance_due` → BF-7 AR aging bands | Aging is only honest once net exists. |
 | **5 — Forward calendar** | BF-9 forward/back billing calendar | Builds on BF-2/BF-8. |
@@ -158,31 +161,50 @@ Resolves Open decision #2. The old shipped worklist (screenshot: NEEDS TRIAGE / 
 - **Billing is one card on the home screen** — rename the existing **"Ready to Bill" card → "Billing."** Clicking it opens →
 - **The Billing screen**, organized by **billing state** (NOT production stage — billing wears billing clothes). A card-picker of **four cards** (mirrors the home-screen card-picker style):
 
-| Card | Who's in it | Notes |
-|---|---|---|
-| **Ready to Bill** | regular-invoice jobs, `billed <= 0` | includes deposit-due (shows a `DEPOSIT` badge on the card) |
-| **Partially Billed** | regular-invoice jobs, `0 < billed < authoritative` | |
-| **Billed Complete** | regular-invoice jobs, `billed >= authoritative` | date-scoped done pile (BF-8) |
-| **Pay Apps** | **all** `requires_pay_app` jobs, regardless of billing state | own lane — different clock (monthly GC cutoffs); see below |
+**Buckets key off the DERIVED fields the row already computes** (`billingForecast.js:284` `fullyBilled`, `:358` `historyLabel`, `authoritativeResolved`/`ambiguous`) — **NOT raw `billed`/`authoritative`** [B1, round-2 audit High]. Raw thresholds miss the case where `auth.resolved === false`: a billed job then returns `historyLabel:'Billed'` (the catch-all), which the naive `0 < billed < authoritative` test drops into no bucket.
 
-- Open any card → the **rich `StageJobCard`s**. Each card's **banner still shows production status** (ACTIVE/COMPLETE/ON HOLD/…) — so production is "tucked in" per-card, satisfying the original "production-parent, billing-tucked-in" instinct at the right altitude.
+| Card | Membership (derived) | Notes |
+|---|---|---|
+| **Ready to Bill** | `historyLabel ∈ {'Nothing billed','Deposit due'}` (`billed <= 0`) | deposit-due = `arm==='deposit'` → `DEPOSIT` badge |
+| **Partially Billed** | `historyLabel === 'Partially billed'` **and** the **billed-but-unresolved** case `historyLabel === 'Billed'` (`billed > 0` but `!authoritativeResolved` / `ambiguous`) — the latter flagged **"needs review"** | this is the home B1 said was missing |
+| **Billed Complete** | `fullyBilled === true` (`authoritativeResolved && billed >= authoritative`) | date-scoped done pile (BF-8) |
+| **Pay Apps** | `requiresPayApp` on the **job row** (see C1), regardless of billing state | own lane; exclusive — pulled out of the 3 above |
+
+**Every shipped worklist state has an explicit home [E1, round-2 audit Med]:**
+| Shipped state (`historyLabel` / flag) | Card |
+|---|---|
+| `Nothing billed` | Ready to Bill |
+| `Deposit due` (`arm==='deposit'`) | Ready to Bill (+ DEPOSIT badge) |
+| `Partially billed` | Partially Billed |
+| `Billed` (billed>0, auth unresolved/ambiguous) | Partially Billed (**needs-review** flag) |
+| `Fully billed` (`fullyBilled`) | Billed Complete |
+| On Hold (`override.hold_sales`) | greyed **inside** whichever card above its billing state lands it (rule #1) |
+| `requiresPayApp` | **overrides** all the above → Pay Apps |
+
+- Open any card → the **rich billing card** (purpose-built, see below). Each card's **banner shows production status** (ACTIVE/COMPLETE/ON HOLD/…) — production "tucked in" per-card, the original "production-parent, billing-tucked-in" instinct at the right altitude.
 - **Keep the `TOTAL TO BILL` header** on top of the billing picker (sum across the cards) — the at-a-glance $ stays.
 
-### The rich card (`StageJobCard` reuse) — billing rides in existing slots
-| Card slot (exists) | Today | Billing version |
-|---|---|---|
-| Banner left (`sjc-banner-stage`) | production stage | **unchanged** — production context per-card |
-| Banner right (`sjc-banner-prt`, "NO PRTS YET") | PRT status | **billing badge:** `DEPOSIT DUE` / `PARTIALLY BILLED` / `FULLY BILLED` / `NEEDS FINAL BILL` |
-| Identity bubbles (`sjc-identity`: JOB/CUSTOMER/WORK TYPES) | job facts | keep JOB + CUSTOMER; swap WORK TYPES → **money bubble: `CONTRACT / BILLED / REMAINING`** |
-| Tabs (PLANNING/MANAGEMENT/DETAILS) | job drill-in | add a **BILLING tab** = manual controls (Hold / N/B / terms / notes) + billing history, moved **off the row** |
+### The rich card — Option B: purpose-built billing card [ratified 2026-06-30, round-2 D1]
+
+**Decision [Chris-ratified]: build a purpose-built billing card, NOT a fork of `StageJobCard`.** `StageJobCard` carries scheduling-only machinery (crew rows, material rows, PRT status, the day-X-of-Y counter — the SJC-1 bug) that billing doesn't want; forking it welds the two screens together and drags that baggage. Instead build a billing-native card that **borrows the design language** (linen card, colored stage banner, identity bubbles, drill-in tabs) so it looks identical, without the coupling. The earlier "reuse = far less code" claim is **withdrawn** (round-2 audit refuted it).
+
+| Card element (design language, built fresh for billing) | Content |
+|---|---|
+| **Stage banner (left)** — same visual as `sjc-banner-*` | production stage (ACTIVE/COMPLETE/ON HOLD/…) for per-card context |
+| **Banner right** — same slot as `sjc-banner-prt` | **billing badge:** `DEPOSIT DUE` / `PARTIALLY BILLED` / `FULLY BILLED` / `NEEDS FINAL BILL` / **`NEEDS REVIEW`** (the billed-but-unresolved case, B1) |
+| **Identity bubbles** — same style as `sjc-identity` | JOB / CUSTOMER + **money bubble: `CONTRACT / BILLED / REMAINING`** |
+| **Tabs** — same style as the card tabs | a **BILLING tab** = manual controls (Hold / N/B / terms / notes) + billing history |
+
+**Prerequisite [SJC-1]:** if any billing card renders the ACTIVE stage banner with the "day X of Y" text, **cap that text first** (`StageJobCard.jsx:137-139` — or reimplement capped in the new card) so the billing screen never shows "day 129 of 5". The purpose-built card sidesteps inheriting it, but must not re-introduce it.
 
 ### The Pay Apps card (4th card) — Chris's at-a-glance monthly lane [LOCKED intent; one new data dep]
-- **Filter:** `_requires_pay_app` (already read on the Schedule side, `queries.js:665,687`) — **buildable today.** Pay-app jobs are pulled **out** of the 3 general cards into this lane (exclusive, no double-count) because pay-app billing is a different animal (SOV / G702-G703, GC-specific format, monthly cycle — see [[project_pay_app_only_customers]], [[project_requires_pay_app_flag]]).
+- **Filter — source on the JOB row, not off invoices [C1, round-2 audit High].** Today `requiresPayApp` is derived as `jobInvoices.some(i => i._requires_pay_app)` (`billingForecast.js:287`) — it hangs off the invoice join, so a pay-app job that hasn't been invoiced yet reads **false** and would **miss the Pay Apps card** (exactly the jobs you most need to see — the ones not billed). **Fix:** carry `requires_pay_app` on the job row itself by embedding `customers` through `call_log` in `loadJobs()` (`call_log → customers(requires_pay_app)`), so the flag is present regardless of invoice state. **"Buildable today" is re-qualified:** the card needs this small `loadJobs` embed first — it is NOT free off the existing billing-surface read.
+- Pay-app jobs are pulled **out** of the 3 general cards into this lane (exclusive, no double-count) because pay-app billing is a different animal (SOV / G702-G703, GC-specific format, monthly cycle — see [[project_pay_app_only_customers]], [[project_requires_pay_app_flag]]).
 - **At-a-glance goals (Chris):** (1) which pay-app jobs are *ready to bill*, (2) a **monthly due-date warning** — "these jobs have a cutoff coming up, bill them by X."
 - **⚠ NEW DATA DEPENDENCY:** there is **no monthly pay-app due-date / cutoff field anywhere today** (confirmed: only `requires_pay_app`, `billing_terms`, `terms_override` exist — none is a monthly billing-day). The due-date alert needs a **new per-customer field** (e.g. `customers.pay_app_billing_day` = day-of-month cutoff), on the sales/`command-suite-db` side, from which Schedule computes the next due date + urgency color (reuse BF-7's aging-band color treatment). **Split the build:** the Pay Apps *card* (filter + at-a-glance list) ships in Phase 2 off existing data; the *due-date urgency* is a fast-follow once the cutoff field lands.
 
 ### Ratified rules
-1. **On Hold** jobs show **inside their billing card** (a held job still has a billing state), rendered **greyed**, not their own bucket.
+1. **On Hold** jobs show **inside their billing card** (a held job still has a billing state), rendered **greyed**, not their own bucket. **Data note [E1]:** the worklist row does not currently carry raw `job.status` (it carries the derived billing `status`) — add `job.status` (or a `heldSales` boolean from `override.hold_sales`) to the row shape in `buildBillingSurface()` so the card can grey held jobs.
 2. **90-Day Forecast leaves the billing screen entirely.** Kill the `BILLING WORKLIST / 90-DAY FORECAST` two-tab shell. The forecast becomes **its own card in the home screen's "Job Management Stages" section**, opening to its own screen. Rationale: worklist = invoices *out* ("what do I bill"); forecast = cash *in* ("when does it land") — different questions, shouldn't share a screen (the BF-9 distinction).
 3. **Money trio = `CONTRACT / BILLED / REMAINING`.**
 4. **Manual controls move off the row into the card's BILLING tab** — the accepted trade: one extra tap to act, in exchange for the richer card + "simple screens beats one busy screen."
@@ -190,18 +212,18 @@ Resolves Open decision #2. The old shipped worklist (screenshot: NEEDS TRIAGE / 
 
 ### What this replaces / touches
 - **Replaces** the current Billing Worklist body (NEEDS TRIAGE / INVOICE SENT / ALL READY BILLED sections + thin rows). Header + tab-shell change (forecast tab removed).
-- **Reuses** `StageJobCard` (rows) + `JobsPicker` shell (the picker). Far less new code than a bespoke thin-row redesign.
-- **Rewrites** BF-3 (categories now billing-state, 4 cards) and BF-6 (forecast-only restyle); adds two structural items: **forecast relocation** and the **Pay Apps card + cutoff field**.
+- **Builds a purpose-built billing card** (Option B, D1) in the suite design language; **borrows** the `JobsPicker` shell for the picker. Net new UI code (the withdrawn "reuse `StageJobCard` = far less code" claim no longer applies) — the payoff is decoupling from the scheduling card + no SJC-1 inheritance.
+- **Rewrites** BF-3 (categories now billing-state, 4 cards, keyed on derived fields) and BF-6 (forecast-only restyle); adds structural items: **forecast relocation**, the **Pay Apps card** (+ `loadJobs` embed, C1), and the `pay_app_billing_day` cutoff field (fast-follow).
 
 ---
 
 ## Phase 2 — Worklist reshape (the spine)
 
-- **BF-3** — **[SPEC LOCKED → see "Phase 2 card-mapping decision" above.]** Billing screen = a 4-card picker by **billing state**: **Ready to Bill / Partially Billed / Billed Complete / Pay Apps** (+ optional All). Reuse `JobsPicker.jsx:77-244` for the picker shell and `StageJobCard` for the cards inside (banner = production, banner-right = billing badge, money bubble `CONTRACT/BILLED/REMAINING`, manual controls → BILLING tab). Entry = home-screen "Ready to Bill" card renamed "Billing". [DERIVED]
+- **BF-3** — **[SPEC LOCKED → see "Phase 2 card-mapping decision" above.]** Billing screen = a 4-card picker by **billing state**, keyed on derived fields (`fullyBilled`/`historyLabel`/`authoritativeResolved`, B1): **Ready to Bill / Partially Billed / Billed Complete / Pay Apps** (+ optional All). Borrow `JobsPicker.jsx:77-244` for the picker shell; build a **purpose-built billing card** (Option B, D1 — not a `StageJobCard` fork) in the suite design language (stage banner + billing badge + `CONTRACT/BILLED/REMAINING` bubble + BILLING tab). Entry = home-screen "Ready to Bill" card renamed "Billing". [DERIVED]
 - **BF-8** — finish the action-pile vs done-pile section split (gate shipped in Phase 1). Action pile = all still-owed, NOT date-scoped. Done pile = Partially/Fully Billed, scoped to the active window by invoice `sent_at`. [DERIVED]
 - **BF-1** — header + Back button (→ `/jobs` JobsPicker). Currently no header (`Billing.jsx:81-89`). [DERIVED]
 - **BF-2** — time-period filter in the header (day/week/month/quarter/year + custom), mirroring `Jobs.jsx:129-133`. The header date IS the active window and scopes the done pile. [DERIVED]
-- **Pay Apps card (new, Loop #38)** — 4th picker card; filter `_requires_pay_app` (`queries.js:665,687`, already read). Pulls pay-app jobs out of the 3 general cards (exclusive). Ships off existing data. **Monthly due-date alert = fast-follow** pending a new `customers.pay_app_billing_day` (day-of-month cutoff) field in `command-suite-db`; then compute next-due + urgency color (reuse BF-7 aging bands). [DERIVED + one new field]
+- **Pay Apps card (new, Loop #38)** — 4th picker card; filter on **`requires_pay_app` carried on the job row** via a `call_log → customers` embed added to `loadJobs()` (C1 — NOT the invoice-derived `_requires_pay_app`, which misses un-invoiced pay-app jobs). Pulls pay-app jobs out of the 3 general cards (exclusive). Ships once the `loadJobs` embed lands. **Monthly due-date alert = fast-follow** pending a new `customers.pay_app_billing_day` (day-of-month cutoff) field in `command-suite-db`; then compute next-due + urgency color (reuse BF-7 aging bands). [DERIVED + loadJobs embed + one new field]
 
 ---
 
@@ -241,10 +263,16 @@ Resolves Open decision #2. The old shipped worklist (screenshot: NEEDS TRIAGE / 
 
 Per `command_suite_shared_data_contract.md`, every cross-app field needs source-of-truth, canonical location, copy-vs-ref, sync pipe.
 
+**[Corrected round-2 A2/A1 — canonical is the `call_log` pointer model; `invoices.type` + `proposals.deposit_*` are vestigial and NOT in this contract.]**
+
 | Field | Source of truth (writer) | Canonical location | Copy vs ref | Sync pipe |
 |---|---|---|---|---|
-| `proposals.deposit_required` / `deposit_amount` | Sales Command (proposal) | `proposals` table | Schedule **references** (reads) | PostgREST (both web apps) |
-| `invoices.type` | Sales Command (invoice creation) | `invoices` table | Schedule references | PostgREST |
+| `call_log.deposit_required` / `deposit_amount` | Sales Command (proposal / job) | `call_log` table | Schedule **references** (reads) | PostgREST (both web apps) |
+| `call_log.deposit_invoice_id` (→ `invoices.id`) | Sales Command ("Mark as the job's deposit invoice") | `call_log` table | Schedule references (active-filtered) | PostgREST |
+| `customers.requires_pay_app` | Sales Command (customer) | `customers` table | Schedule references via `call_log → customers` embed on `loadJobs` (C1) | PostgREST |
+| `customers.pay_app_billing_day` **(NEW — fast-follow)** | Sales Command (customer) | `customers` table | Schedule references | PostgREST |
+
+_Vestigial, do not read: `proposals.deposit_required` / `deposit_amount` and `invoices.type` (from held migration `20260620120000`; superseded by the pointer model, `invoices.type` backfill unverified). Cleanup = backlog one-liner._
 
 ---
 
@@ -273,12 +301,27 @@ _Round 1 generated by `/auditcriteria` 2026-06-19 (Phase-1 deposit foundation). 
 Two things to check, not the deposit build (that shipped). **First:** does this plan honestly describe what's actually live? — it makes a lot of "[SHIPPED]/verified" claims, and the biggest risk is a **dual source of truth** (deposit fields claimed on `call_log`, but migration 20260620 may have also put them on `proposals`). **Second:** is the new Phase-2 design — a billing-state 4-card picker + a Pay Apps lane + moving the forecast off the billing screen — free of holes (buckets that double-count, pay-app jobs landing in two cards, dead forecast routes)? Plus one honesty check: is the "we need a new `pay_app_billing_day` field" claim actually true. Three reviewers, one each.
 
 ### Round
-- Current round: 2 (reconciled plan + Phase-2 redesign)
-- Plan revision under audit: `feat/billing-worklist-refinement` HEAD (Loop #38 commits: reconcile + Phase-2 revision + backlog/SJC)
-- Findings trend: n/a for this scope — first pass on the Loop #38 layer
+- Current round: 2 **— run + applied 2026-06-30**; **ready for Round 3 re-audit before Phase-2 build.**
+- Plan revision under audit: `feat/billing-worklist-refinement` @ `632e053` (findings applied in the commit after).
+- Findings trend: Round 2 = **6 findings (3H / 1MH / 2M)**, pattern: **reconcile-left-stale-model**. All 6 accepted + applied.
+
+### Round-2 findings — applied 2026-06-30
+| # | Sev | Finding | Applied fix |
+|---|---|---|---|
+| A1 | High | Cross-app contract table still listed `proposals.deposit_*` / `invoices.type` | Table now lists canonical `call_log.deposit_*` + `deposit_invoice_id` + `customers.requires_pay_app`/`pay_app_billing_day`; vestigial fields marked do-not-read |
+| B1 | High | 4 cards defined on raw `billed`/`authoritative` → billed-but-unresolved (`historyLabel:'Billed'`) had no home | Buckets re-keyed on `fullyBilled`/`historyLabel`/`authoritativeResolved`; billed-but-unresolved → Partially Billed w/ **NEEDS REVIEW** |
+| C1 | High | `requiresPayApp` derived off invoices → un-invoiced pay-app jobs miss the card | Source on job row via `call_log → customers` embed on `loadJobs`; "buildable today" re-qualified |
+| D1 | Med-High | "reuse `StageJobCard` = far less code" + inherited SJC-1 | Adopted **Option B** purpose-built billing card; claim withdrawn; SJC-1 cap set as prerequisite |
+| E1 | Med | Not all 6 shipped states mapped to a card; On-Hold greying lacked `job.status` on the row | Added full state→card table; added `job.status`/`heldSales` to the row shape |
+| A2 | Med | Two migration headers unreconciled; `invoices.type` treated as live; §1c badge claimed `type==='deposit'` | `invoices.type` marked vestigial/backfill-unverified; badge driven by `deposit_invoice_id` pointer |
+
+**Left intact (verified TRUE):** `pay_app_billing_day` field IS needed; ADJ-3 done; ADJ-4 open.
+
+**AUDIT_LOG row** (file to a repo-level `AUDIT_LOG.md` if/when that ledger exists):
+`| 2026-06-30 | sch-command feat/billing-worklist-refinement @632e053 · billing_redesign_buildorder.md | 6 (+6 over-cap/adjacent) | 3H/1MH/2M | accepted-applied | reconcile-left-stale-model |`
 
 ### Prior rounds
-Round 1 (2026-06-19) audited Phase-1 deposit foundation — **applied + shipped**, now out of scope. The companion `billing_forecast_integration.md` went through its own rounds 1–3 (shipped). This round is the FIRST look at (a) the reconcile's truth-claims and (b) the Phase-2 billing-state redesign.
+Round 1 (2026-06-19) audited Phase-1 deposit foundation — **applied + shipped**, now out of scope. The companion `billing_forecast_integration.md` went through its own rounds 1–3 (shipped). Round 2 (2026-06-30, above) was the first look at the Loop #38 layer.
 
 **Briefing for agents:** attack the **Loop #38 layer only** — (1) truth of the `[SHIPPED]` claims vs live code/schema, (2) the Phase-2 card-mapping decision's design soundness, (3) the new-data-dependency + scope-honesty claims. Do NOT re-find Phase-1 build issues (shipped) or re-derive the §0 baseline.
 
