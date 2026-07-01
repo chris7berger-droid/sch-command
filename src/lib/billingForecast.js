@@ -162,13 +162,15 @@ export function productionThisWeek(job, weekStart, weekEnd) {
 // ── expected pay date (§4.2, precedence C4) ──────────────────────────────────
 // 1) terms_override applied to sent_at (wins over due_date)
 // 2) due_date
-// 3) sent_at + COALESCE(terms_override, billing_terms, default_billing_terms, 30)
+// 3) sent_at + COALESCE(billing_terms, default_billing_terms, 30)  [ADJ-4: terms_override is step 1 only]
 export function expectedPayDate(inv, termsOverride) {
   const sent = inv.sent_at ? new Date(String(inv.sent_at).split('T')[0] + 'T00:00:00') : null
   if (termsOverride && sent) return addDays(sent, termsOverride)
   if (inv.due_date) return new Date(String(inv.due_date).split('T')[0] + 'T00:00:00')
   if (sent) {
-    const terms = termsOverride || inv._billing_terms || inv._default_billing_terms || 30
+    // termsOverride is provably falsy here — step 1 above already returns when
+    // (termsOverride && sent), and we're inside `if (sent)` [ADJ-4].
+    const terms = inv._billing_terms || inv._default_billing_terms || 30
     return addDays(sent, terms)
   }
   return null
