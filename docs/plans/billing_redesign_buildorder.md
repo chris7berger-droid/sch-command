@@ -1,13 +1,33 @@
 # Billing Redesign & Deposit — Phase 2 Build Order
 
-**Status:** PLAN — order LOCKED, phase detail DERIVED from code reading
-**Repo:** sch-command (cross-repo: sales-command for the deposit)
-**Branch:** feat/billing-forecast
-**Date:** 2026-06-19
-**ERD:** Loop #36 (billing-back log items)
+**Status:** PLAN — Phase 0–1 SHIPPED (see Progress below); Phases 2–6 remain, order LOCKED
+**Repo:** sch-command (cross-repo: `command-suite-db` for migrations, sales-command for deposit UI)
+**Branch:** `main` (feat/billing-forecast merged + deleted)
+**Date:** 2026-06-19 · **reconciled to shipped reality 2026-06-30 (Loop #38)**
+**ERD:** authored Loop #36; reconciled Loop #38 (billing-worklist-refinement)
 **Companion:** `billing_forecast_integration.md` (the forecast itself, already shipped). This doc orders the *remaining* billing backlog: BF-1…9 + ADJ-1…7.
 
-Confidence tags: **[LOCKED]** confirmed in code · **[DERIVED]** inferred from code, not yet built · **[DESIGN-OPEN]** needs a call · **[BLOCKED]** needs external work.
+Confidence tags: **[LOCKED]** confirmed in code · **[DERIVED]** inferred from code, not yet built · **[DESIGN-OPEN]** needs a call · **[BLOCKED]** needs external work · **[SHIPPED]** built + in prod, verified.
+
+---
+
+## Progress reconcile — what shipped since 6/19 (added Loop #38, 2026-06-30)
+
+Loops #36–#37 built most of **Phase 0–1** after this doc was written, and did it with a **revised data model** the original prose didn't capture. Corrected here so Phases 2–6 build on reality.
+
+**SHIPPED + smoke-verified (Chris confirmed sales-side end-to-end 2026-06-30):**
+- **§1a schema** — deposit fields + `invoices.type` live. **Revised location: on `call_log`, NOT `proposals`** (the "one-field model", migrations `20260620120000_deposit_fields_and_invoice_type` + `20260621120000_deposit_one_field`, in **`command-suite-db`**). Columns: `call_log.deposit_required`, `call_log.deposit_amount`, `call_log.deposit_invoice_id`, `invoices.type ('regular'|'deposit'|'pay-app')`.
+- **§1b** — Materials Deposit callout on `ProposalDetail.jsx:1140` (green-accented card).
+- **§1c** — deposit invoice + "MATERIALS DEPOSIT INVOICE" badge (`invoicePdf.js:160`, `Invoices.jsx:834`, `PublicInvoicePage.jsx:177`) + "Mark as the job's deposit invoice" (`Invoices.jsx:2058`).
+- **§1d** — Schedule surfaces it: Parked gate (`billingForecast.js:275`), deposit reads (`queries.js:84-86,116-118`), `deposit_invoice_id`-based derivation (`billingForecast.js:129-157`), indicators on `StageJobCard.jsx:283` + `BillingWorklist.jsx:77`.
+- **Linkage — revised:** job → deposit invoice via explicit **`call_log.deposit_invoice_id`** pointer (Open decision #4 resolved), NOT by reading the invoice's `call_log_id` as the old §1d prose said.
+
+**STILL OPEN after the reconcile:**
+- **ADJ-4** — dead `terms_override` branch STILL present (`billingForecast.js:171`). One-liner, not yet done.
+- **Open decision #2** — `jobs.status` → lifecycle-card mapping (BF-3). The one real design decision left; gates Phase 2.
+- **ADJ-a** — `loadJobs()` unpaginated (`queries.js`) — was in no phase; slotted into Phase 6 below.
+- **ADJ-b** — duplicate of ADJ-2 (billing load one-shot / no realtime); closed as dup below.
+- **Phases 2–6** — BF-1/2/3/5/6/7/8/9 + ADJ-2/5/6/7 — untouched, ready to build once #2 is decided.
 
 ---
 
@@ -59,7 +79,7 @@ This is a feature build, not a bug fix, so "reproduction" = the **observed pre-b
 | **3 — Nav + polish** | BF-5 clickable rows→Sales, BF-6 card restyle + forecast rows | Overlays on the spine. |
 | **4 — Past-due truth** | ADJ-6 `amount_paid/balance_due` → BF-7 AR aging bands | Aging is only honest once net exists. |
 | **5 — Forward calendar** | BF-9 forward/back billing calendar | Builds on BF-2/BF-8. |
-| **6 — Cutover cleanup** | ADJ-5, ADJ-2 realtime, ADJ-7 retire `billing_log`, close ADJ-1 | Reversible, post-proof. |
+| **6 — Cutover cleanup** | ADJ-5, ADJ-2 realtime (= **ADJ-b**, dup), ADJ-7 retire `billing_log`, **ADJ-a** paginate `loadJobs()`, close ADJ-1 | Reversible, post-proof. |
 
 The deposit (Phase 1) comes *before* the card redesign (Phase 2) because the code shows its durable foundation — deposit source-of-truth fields, `invoices.type`, and the schedule-date gate — doesn't depend on the redesign, and it delivers the proof. Spine-first and proof-first coincide.
 
@@ -67,12 +87,18 @@ The deposit (Phase 1) comes *before* the card redesign (Phase 2) because the cod
 
 ## Phase 0 — corrections
 
-- **ADJ-3** — confirm `/billing?tab=worklist` everywhere, close the item. [LOCKED done]
-- **ADJ-4** — remove `terms_override` from the step-3 COALESCE in `expectedPayDate()` (`billingForecast.js:171`); keep it only as step 1. [DERIVED]
+- **ADJ-3** — confirm `/billing?tab=worklist` everywhere, close the item. [SHIPPED]
+- **ADJ-4** — remove the dead `termsOverride ||` from step-3 of `expectedPayDate()` (`billingForecast.js:171`); keep it only as step 1 (line 168 already returns early when it's truthy, so the step-3 occurrence is unreachable). [DERIVED — STILL OPEN as of 2026-06-30; one-liner]
 
 ---
 
-## Phase 1 — Deposit foundation + proof (the POINT-AT)
+## Phase 1 — Deposit foundation + proof (the POINT-AT) — ✅ SHIPPED (Loops #36–#37, smoke-verified 2026-06-30)
+
+> **RECONCILE NOTE (Loop #38):** This whole phase is built + in prod. Two things landed **differently** from the prose below, keep them straight for Phases 2–6:
+> 1. **Deposit fields live on `call_log`, not `proposals`** (one-field model). Read `call_log.deposit_required / deposit_amount / deposit_invoice_id`.
+> 2. **Migrations live in `command-suite-db`**, not sales-command (6/29 consolidation). The §1a "author from sales-command" instructions below are HISTORICAL — do not follow them for new migrations.
+>
+> The original §1a–§1d detail is kept below as the build record; treat it as [SHIPPED], superseded on the two points above.
 
 Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and links.
 
@@ -123,10 +149,39 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 
 ---
 
+## Phase 2 card-mapping decision (Loop #38, 2026-06-30) — [LOCKED — Chris-ratified]
+
+Resolves Open decision #2 and rewrites BF-3 + BF-6 into one move. The old shipped worklist (screenshot: NEEDS TRIAGE / INVOICE SENT / ALL READY BILLED) groups by **billing** state while its badges (DEPOSIT TRIGGER / PRODUCTION TRIGGER) fire on **production** events — the two axes fight. Fix: **production status is the parent; billing status is tucked into the card.**
+
+**Rendering: reuse `StageJobCard.jsx` as the billing-worklist row.** Its colored top banner already carries the production taxonomy (`STAGED / READY / ACTIVE / ON HOLD / COMPLETE`, `StageJobCard.jsx:118-168`) — that banner *is* the parent axis, already built. Billing rides in the existing card slots:
+
+| Card slot (exists) | Today | Billing version |
+|---|---|---|
+| Banner left (`sjc-banner-stage`) | production stage | **unchanged — the parent**; sets the card accent color |
+| Banner right (`sjc-banner-prt`, "NO PRTS YET") | PRT status | **billing badge:** `DEPOSIT DUE` / `PARTIALLY BILLED` / `FULLY BILLED` / `NEEDS FINAL BILL` |
+| Identity bubbles (`sjc-identity`: JOB/CUSTOMER/WORK TYPES) | job facts | keep JOB + CUSTOMER; swap WORK TYPES → **money bubble: `CONTRACT / BILLED / REMAINING`** |
+| Tabs (PLANNING/MANAGEMENT/DETAILS) | job drill-in | add a **BILLING tab** = manual controls (Hold / N/B / terms / notes) + billing history, moved **off the row** |
+
+**Picker categories = the banner/production states (BF-3), no separate cross-map needed:**
+- `STAGED` / `READY` → **Not Started** · `ACTIVE` → **In Production** · `COMPLETE` → **Production Complete** · `ON HOLD` → **Hold** · **All**
+- Billing state is **never a top-level card** — it's the banner-right badge + row color.
+
+**Ratified rules:**
+1. **Billing action = a cross-cutting "Needs billing" filter/chip** (any row not Fully billed), so the daily "what do I bill?" is one tap without making billing the parent.
+2. **On Hold** cards render greyed and are **excluded from the "Needs billing" count**.
+3. **Fully-billed jobs are NOT their own card** — they live inside Production Complete (green/collapsed) or behind the done-filter (= BF-8's date-scoped done pile).
+4. **Money trio = CONTRACT / BILLED / REMAINING.**
+5. **Manual controls move off the row into the card's BILLING tab.** (One extra tap; much cleaner row — the accepted trade vs. today's inline buttons.)
+
+**Data caveat [carry into build]:** Not Started (`STAGED`/`READY`) vs In Production (`ACTIVE`) depends on the `In Progress` signal, which flips via Field Command clock-in — **Field isn't live yet**, so near-term almost nothing lands in In Production. **Ship-now decision pending at build:** collapse Not Started + In Production into one card until Field lands, then split. "Production Complete" builds off today's `Complete` status; the Field auto-trigger is the later cross-repo piece (see Scope guard).
+
+**Effect:** collapses BF-3 (categories) + BF-6 (card style) + the parent/child question into a single task — *"reuse `StageJobCard` for the worklist"* — far less new code than a thin-row redesign.
+
+---
+
 ## Phase 2 — Worklist reshape (the spine)
 
-- **BF-3** — card-picker like `JobsPicker` (`JobsPicker.jsx:77-244` is the reference): one card per lifecycle category w/ count + an "All" card. Categories: **Not Started / In Production / Production Complete / Partially Billed / Fully Billed / All.** Add a manual "Job not started" flag (distinct from Hold). Clean read-only rows; move manual controls (Hold / nothing-to-bill / terms-override / notes) into a drill-in. [DERIVED]
-  - **Mapping is the real design work** [DESIGN-OPEN]: current billing statuses are invoice-state-based (NEEDS_TRIAGE/SENT/…, `billingForecast.js:87-95`); the card categories are lifecycle-based (live in `jobs.status`: Scheduled/In Progress/Complete/…). Needs an explicit cross-map. "Production Complete" builds off the existing `Complete` status now; the Field Command auto-trigger is later.
+- **BF-3** — **[SPEC LOCKED → see "Phase 2 card-mapping decision" above.]** Reuse `StageJobCard` as the row, grouped by its production banner (Not Started / In Production / Production Complete / Hold / All). Billing = banner-right badge + `CONTRACT/BILLED/REMAINING` money bubble; manual controls → BILLING tab. Add the "Job not started" manual flag (distinct from Hold). `JobsPicker.jsx:77-244` is the picker-shell reference. [DERIVED]
 - **BF-8** — finish the action-pile vs done-pile section split (gate shipped in Phase 1). Action pile = all still-owed, NOT date-scoped. Done pile = Partially/Fully Billed, scoped to the active window by invoice `sent_at`. [DERIVED]
 - **BF-1** — header + Back button (→ `/jobs` JobsPicker). Currently no header (`Billing.jsx:81-89`). [DERIVED]
 - **BF-2** — time-period filter in the header (day/week/month/quarter/year + custom), mirroring `Jobs.jsx:129-133`. The header date IS the active window and scopes the done pile. [DERIVED]
@@ -136,7 +191,7 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 ## Phase 3 — Nav + visual polish
 
 - **BF-5** — worklist row click → `salescommand.app/calllog/<call_log_id>` in a new tab (every row carries `call_log_id`). [DERIVED]
-- **BF-6** — card/bubble restyle + clickable forecast rows (design ref: Sales Command Proposals + Invoices lists). Forecast per-week drill-down is a plain table today. [DERIVED]
+- **BF-6** — **worklist rows are handled by the Phase 2 `StageJobCard` reuse** (see "Phase 2 card-mapping decision"). BF-6 here reduces to: **card/bubble restyle of the 90-Day Forecast per-week drill-down** (a plain table today) + make forecast rows clickable → Sales job (new tab, like BF-5). Design ref: Sales Command Proposals + Invoices lists. [DERIVED]
 
 ---
 
@@ -158,6 +213,8 @@ Cross-repo. **Most of the build is sales-command.** Schedule just surfaces and l
 - **ADJ-5** — label JobDetail billing history as legacy (`JobDetail.jsx:76`) or repoint at the invoice source. [DERIVED]
 - **ADJ-2** — add a Supabase realtime subscription on `invoices` (or a refresh affordance); load is one-shot today (`Billing.jsx:41-49`). [DERIVED]
 - **ADJ-7** — retire the remaining read-only `billing_log` reader once the new surface is proven. [DERIVED]
+- **ADJ-a** — paginate `loadJobs()` (`queries.js`) with `.range()` per CLAUDE.md's 1000-row cap; `buildBillingSurface()` iterates this set so it silently drops billing rows past 1000 jobs. Low (HDSP nowhere near 1000). [DERIVED — added Loop #38; previously unmapped]
+- **ADJ-b** — **CLOSED as duplicate of ADJ-2** (both are "billing load is one-shot, no realtime subscription on `invoices`"). Tracked as ADJ-2 only.
 - **ADJ-1** — close out; retention confirmed forecast-safe, only a stale legacy `retainage_amount` on invoice 10024 remains (data-quality note, nothing in scope reads it). [LOCKED]
 
 ---
@@ -175,12 +232,12 @@ Per `command_suite_shared_data_contract.md`, every cross-app field needs source-
 
 ## Open decisions (carry into build)
 
-1. ~~`invoices.type` column vs boolean~~ — **[RATIFIED 2026-06-19] `type` column** (`'regular' | 'deposit' | 'pay-app'`), one-time backfill from line FKs.
-2. `jobs.status` → billing lifecycle card mapping (Phase 2) — design when we reach it. **[OPEN — does not block Phase 1]**
-3. ~~Gate Sales-side deposit-invoice creation, or only Schedule's surfacing~~ — **[RATIFIED 2026-06-19] gate only Schedule's worklist surfacing**; Sales create-invoice stays independent.
-4. Deposit invoice → job linkage confirm (copy-vs-reference; reads only). **[OPEN — low risk; Schedule reads `call_log_id`, never writes]**
+1. ~~`invoices.type` column vs boolean~~ — **[SHIPPED] `type` column** (`'regular' | 'deposit' | 'pay-app'`), backfilled. Live in `command-suite-db` migration `20260620120000`.
+2. ~~`jobs.status` → billing lifecycle card mapping (Phase 2, BF-3)~~ — **[RESOLVED Loop #38, 2026-06-30]**. Production-parent model, rendered by reusing `StageJobCard`. Full spec in **"Phase 2 card-mapping decision (Loop #38)"** below.
+3. ~~Gate Sales-side deposit-invoice creation, or only Schedule's surfacing~~ — **[SHIPPED] gate only Schedule's worklist surfacing** (`billingForecast.js:275`, raw `job.status !== 'Parked'`); Sales create-invoice independent.
+4. ~~Deposit invoice → job linkage~~ — **[SHIPPED/RESOLVED] explicit `call_log.deposit_invoice_id` pointer** set via "Mark as the job's deposit invoice" (`Invoices.jsx:2058`); Schedule reads it, never writes. Not the old "read the invoice's `call_log_id`" model.
 
-Phase 1's two blocking design-opens (#1, #3) are now ratified. #2 and #4 do not block Phase 1 (#2 is Phase 2; #4 is a read-only confirm).
+Only **#2 remains open**, and it gates Phase 2 (not Phase 1, which is shipped).
 
 ## Scope guard
 
