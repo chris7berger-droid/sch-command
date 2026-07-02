@@ -6046,6 +6046,14 @@
 .bill-tile-payapps  .jh-tile-dot { background: var(--cyan); }
 .bill-tile-payapps  .jh-tile-count { color: var(--cyan); }
 
+/* home-screen forecast card */
+.jh-tile-forecast { border-left-color: #14b8a6; }
+.jh-tile-forecast .jh-tile-dot { background: #14b8a6; }
+.jh-tile-forecast .jh-tile-count { color: #14b8a6; }
+
+/* forecast screen header */
+.fc-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+
 /* drill-in list */
 .bill-drill-hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .bill-drill-back {

@@ -1,42 +1,26 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { loadJobs, loadBillingSurfaceData, setBillingWorklistFlag } from '../lib/queries'
 import { buildBillingSurface } from '../lib/billingForecast'
 import { getMonday, fmtWk } from '../lib/weeks'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
 import BillingPicker from '../components/BillingPicker'
-import BillingForecast from '../components/BillingForecast'
 
-// /billing — rebuilt as a two-tab surface (plan §7):
-//   Tab A = self-populating triage worklist (§3), Tab B = 90-day forecast (§4).
+// /billing — the billing worklist as a 4-card billing-state picker (BF-3).
 // Reads canonical Sales invoices read-only; writes back only billing_worklist
-// override flags. The legacy percent/billing_log 3-column view is retired.
-
-const VALID_TABS = ['worklist', 'forecast']
+// override flags. The 90-Day Forecast relocated to its own screen
+// (/billing/forecast, Loop #39 rule #2) — no tab shell here anymore.
 
 export default function Billing() {
   const user = useUser()
   const toast = useToast()
   const canEdit = user?.role === 'Admin' // money-config role gate (§8.1c #9)
 
-  const [searchParams, setSearchParams] = useSearchParams()
-  const tabParam = searchParams.get('tab')
-  const tab = VALID_TABS.includes(tabParam) ? tabParam : 'worklist'
-
   const [jobs, setJobs] = useState([])
   const [surface, setSurface] = useState(null)
   const [loading, setLoading] = useState(true)
   const [busyJobId, setBusyJobId] = useState(null)
   const loadIdRef = useRef(0)
-
-  const setTab = useCallback((next) => {
-    setSearchParams((prev) => {
-      const p = new URLSearchParams(prev)
-      p.set('tab', next)
-      return p
-    })
-  }, [setSearchParams])
 
   const loadData = useCallback(async () => {
     const thisLoad = ++loadIdRef.current
@@ -79,18 +63,9 @@ export default function Billing() {
 
   return (
     <div className="bill-surface">
-      <div className="bill-tabs">
-        <button className={`bill-tab${tab === 'worklist' ? ' on' : ''}`} onClick={() => setTab('worklist')}>
-          Billing Worklist
-        </button>
-        <button className={`bill-tab${tab === 'forecast' ? ' on' : ''}`} onClick={() => setTab('forecast')}>
-          90-Day Forecast
-        </button>
-      </div>
-
       {loading && <div className="bill-loading">Loading billing…</div>}
 
-      {!loading && built && tab === 'worklist' && (
+      {!loading && built && (
         <BillingPicker
           rows={built.rows}
           weekLabel={weekLabel}
@@ -98,10 +73,6 @@ export default function Billing() {
           onFlag={onFlag}
           busyJobId={busyJobId}
         />
-      )}
-
-      {!loading && built && tab === 'forecast' && (
-        <BillingForecast forecast={built.forecast} partial={surface?.partial} />
       )}
     </div>
   )
