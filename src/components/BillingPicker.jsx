@@ -1,0 +1,88 @@
+import { useMemo, useState } from 'react'
+import { BILLING_CARDS, billingCardKey } from '../lib/billingForecast'
+import BillingCard from './BillingCard'
+
+// BF-3 — the billing screen as a 4-card picker BY BILLING STATE (Ready to Bill /
+// Partially Billed / Billed Complete / Pay Apps), mirroring the home-screen
+// JobsPicker card style. Pick a card → drill into just those jobs, rendered as
+// purpose-built billing cards. "3 simple screens beats 1 busy screen."
+
+const money = (n) => '$' + Math.round(n || 0).toLocaleString()
+
+export default function BillingPicker({ rows, weekLabel, canEdit, onFlag, busyJobId }) {
+  const [selected, setSelected] = useState(null)
+
+  const byCard = useMemo(() => {
+    const groups = { ready: [], partial: [], complete: [], payApps: [] }
+    for (const r of rows) groups[billingCardKey(r)].push(r)
+    return groups
+  }, [rows])
+
+  // TOTAL TO BILL = remaining authoritative balance across everything still
+  // owed (any card that isn't fully billed). At-a-glance $ stays on top.
+  const toBill = useMemo(
+    () => rows.filter((r) => !r.fullyBilled).reduce((s, r) => s + (r.remaining || 0), 0),
+    [rows],
+  )
+
+  const selectedDef = selected ? BILLING_CARDS.find((c) => c.key === selected) : null
+  const selectedRows = selected ? byCard[selected] : []
+
+  return (
+    <div className="jh-picker bill-picker">
+      <div className="bill-picker-summary">
+        <div className="bill-picker-sum-lbl">Total to bill — {weekLabel}</div>
+        <div className="bill-picker-sum-num">{money(toBill)}</div>
+        <div className="bill-picker-sum-sub">{rows.length} job{rows.length === 1 ? '' : 's'} on the billing list</div>
+      </div>
+
+      {!selected && (
+        <div className="jh-picker-grid">
+          {BILLING_CARDS.map((c) => (
+            <button
+              key={c.key}
+              className={`jh-tile bill-tile bill-tile-${c.tone}`}
+              onClick={() => setSelected(c.key)}
+            >
+              <div className="jh-tile-head">
+                <div className="jh-tile-name"><span className="jh-tile-dot" />{c.label}</div>
+                <div className="jh-tile-count">{byCard[c.key].length}</div>
+              </div>
+              <div className="jh-tile-desc">{c.desc}</div>
+              <div className="jh-tile-foot">
+                <span className="jh-tile-attn">{byCard[c.key].length} job{byCard[c.key].length === 1 ? '' : 's'}</span>
+                <span className="jh-tile-arrow">&rarr;</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <div className="bill-drill">
+          <div className="bill-drill-hdr">
+            <button className="bill-drill-back" onClick={() => setSelected(null)}>&larr; All billing cards</button>
+            <span className="bill-drill-title">{selectedDef.label}</span>
+            <span className="bill-drill-count">{selectedRows.length}</span>
+          </div>
+
+          {selectedRows.length === 0 ? (
+            <div className="bill-drill-empty">Nothing in this card right now.</div>
+          ) : (
+            <div className="bill-drill-grid">
+              {selectedRows.map((r) => (
+                <BillingCard
+                  key={r.jobId}
+                  row={r}
+                  canEdit={canEdit}
+                  onFlag={onFlag}
+                  busy={busyJobId === r.jobId}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

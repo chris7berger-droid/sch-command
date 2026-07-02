@@ -6015,3 +6015,63 @@
 .bf-table th { text-align: left; font-family: var(--font-heading); text-transform: uppercase; font-size: 11px; color: var(--text-light); border-bottom: 1px solid var(--brd); padding: 4px 6px; }
 .bf-table td { padding: 5px 6px; border-bottom: 1px solid rgba(28,24,20,0.08); color: var(--text-secondary); }
 .bf-table .bf-r { text-align: right; font-family: var(--font-mono); }
+
+/* ── BF-3: billing-state card picker ── */
+.bill-picker { padding: 0 0 24px; }
+.bill-picker-summary {
+  background: var(--header-dark); color: #f3ede2; border-radius: 10px;
+  padding: 14px 18px; margin-bottom: 18px;
+}
+.bill-picker-sum-lbl { font-family: var(--font-heading); text-transform: uppercase; letter-spacing: 0.05em; font-size: 12px; color: #c8bcaa; }
+.bill-picker-sum-num { font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: #30cfac; }
+.bill-picker-sum-sub { font-size: 12px; color: #b5a896; }
+
+.bill-tile-ready    { border-left-color: var(--orn); }
+.bill-tile-ready    .jh-tile-dot { background: var(--orn); }
+.bill-tile-ready    .jh-tile-count { color: var(--orn); }
+.bill-tile-partial  { border-left-color: var(--blu); }
+.bill-tile-partial  .jh-tile-dot { background: var(--blu); }
+.bill-tile-partial  .jh-tile-count { color: var(--blu); }
+.bill-tile-complete { border-left-color: var(--command-green); }
+.bill-tile-complete .jh-tile-dot { background: var(--command-green); }
+.bill-tile-complete .jh-tile-count { color: var(--command-green); }
+.bill-tile-payapps  { border-left-color: var(--cyan); }
+.bill-tile-payapps  .jh-tile-dot { background: var(--cyan); }
+.bill-tile-payapps  .jh-tile-count { color: var(--cyan); }
+
+/* drill-in list */
+.bill-drill-hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.bill-drill-back {
+  font-family: var(--font-heading); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; font-size: 12px; padding: 6px 12px; cursor: pointer;
+  background: var(--bg-deep); border: 1px solid var(--brd); border-radius: 6px; color: var(--text-secondary);
+}
+.bill-drill-title { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 18px; color: var(--text-primary); }
+.bill-drill-count { font-family: var(--font-mono); font-weight: 700; font-size: 18px; color: var(--text-light); }
+.bill-drill-empty { padding: 28px; text-align: center; color: var(--text-light); font-style: italic; }
+.bill-drill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
+
+/* purpose-built billing card */
+.bc-card .sjc-identity { flex-wrap: wrap; }
+.bc-money { flex: 1 1 92px; }
+.bc-mono { font-family: var(--font-mono) !important; text-transform: none !important; letter-spacing: 0 !important; }
+.bc-held { opacity: 0.62; }
+.bc-busy { opacity: 0.55; pointer-events: none; }
+.bc-co { font-size: 10px; background: var(--pw); color: #fff; padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+
+.bc-badge {
+  margin-left: auto; font-family: var(--font-heading); font-weight: 800;
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 5px;
+}
+.bc-badge-deposit  { background: #2d4a3e; color: #30cfac; }
+.bc-badge-partial  { background: rgba(21, 101, 192, 0.15); color: var(--blu); }
+.bc-badge-complete { background: rgba(46, 125, 50, 0.15); color: var(--grn); }
+.bc-badge-review   { background: rgba(192, 57, 43, 0.15); color: var(--red); }
+.bc-badge-ready    { background: rgba(230, 126, 34, 0.15); color: var(--orn); }
+
+.bc-billing-panel { padding: 10px 14px 14px; }
+.bc-billing-summary { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-light); margin-bottom: 10px; }
+.bc-paid { color: var(--grn); font-weight: 700; text-transform: uppercase; }
+.bc-warn { color: var(--red); font-weight: 700; }
+.bc-ctrls { margin-top: 0; }

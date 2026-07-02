@@ -5,7 +5,7 @@ import { buildBillingSurface } from '../lib/billingForecast'
 import { getMonday, fmtWk } from '../lib/weeks'
 import { useUser } from '../lib/user'
 import { useToast } from '../lib/toast'
-import BillingWorklist from '../components/BillingWorklist'
+import BillingPicker from '../components/BillingPicker'
 import BillingForecast from '../components/BillingForecast'
 
 // /billing — rebuilt as a two-tab surface (plan §7):
@@ -91,7 +91,7 @@ export default function Billing() {
       {loading && <div className="bill-loading">Loading billing…</div>}
 
       {!loading && built && tab === 'worklist' && (
-        <BillingWorklist
+        <BillingPicker
           rows={built.rows}
           weekLabel={weekLabel}
           canEdit={canEdit}
