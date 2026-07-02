@@ -286,8 +286,12 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
     const fullyBilled = auth.resolved && billed >= auth.total
 
     const override = overridesByJobId.get(String(job.job_id))
-    const requiresPayApp = jobInvoices.some((i) => i._requires_pay_app)
-    const status = deriveStatus({ fullyBilled, override, invoices: jobInvoices, requiresPayApp, payAppsByInvoice })
+    // Invoice-derived pay-app flag — used ONLY by deriveStatus. Distinct from the
+    // job-row `requiresPayApp` emitted on the row below (B1 name-collision note):
+    // that one comes off the loadJobs call_log→customers embed and drives the Pay
+    // Apps card even for un-invoiced jobs; this one hangs off the invoice join.
+    const requiresPayAppInvoice = jobInvoices.some((i) => i._requires_pay_app)
+    const status = deriveStatus({ fullyBilled, override, invoices: jobInvoices, requiresPayApp: requiresPayAppInvoice, payAppsByInvoice })
 
     const arm = populationArm(job, {
       hasLiveSoldProposal, billed, authoritative: auth.total, weekStart, weekEnd,
@@ -322,6 +326,10 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
     rows.push({
       jobId: job.job_id,
       callLogId,
+      // Pay-app filter field — sourced off the JOB row (loadJobs call_log→customers
+      // embed, C1/B1), so un-invoiced pay-app jobs still land in the Pay Apps card.
+      // NOT requiresPayAppInvoice above (invoice-derived, deriveStatus-only).
+      requiresPayApp: !!job.requires_pay_app,
       jobNum: job.job_num || job._display_job_number || jobInvoices[0]?._display_job_number || String(job.job_id),
       jobName: job.job_name || null,
       customerName: job.customer_name || null,
