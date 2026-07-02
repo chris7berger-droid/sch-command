@@ -14,6 +14,9 @@ const TERMS_OPTIONS = [15, 30, 45, 60, 75, 90]
 
 // getJobStatus() output → banner class + display label. Reuses the sjc-banner-*
 // palette so the billing banner reads identically to the scheduling card.
+// KEYS MUST COVER EVERY getJobStatus() output (jobStatus.js): Scheduled /
+// In Progress / On Hold / Complete / Ongoing. If a new status is added there,
+// resolveStage() below warns in dev instead of silently degrading to ONGOING.
 const STAGE_BANNER = {
   'Scheduled':   { cls: 'sjc-banner-ready',    label: 'SCHEDULED' },
   'In Progress': { cls: 'sjc-banner-active',   label: 'ACTIVE' },
@@ -22,11 +25,20 @@ const STAGE_BANNER = {
   'Ongoing':     { cls: 'sjc-banner-staged',   label: 'ONGOING' },
 }
 
+function resolveStage(productionStage) {
+  const mapped = STAGE_BANNER[productionStage]
+  if (mapped) return mapped
+  if (import.meta.env.DEV) {
+    console.warn(`BillingCard: unmapped productionStage "${productionStage}" — add it to STAGE_BANNER (jobStatus.js vocabulary changed?)`)
+  }
+  return STAGE_BANNER['Ongoing']
+}
+
 export default function BillingCard({ row, canEdit, onFlag, busy }) {
   const [showBilling, setShowBilling] = useState(false)
   const o = row.override || {}
 
-  const stage = STAGE_BANNER[row.productionStage] || STAGE_BANNER['Ongoing']
+  const stage = resolveStage(row.productionStage)
   const badge = billingBadge(row)
 
   return (
