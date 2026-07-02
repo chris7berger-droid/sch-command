@@ -46,7 +46,10 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
       <div className={`sjc-banner ${stage.cls}`}>
         <span className="sjc-banner-stage">{stage.label}</span>
         {row.heldSales && <span className="sjc-banner-reason">held — do not invoice</span>}
-        <span className={`bc-badge bc-badge-${badge.tone}`}>{badge.label}</span>
+        <span className="bc-banner-right">
+          {o.nothing_to_bill && <span className="bc-gb-chip" title="Go Back — already built/billed">GB</span>}
+          <span className={`bc-badge bc-badge-${badge.tone}`}>{badge.label}</span>
+        </span>
       </div>
 
       <div className="sjc-header" style={{ cursor: 'default' }}>
@@ -112,8 +115,8 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
                 className={`wl-flag${o.nothing_to_bill ? ' on' : ''}`}
                 disabled={busy}
                 onClick={() => onFlag(row.jobId, 'nothing_to_bill', !o.nothing_to_bill)}
-                title="Nothing to bill this week"
-              >N/B</button>
+                title="Go Back — already built/billed; nothing new to bill (flag it so you know why it came up)"
+              >GB</button>
               <select
                 className="wl-terms"
                 disabled={busy}

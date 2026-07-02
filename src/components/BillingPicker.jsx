@@ -29,10 +29,19 @@ export default function BillingPicker({ rows, weekLabel, canEdit, onFlag, busyJo
   // (pseudo-card 'toBill') reached by clicking the total, rendered as billing cards.
   const toBillRows = useMemo(() => rows.filter((r) => !r.fullyBilled), [rows])
 
+  // Go Backs — jobs flagged GB (already built/billed, nothing new to bill). A
+  // cross-cutting filter + count so Chris can see why a job came up and track how
+  // many go-backs there are. (Underlying flag is still billing_worklist.nothing_to_bill.)
+  const goBackRows = useMemo(() => rows.filter((r) => r.override?.nothing_to_bill), [rows])
+
   const selectedDef = selected === 'toBill'
     ? { label: 'Total to Bill' }
+    : selected === 'goBacks'
+    ? { label: 'Go Backs' }
     : selected ? BILLING_CARDS.find((c) => c.key === selected) : null
-  const selectedRows = selected === 'toBill' ? toBillRows : selected ? byCard[selected] : []
+  const selectedRows = selected === 'toBill' ? toBillRows
+    : selected === 'goBacks' ? goBackRows
+    : selected ? byCard[selected] : []
 
   return (
     <div className="jh-picker bill-picker">
@@ -44,6 +53,17 @@ export default function BillingPicker({ rows, weekLabel, canEdit, onFlag, busyJo
         <div className="bill-picker-sum-lbl">Total to bill — {weekLabel} <span className="bill-picker-sum-hint">view jobs &rarr;</span></div>
         <div className="bill-picker-sum-num">{money(toBill)}</div>
         <div className="bill-picker-sum-sub">{toBillRows.length} still owed · {rows.length} on the billing list</div>
+      </button>
+
+      <button
+        className={`bill-gb-filter${selected === 'goBacks' ? ' on' : ''}`}
+        onClick={() => setSelected('goBacks')}
+        title="Go Backs — jobs already built/billed, flagged so you know why they came up"
+      >
+        <span className="bill-gb-icon">&#8617;</span>
+        <span className="bill-gb-count">{goBackRows.length}</span>
+        Go Back{goBackRows.length === 1 ? '' : 's'}
+        <span className="bill-gb-hint">view &rarr;</span>
       </button>
 
       {!selected && (

@@ -6030,6 +6030,20 @@
 .bill-picker-summary-btn.on { border-color: #30cfac; }
 .bill-picker-sum-hint { font-size: 10px; color: #30cfac; letter-spacing: 0.06em; margin-left: 8px; opacity: 0.9; }
 .bill-picker-sum-lbl { font-family: var(--font-heading); text-transform: uppercase; letter-spacing: 0.05em; font-size: 12px; color: #c8bcaa; }
+
+/* Go Backs filter bar */
+.bill-gb-filter {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin-bottom: 18px; padding: 10px 16px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--brd); border-left: 4px solid var(--pw);
+  border-radius: 10px; font-family: var(--font-heading); font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em; font-size: 13px; color: var(--text-primary);
+  transition: border-color 0.1s;
+}
+.bill-gb-filter:hover, .bill-gb-filter.on { border-color: var(--pw); }
+.bill-gb-icon { color: var(--pw); font-size: 15px; }
+.bill-gb-count { font-family: var(--font-mono); font-weight: 700; font-size: 18px; color: var(--pw); }
+.bill-gb-hint { margin-left: auto; font-size: 10px; color: var(--text-light); letter-spacing: 0.06em; }
 .bill-picker-sum-num { font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: #30cfac; }
 .bill-picker-sum-sub { font-size: 12px; color: #b5a896; }
 
@@ -6099,10 +6113,17 @@
 .bc-busy { opacity: 0.55; pointer-events: none; }
 .bc-co { font-size: 10px; background: var(--pw); color: #fff; padding: 1px 5px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
 
+.bc-banner-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 .bc-badge {
-  margin-left: auto; font-family: var(--font-heading); font-weight: 800;
+  font-family: var(--font-heading); font-weight: 800;
   font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase;
   padding: 2px 8px; border-radius: 5px;
+}
+/* Go Back marker on the card banner */
+.bc-gb-chip {
+  font-family: var(--font-heading); font-weight: 800; font-size: 11px;
+  letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px;
+  border-radius: 5px; background: var(--pw); color: #fff;
 }
 .bc-badge-deposit  { background: #2d4a3e; color: #30cfac; }
 .bc-badge-partial  { background: rgba(21, 101, 192, 0.15); color: var(--blu); }
