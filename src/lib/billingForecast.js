@@ -352,6 +352,16 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
       lastSent,
       allPaid,
       fullyBilled,
+      // per-invoice breakdown (which invoices have gone out + amounts) for the
+      // card's BILLING tab. Sent invoices only, oldest first.
+      invoiceBreakdown: sentInvoices
+        .map((i) => ({
+          id: i.id,
+          amount: num(i.amount),
+          sentAt: i.sent_at ? String(i.sent_at).split('T')[0] : null,
+          paid: isPaid(i),
+        }))
+        .sort((a, b) => (String(a.sentAt || '') < String(b.sentAt || '') ? -1 : 1)),
       historyLabel: historyLabel({ billed, authoritative: auth.total, fullyBilled, arm }),
       // production stage for the billing card's banner — the SAME mapping the
       // Jobs picker uses (getJobStatus), NOT raw jobs.status [rule #1 / B2].

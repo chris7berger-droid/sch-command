@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { billingBadge } from '../lib/billingForecast'
 
 // Purpose-built billing card (BF-3, Option B) — borrows the StageJobCard design
@@ -36,10 +37,12 @@ function resolveStage(productionStage) {
 
 export default function BillingCard({ row, canEdit, onFlag, busy }) {
   const [showBilling, setShowBilling] = useState(false)
+  const navigate = useNavigate()
   const o = row.override || {}
 
   const stage = resolveStage(row.productionStage)
   const badge = billingBadge(row)
+  const openJob = () => navigate(`/jobs/${row.jobId}`)
 
   return (
     <div className={`sjc-card bc-card${row.heldSales ? ' bc-held' : ''}${busy ? ' bc-busy' : ''}`}>
@@ -52,11 +55,12 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
         </span>
       </div>
 
-      <div className="sjc-header" style={{ cursor: 'default' }}>
+      <div className="sjc-header bc-header-link" onClick={openJob} title="Open job detail">
         <span className="sjc-header-title">
           {row.jobNum}{row.jobName ? ` — ${row.jobName}` : ''}
           {row.isChangeOrder && <span className="bc-co">CO{row.coNumber ? ` ${row.coNumber}` : ''}</span>}
         </span>
+        <span className="bc-header-open">Open &rarr;</span>
       </div>
 
       <div className="sjc-identity bc-identity-top">
@@ -95,13 +99,24 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
       {showBilling && (
         <div className="sjc-panel bc-billing-panel">
           <div className="bc-billing-summary">
-            <span>{row.invoiceCount} invoice{row.invoiceCount === 1 ? '' : 's'}</span>
-            <span>·</span>
-            <span>{row.sentCount} sent</span>
-            {row.lastSent && <><span>·</span><span>last sent {row.lastSent}</span></>}
+            <span>{row.sentCount} of {row.invoiceCount} invoice{row.invoiceCount === 1 ? '' : 's'} sent</span>
             {row.allPaid && <><span>·</span><span className="bc-paid">paid</span></>}
             {row.ambiguous && <span className="bc-warn">⚠ proposal unresolved</span>}
           </div>
+
+          {/* which invoices have gone out + amounts */}
+          {row.invoiceBreakdown && row.invoiceBreakdown.length > 0 && (
+            <div className="bc-inv-list">
+              {row.invoiceBreakdown.map((inv, i) => (
+                <div key={inv.id ?? i} className="bc-inv-row">
+                  <span className="bc-inv-idx">#{i + 1}</span>
+                  <span className="bc-inv-date">{inv.sentAt || '—'}</span>
+                  <span className="bc-inv-amt">{money(inv.amount)}</span>
+                  {inv.paid && <span className="bc-inv-paid">paid</span>}
+                </div>
+              ))}
+            </div>
+          )}
 
           {canEdit ? (
             <div className="wl-ctrls bc-ctrls">

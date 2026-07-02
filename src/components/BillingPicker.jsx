@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { BILLING_CARDS, billingCardKey } from '../lib/billingForecast'
 import BillingCard from './BillingCard'
 
@@ -11,6 +12,7 @@ const money = (n) => '$' + Math.round(n || 0).toLocaleString()
 
 export default function BillingPicker({ rows, weekLabel, canEdit, onFlag, busyJobId }) {
   const [selected, setSelected] = useState(null)
+  const navigate = useNavigate()
 
   const byCard = useMemo(() => {
     const groups = { ready: [], partial: [], complete: [], payApps: [] }
@@ -45,6 +47,11 @@ export default function BillingPicker({ rows, weekLabel, canEdit, onFlag, busyJo
 
   return (
     <div className="jh-picker bill-picker">
+      <div className="fc-header">
+        <button className="bill-drill-back" onClick={() => navigate('/jobs')}>&larr; All jobs</button>
+        <span className="bill-drill-title">Billing</span>
+      </div>
+
       <button
         className={`bill-picker-summary bill-picker-summary-btn${selected === 'toBill' ? ' on' : ''}`}
         onClick={() => setSelected('toBill')}
