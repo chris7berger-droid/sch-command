@@ -5,6 +5,8 @@
 // assembled by queries.loadBillingSurfaceData(). Section refs are to
 // docs/plans/billing_forecast_integration.md.
 
+import { getJobStatus } from './jobStatus'
+
 // ── numeric coercion ────────────────────────────────────────────────────────
 // jobs.amount is a "$45,000" string; invoice numerics may arrive as strings.
 export function num(v) {
@@ -162,13 +164,15 @@ export function productionThisWeek(job, weekStart, weekEnd) {
 // ── expected pay date (§4.2, precedence C4) ──────────────────────────────────
 // 1) terms_override applied to sent_at (wins over due_date)
 // 2) due_date
-// 3) sent_at + COALESCE(terms_override, billing_terms, default_billing_terms, 30)
+// 3) sent_at + COALESCE(billing_terms, default_billing_terms, 30)  [ADJ-4: terms_override is step 1 only]
 export function expectedPayDate(inv, termsOverride) {
   const sent = inv.sent_at ? new Date(String(inv.sent_at).split('T')[0] + 'T00:00:00') : null
   if (termsOverride && sent) return addDays(sent, termsOverride)
   if (inv.due_date) return new Date(String(inv.due_date).split('T')[0] + 'T00:00:00')
   if (sent) {
-    const terms = termsOverride || inv._billing_terms || inv._default_billing_terms || 30
+    // termsOverride is provably falsy here — step 1 above already returns when
+    // (termsOverride && sent), and we're inside `if (sent)` [ADJ-4].
+    const terms = inv._billing_terms || inv._default_billing_terms || 30
     return addDays(sent, terms)
   }
   return null
@@ -207,7 +211,9 @@ export function computeForecast(invoices, termsOverrideByCallLog, today, getMond
     if (held > 0 && inv.retention_release_of == null) {
       heldRetention.sum += held
       heldRetention.count += 1
-      heldRetention.invoices.push(inv)
+      // carry the held amount as _net + a null _expected (release date unknown)
+      // so the retention drill-in renders in the same forecast card as inflow.
+      heldRetention.invoices.push({ ...inv, _net: held, _expected: null })
     }
 
     const net = netOfInvoice(inv)
@@ -284,8 +290,12 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
     const fullyBilled = auth.resolved && billed >= auth.total
 
     const override = overridesByJobId.get(String(job.job_id))
-    const requiresPayApp = jobInvoices.some((i) => i._requires_pay_app)
-    const status = deriveStatus({ fullyBilled, override, invoices: jobInvoices, requiresPayApp, payAppsByInvoice })
+    // Invoice-derived pay-app flag — used ONLY by deriveStatus. Distinct from the
+    // job-row `requiresPayApp` emitted on the row below (B1 name-collision note):
+    // that one comes off the loadJobs call_log→customers embed and drives the Pay
+    // Apps card even for un-invoiced jobs; this one hangs off the invoice join.
+    const requiresPayAppInvoice = jobInvoices.some((i) => i._requires_pay_app)
+    const status = deriveStatus({ fullyBilled, override, invoices: jobInvoices, requiresPayApp: requiresPayAppInvoice, payAppsByInvoice })
 
     const arm = populationArm(job, {
       hasLiveSoldProposal, billed, authoritative: auth.total, weekStart, weekEnd,
@@ -320,6 +330,10 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
     rows.push({
       jobId: job.job_id,
       callLogId,
+      // Pay-app filter field — sourced off the JOB row (loadJobs call_log→customers
+      // embed, C1/B1), so un-invoiced pay-app jobs still land in the Pay Apps card.
+      // NOT requiresPayAppInvoice above (invoice-derived, deriveStatus-only).
+      requiresPayApp: !!job.requires_pay_app,
       jobNum: job.job_num || job._display_job_number || jobInvoices[0]?._display_job_number || String(job.job_id),
       jobName: job.job_name || null,
       customerName: job.customer_name || null,
@@ -338,7 +352,23 @@ export function buildBillingSurface(jobs, data, today, getMonday) {
       lastSent,
       allPaid,
       fullyBilled,
+      // per-invoice breakdown (which invoices have gone out + amounts) for the
+      // card's BILLING tab. Sent invoices only, oldest first.
+      invoiceBreakdown: sentInvoices
+        .map((i) => ({
+          id: i.id,
+          amount: num(i.amount),
+          sentAt: i.sent_at ? String(i.sent_at).split('T')[0] : null,
+          paid: isPaid(i),
+        }))
+        .sort((a, b) => (String(a.sentAt || '') < String(b.sentAt || '') ? -1 : 1)),
       historyLabel: historyLabel({ billed, authoritative: auth.total, fullyBilled, arm }),
+      // production stage for the billing card's banner — the SAME mapping the
+      // Jobs picker uses (getJobStatus), NOT raw jobs.status [rule #1 / B2].
+      productionStage: getJobStatus(job),
+      // greying signal for On-Hold rows inside their billing card [rule #1].
+      // Kept separate from the derived billing `status` so neither is overloaded.
+      heldSales: !!override?.hold_sales,
       override: override || null,
     })
   }
@@ -356,6 +386,41 @@ function historyLabel({ billed, authoritative, fullyBilled, arm }) {
   if (billed <= 0) return arm === 'deposit' ? 'Deposit due' : 'Nothing billed'
   if (authoritative > 0 && billed < authoritative) return 'Partially billed'
   return 'Billed'
+}
+
+// ── billing-state cards (BF-3, Phase-2 card-mapping decision) ────────────────
+// The billing screen groups worklist rows by BILLING STATE into 4 cards, keyed
+// off the DERIVED fields each row already carries (fullyBilled / historyLabel /
+// authoritativeResolved) — NOT raw billed/authoritative [B1]. Pay Apps is an
+// exclusive lane sourced off the JOB-row requiresPayApp [C1] and overrides the
+// other three. Every shipped historyLabel state maps to exactly one card [E1].
+export const BILLING_CARDS = [
+  { key: 'ready',    label: 'Ready to Bill',   tone: 'ready',   desc: 'Sold work with nothing billed yet — deposits and first bills.' },
+  { key: 'partial',  label: 'Partially Billed', tone: 'partial', desc: 'Billing started, balance still owed. Draws and follow-up bills.' },
+  { key: 'complete', label: 'Billed Complete',  tone: 'complete', desc: 'Fully billed against the contract. The done pile.' },
+  { key: 'payApps',  label: 'Pay Apps',         tone: 'payapps', desc: 'Pay-application customers (SOV / G702-G703) — their own lane.' },
+]
+
+// Which card a row belongs to. Order matters: Pay Apps overrides (exclusive),
+// then fully-billed, then the partial/needs-review case, else Ready to Bill.
+// Total coverage of historyLabel outputs — no row lands in zero or two cards.
+export function billingCardKey(row) {
+  if (row.requiresPayApp) return 'payApps'              // exclusive lane [C1]
+  if (row.fullyBilled) return 'complete'               // 'Fully billed'
+  // 'Partially billed', plus the billed-but-unresolved 'Billed' catch-all
+  // (billed>0 but authoritative unresolved/ambiguous → flagged needs-review) [B1].
+  if (row.historyLabel === 'Partially billed' || row.historyLabel === 'Billed') return 'partial'
+  return 'ready'                                        // 'Deposit due' | 'Nothing billed'
+}
+
+// The billing badge shown on a card's banner-right slot. `needsReview` is the
+// billed-but-unresolved case [B1]; `deposit` drives the DEPOSIT DUE badge.
+export function billingBadge(row) {
+  if (row.fullyBilled) return { label: 'FULLY BILLED', tone: 'complete' }
+  if (row.historyLabel === 'Partially billed') return { label: 'PARTIALLY BILLED', tone: 'partial' }
+  if (row.historyLabel === 'Billed') return { label: 'NEEDS REVIEW', tone: 'review' }
+  if (row.historyLabel === 'Deposit due') return { label: 'DEPOSIT DUE', tone: 'deposit' }
+  return { label: 'NEEDS FINAL BILL', tone: 'ready' } // 'Nothing billed'
 }
 
 // terms_override lives on billing_worklist keyed by job_id; the forecast keys by

@@ -9,6 +9,7 @@ import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus }
 import Jobs from './views/Jobs'
 import Schedule from './views/Schedule'
 import Billing from './views/Billing'
+import Forecast from './views/Forecast'
 import Materials from './views/Materials'
 import Calendar from './views/Calendar'
 import Daily from './views/Daily'
@@ -309,6 +310,7 @@ function AppShell({ session, teamMember }) {
           <Route path="/jobs/:jobId" element={<JobDetail />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/billing" element={<Billing />} />
+          <Route path="/billing/forecast" element={<Forecast />} />
           <Route path="/materials" element={<Materials />} />
           <Route path="/calendar" element={<Calendar />} />
           <Route path="/daily" element={<Daily />} />

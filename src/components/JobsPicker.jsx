@@ -69,7 +69,8 @@ export default function JobsPicker({ jobs = [], assignments = [], billingWorklis
   const navigate = useNavigate()
   const goTab = (key) => onPick ? onPick(key) : navigate(`/jobs?tab=${key}`)
   const goSchedule = () => navigate('/schedule')
-  const goBilling = () => navigate('/billing?tab=worklist')
+  const goBilling = () => navigate('/billing')
+  const goForecast = () => navigate('/billing/forecast')
   const goProductionRate = () => navigate('/production-rate')
   const goBudget = () => navigate('/budget')
   const goDaily = () => navigate('/daily')
@@ -198,6 +199,18 @@ export default function JobsPicker({ jobs = [], assignments = [], billingWorklis
             <div className="jh-tile-desc">Complete, not fully billed. Awaiting handoff to finance for invoicing.</div>
             <div className="jh-tile-foot">
               <span className="jh-tile-attn">{counts.readyToBill} pending</span>
+              <span className="jh-tile-arrow">&rarr;</span>
+            </div>
+          </button>
+
+          <button className="jh-tile jh-tile-forecast" onClick={goForecast}>
+            <div className="jh-tile-head">
+              <div className="jh-tile-name"><span className="jh-tile-dot" />90-Day Forecast</div>
+              <div className="jh-tile-count">&mdash;</div>
+            </div>
+            <div className="jh-tile-desc">When cash lands — payments forecast on sent invoices, next 90 days.</div>
+            <div className="jh-tile-foot">
+              <span className="jh-tile-attn">Open cash forecast</span>
               <span className="jh-tile-arrow">&rarr;</span>
             </div>
           </button>

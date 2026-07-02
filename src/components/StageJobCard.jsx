@@ -136,7 +136,11 @@ function StageBanner({ job, stage, crewRows, matRows, prtMap, today }) {
     const end = effectiveEnd(job)
     const totalDays = start && end ? daysBetween(end, new Date(start + 'T00:00:00')) + 1 : null
     const elapsed = start ? daysBetween(new Date().toISOString().slice(0, 10), new Date(start + 'T00:00:00')) : null
-    const dayText = totalDays && elapsed != null ? `day ${Math.max(1, elapsed + 1)} of ${totalDays}` : null
+    // SJC-1 display cap: floor at 1, cap at totalDays so a stale past-end ACTIVE
+    // job reads "day 5 of 5", never "day 129 of 5". (The real fix — elapsed from
+    // first clock-punch + "Nd overdue" reframe — is deferred to Field Command.)
+    const dayNum = totalDays && elapsed != null ? Math.min(totalDays, Math.max(1, elapsed + 1)) : null
+    const dayText = dayNum != null ? `day ${dayNum} of ${totalDays}` : null
     const prts = prtMap instanceof Map ? (prtMap.get(job.call_log_id) || []) : []
     const prt = getPrtStatus(prts)
     return (

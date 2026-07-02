@@ -83,7 +83,10 @@ const CALL_LOG_SELECT = `
     show_cents,
     deposit_required,
     deposit_amount,
-    deposit_invoice_id
+    deposit_invoice_id,
+    customers:customer_id (
+      requires_pay_app
+    )
   )
 `.replace(/\s+/g, ' ').trim()
 
@@ -117,6 +120,11 @@ function normalizeJob(row) {
     deposit_amount:     cl.deposit_amount      ?? null,
     deposit_invoice_id: cl.deposit_invoice_id  ?? null,
     _deposit: null,
+    // pay-app flag on the JOB row (via call_log → customers embed, C1). Present
+    // regardless of invoice state, so un-invoiced pay-app jobs still surface in
+    // the Pay Apps card. Distinct from the invoice-derived _requires_pay_app on
+    // billing-surface invoices (loadBillingSurfaceData) — see billingForecast B1.
+    requires_pay_app:   cl.customers?.requires_pay_app ?? false,
     // keep raw call_log for detail views
     _call_log: cl,
     // per-WTC attributes (empty for legacy rows; readers fall back to

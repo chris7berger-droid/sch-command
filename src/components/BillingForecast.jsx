@@ -1,13 +1,30 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { fmtWk, fmtD } from '../lib/weeks'
+import ForecastCard from './ForecastCard'
+import BillingCard from './BillingCard'
 
 // Tab B — 90-Day Cash-Flow Forecast (plan §4). Read-only: renders the buckets
 // computed by buildBillingSurface(). The "prize" — nothing else in the suite
-// forecasts cash.
+// forecasts cash. Drill-ins reuse the full billing card (via the job's worklist
+// row, looked up by call_log_id) so the forecast reads in the standard format;
+// an invoice whose job isn't in the worklist falls back to a light ForecastCard.
 
 const money = (n) => '$' + Math.round(n || 0).toLocaleString()
 
-export default function BillingForecast({ forecast, partial }) {
+export default function BillingForecast({ forecast, partial, rows = [], jobs = [] }) {
+  const rowByCallLog = useMemo(() => {
+    const m = new Map()
+    for (const r of rows) m.set(r.callLogId, r)
+    return m
+  }, [rows])
+  // fallback: resolve any job by call_log_id (covers jobs not in the worklist)
+  // so an orphan forecast card still navigates in-app to /jobs/:jobId.
+  const jobByCallLog = useMemo(() => {
+    const m = new Map()
+    for (const j of jobs) m.set(j.call_log_id, j)
+    return m
+  }, [jobs])
+
   // selected bucket for the drill-down: 'pastdue' | a Monday key | null
   const [selected, setSelected] = useState('pastdue')
 
@@ -20,10 +37,12 @@ export default function BillingForecast({ forecast, partial }) {
 
   const selectedBucket =
     selected === 'pastdue'
-      ? { label: 'Past Due', invoices: pastDue.invoices }
+      ? { label: 'Past Due', invoices: pastDue.invoices, moneyLabel: 'Net' }
+      : selected === 'retention'
+      ? { label: 'Held Retention', invoices: heldRetention.invoices, moneyLabel: 'Retention' }
       : (() => {
           const w = weeks.find((x) => fmtD(x.monday) === selected)
-          return w ? { label: fmtWk(w.monday), invoices: w.invoices } : null
+          return w ? { label: fmtWk(w.monday), invoices: w.invoices, moneyLabel: 'Net' } : null
         })()
 
   return (
@@ -39,11 +58,23 @@ export default function BillingForecast({ forecast, partial }) {
           <div className="bf-stat-num">{money(grand)}</div>
           <div className="bf-stat-sub">{money(pastDue.sum)} past due + {money(forwardTotal)} upcoming</div>
         </div>
-        <div className="bf-stat">
-          <div className="bf-stat-lbl">Held retention</div>
-          <div className="bf-stat-num bf-muted">{money(heldRetention.sum)}</div>
-          <div className="bf-stat-sub">{heldRetention.count} invoice{heldRetention.count === 1 ? '' : 's'} · future release</div>
-        </div>
+        {heldRetention.count > 0 ? (
+          <button
+            className={`bf-stat bf-stat-btn${selected === 'retention' ? ' on' : ''}`}
+            onClick={() => setSelected('retention')}
+            title="Show the jobs holding retention"
+          >
+            <div className="bf-stat-lbl">Held retention <span className="bf-stat-hint">view jobs &rarr;</span></div>
+            <div className="bf-stat-num bf-muted">{money(heldRetention.sum)}</div>
+            <div className="bf-stat-sub">{heldRetention.count} invoice{heldRetention.count === 1 ? '' : 's'} · future release</div>
+          </button>
+        ) : (
+          <div className="bf-stat">
+            <div className="bf-stat-lbl">Held retention</div>
+            <div className="bf-stat-num bf-muted">{money(heldRetention.sum)}</div>
+            <div className="bf-stat-sub">0 invoices · future release</div>
+          </div>
+        )}
       </div>
 
       {/* buckets */}
@@ -85,32 +116,49 @@ export default function BillingForecast({ forecast, partial }) {
         </div>
       )}
 
-      {/* drill-down: the collections call list for the selected bucket (§4.4) */}
-      {selectedBucket && selectedBucket.invoices.length > 0 && (
-        <div className="bf-drill">
-          <div className="bf-drill-hdr">{selectedBucket.label} — {selectedBucket.invoices.length} invoice{selectedBucket.invoices.length === 1 ? '' : 's'}</div>
-          <table className="bf-table">
-            <thead>
-              <tr>
-                <th>Job</th><th>Sent</th><th>Expected</th><th className="bf-r">Net</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selectedBucket.invoices
-                .slice()
-                .sort((a, b) => (a._expected > b._expected ? 1 : -1))
-                .map((inv) => (
-                  <tr key={inv.id}>
-                    <td>{inv._display_job_number || inv.call_log_id}</td>
-                    <td>{inv.sent_at ? String(inv.sent_at).split('T')[0] : '—'}</td>
-                    <td>{inv._expected ? fmtD(inv._expected) : '—'}</td>
-                    <td className="bf-r">{money(inv._net)}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* drill-down: the collections call list for the selected bucket (§4.4).
+          Each job renders as the full billing card (looked up by call_log_id,
+          deduped by job) so the format matches the worklist; invoices whose job
+          isn't in the worklist fall back to a light ForecastCard. */}
+      {selectedBucket && selectedBucket.invoices.length > 0 && (() => {
+        const sorted = selectedBucket.invoices.slice().sort((a, b) => {
+          if (!a._expected && !b._expected) return 0
+          if (!a._expected) return 1
+          if (!b._expected) return -1
+          return a._expected > b._expected ? 1 : -1
+        })
+        const seenJobs = new Set()
+        const jobCards = []
+        const orphanInvoices = []
+        for (const inv of sorted) {
+          const row = rowByCallLog.get(inv.call_log_id)
+          if (row) {
+            if (!seenJobs.has(row.jobId)) { seenJobs.add(row.jobId); jobCards.push(row) }
+          } else {
+            orphanInvoices.push(inv)
+          }
+        }
+        return (
+          <div className="bf-drill">
+            <div className="bf-drill-hdr">
+              {selectedBucket.label} — {jobCards.length} job{jobCards.length === 1 ? '' : 's'} · {selectedBucket.invoices.length} invoice{selectedBucket.invoices.length === 1 ? '' : 's'}
+            </div>
+            <div className="bill-drill-grid">
+              {jobCards.map((row) => (
+                <BillingCard key={row.jobId} row={row} canEdit={false} onFlag={() => {}} busy={false} />
+              ))}
+              {orphanInvoices.map((inv) => (
+                <ForecastCard
+                  key={inv.id}
+                  inv={inv}
+                  moneyLabel={selectedBucket.moneyLabel}
+                  jobName={jobByCallLog.get(inv.call_log_id)?.job_name ?? null}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
