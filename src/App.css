@@ -6082,6 +6082,8 @@
 .fc-card {
   display: block; width: 100%; text-align: left; cursor: pointer;
   border: 1px solid rgba(28, 24, 20, 0.18); font-family: inherit; padding: 0;
+  /* keep natural height — don't stretch to a tall full-card neighbor in the grid row */
+  align-self: start;
 }
 .fc-card .sjc-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .fc-card .sjc-header:hover { text-decoration: none; }
