@@ -46,6 +46,10 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
 
       <div className="sjc-identity">
         <div className="sjc-id-bubble">
+          <span className="sjc-id-label">Job</span>
+          <span className="sjc-id-value">{row.jobNum}{row.jobName ? ` ${row.jobName}` : ''}</span>
+        </div>
+        <div className="sjc-id-bubble">
           <span className="sjc-id-label">Customer</span>
           <span className="sjc-id-value">{row.customerName || '—'}</span>
         </div>
