@@ -211,7 +211,9 @@ export function computeForecast(invoices, termsOverrideByCallLog, today, getMond
     if (held > 0 && inv.retention_release_of == null) {
       heldRetention.sum += held
       heldRetention.count += 1
-      heldRetention.invoices.push(inv)
+      // carry the held amount as _net + a null _expected (release date unknown)
+      // so the retention drill-in renders in the same forecast card as inflow.
+      heldRetention.invoices.push({ ...inv, _net: held, _expected: null })
     }
 
     const net = netOfInvoice(inv)

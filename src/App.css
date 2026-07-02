@@ -6054,6 +6054,27 @@
 /* forecast screen header */
 .fc-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 
+/* clickable Held Retention stat */
+.bf-stat-btn {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  border: 2px solid var(--brd); font-family: inherit; transition: border-color 0.1s;
+}
+.bf-stat-btn:hover { border-color: var(--command-green); }
+.bf-stat-btn.on { border-color: var(--command-green); }
+.bf-stat-hint { font-size: 10px; color: var(--command-green); letter-spacing: 0.06em; margin-left: 6px; }
+
+/* forecast drill-in as cards */
+.bf-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.fc-card {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  border: 1px solid rgba(28, 24, 20, 0.18); font-family: inherit; padding: 0;
+}
+.fc-card .sjc-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fc-card .sjc-header:hover { text-decoration: none; }
+.fc-card:hover { border-color: var(--command-green); }
+.fc-card-open { font-family: var(--font-heading); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--command-green); white-space: nowrap; }
+.fc-card-bubbles { flex-wrap: wrap; }
+
 /* drill-in list */
 .bill-drill-hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .bill-drill-back {

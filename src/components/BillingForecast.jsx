@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { fmtWk, fmtD } from '../lib/weeks'
+import ForecastCard from './ForecastCard'
 
 // Tab B — 90-Day Cash-Flow Forecast (plan §4). Read-only: renders the buckets
 // computed by buildBillingSurface(). The "prize" — nothing else in the suite
@@ -20,10 +21,12 @@ export default function BillingForecast({ forecast, partial }) {
 
   const selectedBucket =
     selected === 'pastdue'
-      ? { label: 'Past Due', invoices: pastDue.invoices }
+      ? { label: 'Past Due', invoices: pastDue.invoices, moneyLabel: 'Net' }
+      : selected === 'retention'
+      ? { label: 'Held Retention', invoices: heldRetention.invoices, moneyLabel: 'Retention' }
       : (() => {
           const w = weeks.find((x) => fmtD(x.monday) === selected)
-          return w ? { label: fmtWk(w.monday), invoices: w.invoices } : null
+          return w ? { label: fmtWk(w.monday), invoices: w.invoices, moneyLabel: 'Net' } : null
         })()
 
   return (
@@ -39,11 +42,23 @@ export default function BillingForecast({ forecast, partial }) {
           <div className="bf-stat-num">{money(grand)}</div>
           <div className="bf-stat-sub">{money(pastDue.sum)} past due + {money(forwardTotal)} upcoming</div>
         </div>
-        <div className="bf-stat">
-          <div className="bf-stat-lbl">Held retention</div>
-          <div className="bf-stat-num bf-muted">{money(heldRetention.sum)}</div>
-          <div className="bf-stat-sub">{heldRetention.count} invoice{heldRetention.count === 1 ? '' : 's'} · future release</div>
-        </div>
+        {heldRetention.count > 0 ? (
+          <button
+            className={`bf-stat bf-stat-btn${selected === 'retention' ? ' on' : ''}`}
+            onClick={() => setSelected('retention')}
+            title="Show the jobs holding retention"
+          >
+            <div className="bf-stat-lbl">Held retention <span className="bf-stat-hint">view jobs &rarr;</span></div>
+            <div className="bf-stat-num bf-muted">{money(heldRetention.sum)}</div>
+            <div className="bf-stat-sub">{heldRetention.count} invoice{heldRetention.count === 1 ? '' : 's'} · future release</div>
+          </button>
+        ) : (
+          <div className="bf-stat">
+            <div className="bf-stat-lbl">Held retention</div>
+            <div className="bf-stat-num bf-muted">{money(heldRetention.sum)}</div>
+            <div className="bf-stat-sub">0 invoices · future release</div>
+          </div>
+        )}
       </div>
 
       {/* buckets */}
@@ -85,30 +100,25 @@ export default function BillingForecast({ forecast, partial }) {
         </div>
       )}
 
-      {/* drill-down: the collections call list for the selected bucket (§4.4) */}
+      {/* drill-down: the collections call list for the selected bucket (§4.4),
+          each invoice as a clickable forecast card → Sales job (new tab) */}
       {selectedBucket && selectedBucket.invoices.length > 0 && (
         <div className="bf-drill">
           <div className="bf-drill-hdr">{selectedBucket.label} — {selectedBucket.invoices.length} invoice{selectedBucket.invoices.length === 1 ? '' : 's'}</div>
-          <table className="bf-table">
-            <thead>
-              <tr>
-                <th>Job</th><th>Sent</th><th>Expected</th><th className="bf-r">Net</th>
-              </tr>
-            </thead>
-            <tbody>
-              {selectedBucket.invoices
-                .slice()
-                .sort((a, b) => (a._expected > b._expected ? 1 : -1))
-                .map((inv) => (
-                  <tr key={inv.id}>
-                    <td>{inv._display_job_number || inv.call_log_id}</td>
-                    <td>{inv.sent_at ? String(inv.sent_at).split('T')[0] : '—'}</td>
-                    <td>{inv._expected ? fmtD(inv._expected) : '—'}</td>
-                    <td className="bf-r">{money(inv._net)}</td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+          <div className="bf-card-grid">
+            {selectedBucket.invoices
+              .slice()
+              .sort((a, b) => {
+                // undated (held retention) sort last; else oldest expected first
+                if (!a._expected && !b._expected) return 0
+                if (!a._expected) return 1
+                if (!b._expected) return -1
+                return a._expected > b._expected ? 1 : -1
+              })
+              .map((inv) => (
+                <ForecastCard key={inv.id} inv={inv} moneyLabel={selectedBucket.moneyLabel} />
+              ))}
+          </div>
         </div>
       )}
     </div>
