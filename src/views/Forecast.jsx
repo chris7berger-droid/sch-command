@@ -46,7 +46,7 @@ export default function Forecast() {
 
       {loading && <div className="bill-loading">Loading forecast…</div>}
       {!loading && built && (
-        <BillingForecast forecast={built.forecast} partial={surface?.partial} rows={built.rows} />
+        <BillingForecast forecast={built.forecast} partial={surface?.partial} rows={built.rows} jobs={jobs} />
       )}
     </div>
   )

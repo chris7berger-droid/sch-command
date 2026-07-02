@@ -1,29 +1,36 @@
+import { useNavigate } from 'react-router-dom'
 import { fmtD } from '../lib/weeks'
 
-// One forecast invoice as a card in the billing design language (BF-6). Used by
-// the 90-Day Forecast drill-ins (past-due / weekly / held-retention). The whole
-// card is clickable → opens the job in Sales Command in a new tab (BF-5): Schedule
-// has no invoice/proposal detail, Sales does. Every forecast row carries call_log_id.
+// Fallback forecast card for an invoice whose job ISN'T in the billing worklist
+// (e.g. held retention on a settled job). Borrows the billing card design so it
+// reads consistently. When the job resolves in Schedule it clicks in-app to
+// /jobs/:jobId (no Sales splash); only a truly Sales-only call_log falls back to
+// opening Sales Command in a new tab.
 
 const money = (n) => '$' + Math.round(n || 0).toLocaleString()
-
-// Sales Command production host (Command Suite). Confirm before prod if this moves.
 const SALES_HOST = 'https://salescommand.app'
 
-export default function ForecastCard({ inv, moneyLabel = 'Net' }) {
-  const jobLabel = inv._display_job_number || `Call log ${inv.call_log_id}`
+export default function ForecastCard({ inv, moneyLabel = 'Net', jobId = null, jobName = null }) {
+  const navigate = useNavigate()
+  const jobLabel = inv._display_job_number || jobName || `Call log ${inv.call_log_id}`
   const sent = inv.sent_at ? String(inv.sent_at).split('T')[0] : '—'
   const expected = inv._expected ? fmtD(inv._expected) : '—'
 
-  const openInSales = () => {
-    if (inv.call_log_id) window.open(`${SALES_HOST}/calllog/${inv.call_log_id}`, '_blank', 'noopener')
+  const open = () => {
+    if (jobId != null) navigate(`/jobs/${jobId}`)
+    else if (inv.call_log_id) window.open(`${SALES_HOST}/calllog/${inv.call_log_id}`, '_blank', 'noopener')
   }
 
   return (
-    <button className="sjc-card fc-card" onClick={openInSales} title="Open this job in Sales Command (new tab)">
+    <button className="sjc-card fc-card" onClick={open} title={jobId != null ? 'Open job detail' : 'Open this job in Sales Command (new tab)'}>
+      <div className="sjc-banner sjc-banner-staged">
+        <span className="sjc-banner-stage">Forecast</span>
+        <span className="bc-banner-right">
+          <span className="fc-card-open">{jobId != null ? 'Open →' : 'Sales →'}</span>
+        </span>
+      </div>
       <div className="sjc-header">
         <span className="sjc-header-title">{jobLabel}</span>
-        <span className="fc-card-open">Sales &rarr;</span>
       </div>
       <div className="sjc-identity fc-card-bubbles">
         <div className="sjc-id-bubble bc-money">

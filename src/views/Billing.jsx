@@ -49,15 +49,26 @@ export default function Billing() {
 
   const onFlag = useCallback(async (jobId, field, value) => {
     if (!canEdit) return
+    // Optimistic: patch the local override immediately so the card updates in
+    // place (no full reload, no loading flicker, drill-in stays put). buildBilling
+    // Surface re-derives from surface.overrides via useMemo, so the GB chip /
+    // status flip is instant. Persist in the background; revert on failure.
     setBusyJobId(jobId)
+    setSurface((prev) => {
+      if (!prev) return prev
+      const overrides = prev.overrides ? [...prev.overrides] : []
+      const idx = overrides.findIndex((o) => String(o.job_id) === String(jobId))
+      if (idx >= 0) overrides[idx] = { ...overrides[idx], [field]: value }
+      else overrides.push({ job_id: jobId, [field]: value })
+      return { ...prev, overrides }
+    })
     const { error } = await setBillingWorklistFlag(jobId, field, value, user?.name || 'unknown')
+    setBusyJobId(null)
     if (error) {
       toast(`Couldn’t save: ${error.message}`, 'err')
-      setBusyJobId(null)
+      await loadData() // revert to server truth
       return
     }
-    await loadData()
-    setBusyJobId(null)
     toast('Saved', 'ok')
   }, [canEdit, user, toast, loadData])
 

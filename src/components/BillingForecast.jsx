@@ -11,12 +11,19 @@ import BillingCard from './BillingCard'
 
 const money = (n) => '$' + Math.round(n || 0).toLocaleString()
 
-export default function BillingForecast({ forecast, partial, rows = [] }) {
+export default function BillingForecast({ forecast, partial, rows = [], jobs = [] }) {
   const rowByCallLog = useMemo(() => {
     const m = new Map()
     for (const r of rows) m.set(r.callLogId, r)
     return m
   }, [rows])
+  // fallback: resolve any job by call_log_id (covers jobs not in the worklist)
+  // so an orphan forecast card still navigates in-app to /jobs/:jobId.
+  const jobByCallLog = useMemo(() => {
+    const m = new Map()
+    for (const j of jobs) m.set(j.call_log_id, j)
+    return m
+  }, [jobs])
 
   // selected bucket for the drill-down: 'pastdue' | a Monday key | null
   const [selected, setSelected] = useState('pastdue')
@@ -141,7 +148,13 @@ export default function BillingForecast({ forecast, partial, rows = [] }) {
                 <BillingCard key={row.jobId} row={row} canEdit={false} onFlag={() => {}} busy={false} />
               ))}
               {orphanInvoices.map((inv) => (
-                <ForecastCard key={inv.id} inv={inv} moneyLabel={selectedBucket.moneyLabel} />
+                <ForecastCard
+                  key={inv.id}
+                  inv={inv}
+                  moneyLabel={selectedBucket.moneyLabel}
+                  jobId={jobByCallLog.get(inv.call_log_id)?.job_id ?? null}
+                  jobName={jobByCallLog.get(inv.call_log_id)?.job_name ?? null}
+                />
               ))}
             </div>
           </div>
