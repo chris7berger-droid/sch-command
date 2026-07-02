@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { billingBadge } from '../lib/billingForecast'
+
+// Sales Command host — the billing/forecast cards open the job's Sales record
+// (proposals + invoices live there, not in Schedule). Shared call_log is the key.
+const SALES_HOST = 'https://salescommand.app'
 
 // Purpose-built billing card (BF-3, Option B) — borrows the StageJobCard design
 // language (linen card, colored stage banner, identity bubbles, drill-in tab)
@@ -37,12 +40,13 @@ function resolveStage(productionStage) {
 
 export default function BillingCard({ row, canEdit, onFlag, busy }) {
   const [showBilling, setShowBilling] = useState(false)
-  const navigate = useNavigate()
   const o = row.override || {}
 
   const stage = resolveStage(row.productionStage)
   const badge = billingBadge(row)
-  const openJob = () => navigate(`/jobs/${row.jobId}`)
+  const openInSales = () => {
+    if (row.callLogId) window.open(`${SALES_HOST}/calllog/${row.callLogId}`, '_blank', 'noopener')
+  }
 
   return (
     <div className={`sjc-card bc-card${row.heldSales ? ' bc-held' : ''}${busy ? ' bc-busy' : ''}`}>
@@ -55,12 +59,12 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
         </span>
       </div>
 
-      <div className="sjc-header bc-header-link" onClick={openJob} title="Open job detail">
+      <div className="sjc-header bc-header-link" onClick={openInSales} title="Open this job in Sales Command (proposals + invoices)">
         <span className="sjc-header-title">
           {row.jobNum}{row.jobName ? ` — ${row.jobName}` : ''}
           {row.isChangeOrder && <span className="bc-co">CO{row.coNumber ? ` ${row.coNumber}` : ''}</span>}
         </span>
-        <span className="bc-header-open">Open &rarr;</span>
+        <span className="bc-header-open">Sales &rarr;</span>
       </div>
 
       <div className="sjc-identity bc-identity-top">

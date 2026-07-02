@@ -1,32 +1,29 @@
-import { useNavigate } from 'react-router-dom'
 import { fmtD } from '../lib/weeks'
 
 // Fallback forecast card for an invoice whose job ISN'T in the billing worklist
-// (e.g. held retention on a settled job). Borrows the billing card design so it
-// reads consistently. When the job resolves in Schedule it clicks in-app to
-// /jobs/:jobId (no Sales splash); only a truly Sales-only call_log falls back to
-// opening Sales Command in a new tab.
+// (e.g. held retention on a settled job, or a Sales-side change order). Borrows
+// the billing card design so it reads consistently. Like the full billing card,
+// clicking opens the job's record in Sales Command (proposals + invoices live
+// there) — same destination for every card.
 
 const money = (n) => '$' + Math.round(n || 0).toLocaleString()
 const SALES_HOST = 'https://salescommand.app'
 
-export default function ForecastCard({ inv, moneyLabel = 'Net', jobId = null, jobName = null }) {
-  const navigate = useNavigate()
+export default function ForecastCard({ inv, moneyLabel = 'Net', jobName = null }) {
   const jobLabel = inv._display_job_number || jobName || `Call log ${inv.call_log_id}`
   const sent = inv.sent_at ? String(inv.sent_at).split('T')[0] : '—'
   const expected = inv._expected ? fmtD(inv._expected) : '—'
 
-  const open = () => {
-    if (jobId != null) navigate(`/jobs/${jobId}`)
-    else if (inv.call_log_id) window.open(`${SALES_HOST}/calllog/${inv.call_log_id}`, '_blank', 'noopener')
+  const openInSales = () => {
+    if (inv.call_log_id) window.open(`${SALES_HOST}/calllog/${inv.call_log_id}`, '_blank', 'noopener')
   }
 
   return (
-    <button className="sjc-card fc-card" onClick={open} title={jobId != null ? 'Open job detail' : 'Open this job in Sales Command (new tab)'}>
+    <button className="sjc-card fc-card" onClick={openInSales} title="Open this job in Sales Command (proposals + invoices)">
       <div className="sjc-banner sjc-banner-staged">
         <span className="sjc-banner-stage">Forecast</span>
         <span className="bc-banner-right">
-          <span className="fc-card-open">{jobId != null ? 'Open →' : 'Sales →'}</span>
+          <span className="fc-card-open">Sales →</span>
         </span>
       </div>
       <div className="sjc-header">

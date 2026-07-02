@@ -152,7 +152,6 @@ export default function BillingForecast({ forecast, partial, rows = [], jobs = [
                   key={inv.id}
                   inv={inv}
                   moneyLabel={selectedBucket.moneyLabel}
-                  jobId={jobByCallLog.get(inv.call_log_id)?.job_id ?? null}
                   jobName={jobByCallLog.get(inv.call_log_id)?.job_name ?? null}
                 />
               ))}
