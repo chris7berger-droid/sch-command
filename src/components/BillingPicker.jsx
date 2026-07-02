@@ -25,16 +25,26 @@ export default function BillingPicker({ rows, weekLabel, canEdit, onFlag, busyJo
     [rows],
   )
 
-  const selectedDef = selected ? BILLING_CARDS.find((c) => c.key === selected) : null
-  const selectedRows = selected ? byCard[selected] : []
+  // The jobs that sum into TOTAL TO BILL — everything still owed. Its own drill-in
+  // (pseudo-card 'toBill') reached by clicking the total, rendered as billing cards.
+  const toBillRows = useMemo(() => rows.filter((r) => !r.fullyBilled), [rows])
+
+  const selectedDef = selected === 'toBill'
+    ? { label: 'Total to Bill' }
+    : selected ? BILLING_CARDS.find((c) => c.key === selected) : null
+  const selectedRows = selected === 'toBill' ? toBillRows : selected ? byCard[selected] : []
 
   return (
     <div className="jh-picker bill-picker">
-      <div className="bill-picker-summary">
-        <div className="bill-picker-sum-lbl">Total to bill — {weekLabel}</div>
+      <button
+        className={`bill-picker-summary bill-picker-summary-btn${selected === 'toBill' ? ' on' : ''}`}
+        onClick={() => setSelected('toBill')}
+        title="Show the jobs that make up this total"
+      >
+        <div className="bill-picker-sum-lbl">Total to bill — {weekLabel} <span className="bill-picker-sum-hint">view jobs &rarr;</span></div>
         <div className="bill-picker-sum-num">{money(toBill)}</div>
-        <div className="bill-picker-sum-sub">{rows.length} job{rows.length === 1 ? '' : 's'} on the billing list</div>
-      </div>
+        <div className="bill-picker-sum-sub">{toBillRows.length} still owed · {rows.length} on the billing list</div>
+      </button>
 
       {!selected && (
         <div className="jh-picker-grid">

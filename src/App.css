@@ -6022,6 +6022,13 @@
   background: var(--header-dark); color: #f3ede2; border-radius: 10px;
   padding: 14px 18px; margin-bottom: 18px;
 }
+.bill-picker-summary-btn {
+  display: block; width: 100%; text-align: left; border: 2px solid transparent;
+  cursor: pointer; font-family: inherit; transition: border-color 0.1s;
+}
+.bill-picker-summary-btn:hover { border-color: #30cfac; }
+.bill-picker-summary-btn.on { border-color: #30cfac; }
+.bill-picker-sum-hint { font-size: 10px; color: #30cfac; letter-spacing: 0.06em; margin-left: 8px; opacity: 0.9; }
 .bill-picker-sum-lbl { font-family: var(--font-heading); text-transform: uppercase; letter-spacing: 0.05em; font-size: 12px; color: #c8bcaa; }
 .bill-picker-sum-num { font-family: var(--font-mono); font-size: 30px; font-weight: 700; color: #30cfac; }
 .bill-picker-sum-sub { font-size: 12px; color: #b5a896; }
@@ -6052,8 +6059,12 @@
 .bill-drill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 14px; }
 
 /* purpose-built billing card */
-.bc-card .sjc-identity { flex-wrap: wrap; }
-.bc-money { flex: 1 1 92px; }
+.bc-identity-top { padding-bottom: 4px; }
+.bc-identity-money { padding-top: 0; }
+.bc-identity-top .sjc-id-bubble { flex: 1 1 0; }
+.bc-money { flex: 1 1 0; }
+/* JOB / CUSTOMER values may wrap to 2 lines instead of truncating the label+value */
+.bc-id-wrap { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; line-height: 1.25; }
 .bc-mono { font-family: var(--font-mono) !important; text-transform: none !important; letter-spacing: 0 !important; }
 .bc-held { opacity: 0.62; }
 .bc-busy { opacity: 0.55; pointer-events: none; }
