@@ -404,6 +404,12 @@ function BudgetPanel({ job }) {
   }
   roll.margin_pct = roll.price > 0 ? (roll.profit / roll.price) * 100 : 0
 
+  // A roll-up over a proper SUBSET of the job's WTCs is not the job total: it
+  // understates cost/price and computes margin on a slice. Never present it as
+  // authoritative without saying so. Unstamped siblings can persist (re-sends
+  // never re-stamp; backfill can skip a row), so this state is not transient.
+  const partial = stamped.length < wtcs.length
+
   const marginCell = (profit, pct) => (
     <span style={mono}>
       {fmtMoney(profit)}{' '}
@@ -426,17 +432,28 @@ function BudgetPanel({ job }) {
     <div className="sjc-panel sjc-panel-budget">
       {/* Job-level roll-up across stamped WTCs */}
       {stamped.length > 0 && (
-        <div className="jd-grid" style={{ marginBottom: 16 }}>
-          <div className="jd-field"><span className="jd-label">Regular Hrs</span><span className="jd-value" style={mono}>{roll.regular_hours.toFixed(1)}</span></div>
-          <div className="jd-field"><span className="jd-label">OT Hrs</span><span className="jd-value" style={mono}>{roll.ot_hours.toFixed(1)}</span></div>
-          <div className="jd-field"><span className="jd-label">Labor</span><span className="jd-value" style={mono}>{fmtMoney(roll.labor_cost)}</span></div>
-          <div className="jd-field"><span className="jd-label">Materials</span><span className="jd-value" style={mono}>{fmtMoney(roll.material_cost)}</span></div>
-          {roll.travel_cost > 0 && (
-            <div className="jd-field"><span className="jd-label">Travel</span><span className="jd-value" style={mono}>{fmtMoney(roll.travel_cost)}</span></div>
+        <>
+          {partial && (
+            <div
+              className="jd-value"
+              style={{ marginBottom: 8, fontWeight: 700, fontSize: 12 }}
+            >
+              ⚠ Partial roll-up — {stamped.length} of {wtcs.length} work types stamped.
+              Totals and margin below EXCLUDE the unstamped work type(s) and understate the job.
+            </div>
           )}
-          <div className="jd-field"><span className="jd-label">Total Cost</span><span className="jd-value" style={mono}>{fmtMoney(roll.total_cost)}</span></div>
-          <div className="jd-field"><span className="jd-label">Margin</span><span className="jd-value">{marginCell(roll.profit, roll.margin_pct)}</span></div>
-        </div>
+          <div className="jd-grid" style={{ marginBottom: 16 }}>
+            <div className="jd-field"><span className="jd-label">Regular Hrs</span><span className="jd-value" style={mono}>{roll.regular_hours.toFixed(1)}</span></div>
+            <div className="jd-field"><span className="jd-label">OT Hrs</span><span className="jd-value" style={mono}>{roll.ot_hours.toFixed(1)}</span></div>
+            <div className="jd-field"><span className="jd-label">Labor</span><span className="jd-value" style={mono}>{fmtMoney(roll.labor_cost)}</span></div>
+            <div className="jd-field"><span className="jd-label">Materials</span><span className="jd-value" style={mono}>{fmtMoney(roll.material_cost)}</span></div>
+            {roll.travel_cost > 0 && (
+              <div className="jd-field"><span className="jd-label">Travel</span><span className="jd-value" style={mono}>{fmtMoney(roll.travel_cost)}</span></div>
+            )}
+            <div className="jd-field"><span className="jd-label">{partial ? 'Total Cost (partial)' : 'Total Cost'}</span><span className="jd-value" style={mono}>{fmtMoney(roll.total_cost)}</span></div>
+            <div className="jd-field"><span className="jd-label">{partial ? 'Margin (partial)' : 'Margin'}</span><span className="jd-value">{marginCell(roll.profit, roll.margin_pct)}</span></div>
+          </div>
+        </>
       )}
 
       {/* One table per WTC */}
