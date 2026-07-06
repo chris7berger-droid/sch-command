@@ -25,6 +25,13 @@ function fmtMoney(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+// Per-hour rates need cents — a $58.50/hr burden rate must not read "$59/hr".
+// Used only for the Budget rate header, never for aggregate cost figures.
+function fmtRate(n) {
+  if (n == null || n === '' || isNaN(n)) return '-'
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 
 function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -474,7 +481,7 @@ function BudgetPanel({ job }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4, gap: 8 }}>
               <span className="jd-label">{name}</span>
               <span className="jd-label" style={{ color: 'var(--text-secondary)' }}>
-                Burden {fmtMoney(b.burden_rate)}/hr · OT {fmtMoney(b.ot_burden_rate)}/hr
+                Burden {fmtRate(b.burden_rate)}/hr · OT {fmtRate(b.ot_burden_rate)}/hr
               </span>
             </div>
             <table className="jobs-table">
