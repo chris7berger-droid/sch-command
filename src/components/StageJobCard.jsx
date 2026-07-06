@@ -25,6 +25,13 @@ function fmtMoney(n) {
   return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+// Per-hour rates need cents — a $58.50/hr burden rate must not read "$59/hr".
+// Used only for the Budget rate header, never for aggregate cost figures.
+function fmtRate(n) {
+  if (n == null || n === '' || isNaN(n)) return '-'
+  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 
 function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -367,6 +374,148 @@ function DetailsPanel({ job, crewRows }) {
   )
 }
 
+// Budget tab — Bid side. Renders the frozen bid cost breakdown stamped by Sales
+// onto each job_wtcs.bid_breakdown at Send-to-Schedule. The Actual/Δ columns are
+// scaffolded but "pending" this loop (Field Command not connected). Reads only
+// pre-computed numbers off job._wtcs — no math is re-derived here.
+function BudgetPanel({ job }) {
+  const wtcs = job._wtcs || []
+
+  // Whole-job empty state applies ONLY when the job has zero WTCs.
+  if (wtcs.length === 0) {
+    return (
+      <div className="sjc-panel sjc-panel-budget">
+        <div className="sjc-detail-val" style={{ color: 'var(--text-secondary)' }}>
+          No work types on this job yet.
+        </div>
+      </div>
+    )
+  }
+
+  const mono = { fontFamily: 'var(--font-mono)' }
+
+  // Roll-up: sum EXTENSIVE quantities only (rates and percentages are NOT
+  // additive). Coalesce per-WTC so an unstamped sibling contributes 0, never
+  // NaN. Then margin = Σprofit / Σprice (guarded).
+  const stamped = wtcs.filter(w => w.bid_breakdown)
+  const sum = (f) => stamped.reduce((s, w) => s + (w.bid_breakdown?.[f] ?? 0), 0)
+  const roll = {
+    regular_hours: sum('regular_hours'),
+    ot_hours: sum('ot_hours'),
+    labor_cost: sum('labor_cost'),
+    material_cost: sum('material_cost'),
+    travel_cost: sum('travel_cost'),
+    total_cost: sum('total_cost'),
+    profit: sum('profit'),
+    price: sum('price'),
+  }
+  roll.margin_pct = roll.price > 0 ? (roll.profit / roll.price) * 100 : 0
+
+  // A roll-up over a proper SUBSET of the job's WTCs is not the job total: it
+  // understates cost/price and computes margin on a slice. Never present it as
+  // authoritative without saying so. Unstamped siblings can persist (re-sends
+  // never re-stamp; backfill can skip a row), so this state is not transient.
+  const partial = stamped.length < wtcs.length
+
+  const marginCell = (profit, pct) => (
+    <span style={mono}>
+      {fmtMoney(profit)}{' '}
+      <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>({pct.toFixed(1)}%)</span>
+    </span>
+  )
+
+  // A single BID · ACTUAL · Δ row. Actual/Δ are pending/— this loop; the
+  // three-column scaffold stays so Field data drops in without a 1→3 refactor.
+  const BidRow = (label, bid, strong) => (
+    <tr>
+      <td>{label}</td>
+      <td style={{ ...mono, textAlign: 'right', ...(strong ? { fontWeight: 700 } : {}) }}>{bid}</td>
+      <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>pending</td>
+      <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>—</td>
+    </tr>
+  )
+
+  return (
+    <div className="sjc-panel sjc-panel-budget">
+      {/* Job-level roll-up across stamped WTCs */}
+      {stamped.length > 0 && (
+        <>
+          {partial && (
+            <div
+              className="jd-value"
+              style={{ marginBottom: 8, fontWeight: 700, fontSize: 12 }}
+            >
+              ⚠ Partial roll-up — {stamped.length} of {wtcs.length} work types stamped.
+              Totals and margin below EXCLUDE the unstamped work type(s) and understate the job.
+            </div>
+          )}
+          <div className="jd-grid" style={{ marginBottom: 16 }}>
+            <div className="jd-field"><span className="jd-label">Regular Hrs</span><span className="jd-value" style={mono}>{roll.regular_hours.toFixed(1)}</span></div>
+            <div className="jd-field"><span className="jd-label">OT Hrs</span><span className="jd-value" style={mono}>{roll.ot_hours.toFixed(1)}</span></div>
+            <div className="jd-field"><span className="jd-label">Labor</span><span className="jd-value" style={mono}>{fmtMoney(roll.labor_cost)}</span></div>
+            <div className="jd-field"><span className="jd-label">Materials</span><span className="jd-value" style={mono}>{fmtMoney(roll.material_cost)}</span></div>
+            {roll.travel_cost > 0 && (
+              <div className="jd-field"><span className="jd-label">Travel</span><span className="jd-value" style={mono}>{fmtMoney(roll.travel_cost)}</span></div>
+            )}
+            <div className="jd-field"><span className="jd-label">{partial ? 'Total Cost (partial)' : 'Total Cost'}</span><span className="jd-value" style={mono}>{fmtMoney(roll.total_cost)}</span></div>
+            <div className="jd-field"><span className="jd-label">{partial ? 'Margin (partial)' : 'Margin'}</span><span className="jd-value">{marginCell(roll.profit, roll.margin_pct)}</span></div>
+          </div>
+        </>
+      )}
+
+      {/* One table per WTC */}
+      {wtcs.map((w, i) => {
+        const name = w.work_type_name || job.work_type || 'Work Type'
+        const b = w.bid_breakdown
+        // Per-WTC empty state on an unstamped row — NOT an all-or-nothing gate.
+        if (!b) {
+          return (
+            <div key={w.id || i} style={{ marginBottom: 16 }}>
+              <div className="jd-label" style={{ marginBottom: 4 }}>{name}</div>
+              <div className="jd-value" style={{ color: 'var(--text-secondary)' }}>Bid not yet stamped.</div>
+            </div>
+          )
+        }
+        return (
+          <div key={w.id || i} style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4, gap: 8 }}>
+              <span className="jd-label">{name}</span>
+              <span className="jd-label" style={{ color: 'var(--text-secondary)' }}>
+                Burden {fmtRate(b.burden_rate)}/hr · OT {fmtRate(b.ot_burden_rate)}/hr
+              </span>
+            </div>
+            <table className="jobs-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th style={{ textAlign: 'right' }}>Bid</th>
+                  <th style={{ textAlign: 'right' }}>Actual</th>
+                  <th style={{ textAlign: 'right' }}>Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BidRow('Regular hours', (b.regular_hours ?? 0).toFixed(1))}
+                {BidRow('Overtime hours', (b.ot_hours ?? 0).toFixed(1))}
+                {BidRow('Labor cost', fmtMoney(b.labor_cost ?? 0))}
+                {BidRow('Materials', fmtMoney(b.material_cost ?? 0))}
+                {BidRow('Added materials', fmtMoney(0))}
+                {(b.travel_cost ?? 0) > 0 && BidRow('Travel', fmtMoney(b.travel_cost))}
+                {BidRow('Total Cost', fmtMoney(b.total_cost ?? 0), true)}
+                <tr>
+                  <td>Margin</td>
+                  <td style={{ textAlign: 'right' }}>{marginCell(b.profit ?? 0, b.margin_pct ?? 0)}</td>
+                  <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>pending</td>
+                  <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function NotesPanel({ job, changedBy, onSaved }) {
   const [val, setVal] = useState(job.notes || '')
   const [saving, setSaving] = useState(false)
@@ -406,7 +555,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const user = useUser()
   const changedBy = user?.name || 'unknown'
 
-  const [panels, setPanels] = useState({ planning: false, management: false, details: false })
+  const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false })
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
   const [sowFocus, setSowFocus] = useState(null)        // { wtcId, dayIndex } from DaysModal handoff (Option 3)
@@ -498,6 +647,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
         <button className={`sjc-toggle${panels.planning ? ' open' : ''}`} onClick={() => togglePanel('planning')}>PLANNING</button>
         <button className={`sjc-toggle${panels.management ? ' open' : ''}`} onClick={() => togglePanel('management')}>MANAGEMENT</button>
         <button className={`sjc-toggle${panels.details ? ' open' : ''}`} onClick={() => togglePanel('details')}>DETAILS</button>
+        <button className={`sjc-toggle${panels.budget ? ' open' : ''}`} onClick={() => togglePanel('budget')}>BUDGET</button>
       </div>
 
       {panels.planning && (
@@ -532,6 +682,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
         />
       )}
       {panels.details && <DetailsPanel job={job} crewRows={crewRows} />}
+      {panels.budget && <BudgetPanel job={job} />}
 
       <div className="sjc-action">
         {stage === 'staged' && (
