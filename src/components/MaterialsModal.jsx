@@ -22,7 +22,12 @@ function fmtDate(iso) {
   return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}`
 }
 
+// SOW-rollup grouping key (a material at a different kit size is a distinct row
+// for quantity/spec purposes).
 const matKey = (name, kit) => `${(name || '').trim().toLowerCase()}|${(kit || '').trim().toLowerCase()}`
+// Order-tracking bridge key. The materials table only has name (no kit_size
+// column), so status is matched/stored by name alone.
+const nameKey = (name) => (name || '').trim().toLowerCase()
 
 // Aggregate the Field SOW's per-day materials (job_wtcs[*].field_sow[day].materials,
 // or legacy jobs.field_sow) into ONE row per material: summed quantity, which days
@@ -95,7 +100,7 @@ export default function MaterialsModal({ job, onClose, onUpdated }) {
 
   const rowByKey = useMemo(() => {
     const m = new Map()
-    for (const r of statusRows) m.set(matKey(r.name, r.kit_size), r)
+    for (const r of statusRows) m.set(nameKey(r.name), r)
     return m
   }, [statusRows])
 
@@ -109,7 +114,7 @@ export default function MaterialsModal({ job, onClose, onUpdated }) {
   // tracking row for a SOW material that has none yet. Specs are NOT copied here
   // (they live in the SOW; copying would drift) — the row only carries order state.
   const setTracking = useCallback(async (mat, field, value) => {
-    const existing = rowByKey.get(matKey(mat.name, mat.kit_size))
+    const existing = rowByKey.get(nameKey(mat.name))
     if (existing) {
       const { error } = await supabase
         .from('materials')
@@ -119,10 +124,11 @@ export default function MaterialsModal({ job, onClose, onUpdated }) {
       if (error) { alert('Error updating: ' + error.message); return }
       setStatusRows(prev => prev.map(r => r.ordinal === existing.ordinal ? { ...r, [field]: value } : r))
     } else {
+      // Only real materials columns (job_id, ordinal, name, status, arrival_date,
+      // notes) — the table has no kit_size/spec columns; those stay in the SOW.
       const row = {
         job_id: job.job_id, ordinal: nextOrdinal,
-        name: mat.name, kit_size: mat.kit_size || null,
-        status: 'Not Ordered', [field]: value,
+        name: mat.name, status: 'Not Ordered', [field]: value,
       }
       const { data, error } = await supabase.from('materials').insert(row).select()
       if (error) { alert('Error saving: ' + error.message); return }
@@ -132,7 +138,7 @@ export default function MaterialsModal({ job, onClose, onUpdated }) {
   }, [rowByKey, nextOrdinal, job.job_id, onUpdated])
 
   const undecided = rollup.filter(mat => {
-    const st = rowByKey.get(mat.key)?.status || 'Not Ordered'
+    const st = rowByKey.get(nameKey(mat.name))?.status || 'Not Ordered'
     return st === 'Not Ordered' || st === 'Delayed'
   }).length
 
@@ -166,7 +172,7 @@ export default function MaterialsModal({ job, onClose, onUpdated }) {
               <MaterialCard
                 key={mat.key}
                 mat={mat}
-                track={rowByKey.get(mat.key)}
+                track={rowByKey.get(nameKey(mat.name))}
                 onSet={setTracking}
               />
             ))}
