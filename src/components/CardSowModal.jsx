@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import FieldSowBuilder from './FieldSowBuilder'
-import { updateJobWtcFieldSow, updateJobField, hasFieldSow } from '../lib/queries'
+import { updateJobWtcFieldSow, updateJobField, hasFieldSow, loadMaterialsCatalog } from '../lib/queries'
 
 // In-card Field SOW editor (remediation §6.1 step 1). The card path users
 // actually reach. Hosts ONE FieldSowBuilder per job_wtcs row (WTC tabs), each
@@ -24,6 +24,15 @@ export default function CardSowModal({
   })
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
+
+  // Material Memory (Sales-owned materials_catalog), loaded once for every day's
+  // materials picker so Schedule reuses the same saved materials as Sales.
+  const [catalog, setCatalog] = useState([])
+  useEffect(() => {
+    let alive = true
+    loadMaterialsCatalog().then(({ data }) => { if (alive) setCatalog(data || []) })
+    return () => { alive = false }
+  }, [])
 
   // Finding F: a save that empties a Ready job's SOW also clears
   // ready_confirmed_at (handler-side, NOT a trigger) + toasts. "Empties" =
@@ -113,6 +122,7 @@ export default function CardSowModal({
                   value={activeWtc.field_sow}
                   saving={saving}
                   availableMaterials={matsFor(activeWtc)}
+                  catalog={catalog}
                   focusDayIndex={String(activeWtc.id) === String(initialWtcId) ? initialDayIndex : null}
                   onSave={(next) => saveWtc(activeWtc, next)}
                 />
@@ -125,6 +135,7 @@ export default function CardSowModal({
               value={localFieldSow}
               saving={saving}
               availableMaterials={proposalMaterials}
+              catalog={catalog}
               onSave={saveLegacy}
             />
           )}
