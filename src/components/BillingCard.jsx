@@ -38,9 +38,49 @@ function resolveStage(productionStage) {
   return STAGE_BANNER['Ongoing']
 }
 
+// Notes pop-up (BF-3 tweak) — the inline single-line input truncated long notes
+// to "We had to go back to…" and couldn't be read/edited. This modal reuses the
+// app .mbg/.mdl shell with a multi-line textarea. Save path is unchanged: it
+// still writes billing_worklist.chris_notes via onFlag.
+function BillingNotesModal({ jobLabel, initial, busy, onSave, onClose }) {
+  const [draft, setDraft] = useState(initial || '')
+  const trimmed = draft.trim()
+  const dirty = trimmed !== (initial || '').trim()
+
+  return (
+    <div className="mbg" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="mdl" style={{ minWidth: 340, maxWidth: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ margin: 0 }}>Billing notes — {jobLabel}</h3>
+          <button className="app-act-btn" onClick={onClose}>Close</button>
+        </div>
+        <textarea
+          className="bc-notes-area"
+          autoFocus
+          value={draft}
+          disabled={busy}
+          placeholder="Add a billing note…"
+          rows={5}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
+          <button className="app-act-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="app-act-btn app-act-primary"
+            disabled={busy || !dirty}
+            onClick={() => { onSave(trimmed || null); onClose() }}
+          >Save</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function BillingCard({ row, canEdit, onFlag, busy }) {
   const [showBilling, setShowBilling] = useState(false)
+  const [showNotes, setShowNotes] = useState(false)
   const o = row.override || {}
+  const notePreview = (o.chris_notes || '').trim()
 
   const stage = resolveStage(row.productionStage)
   const badge = billingBadge(row)
@@ -146,21 +186,30 @@ export default function BillingCard({ row, canEdit, onFlag, busy }) {
                 <option value="">terms</option>
                 {TERMS_OPTIONS.map((t) => <option key={t} value={t}>net {t}</option>)}
               </select>
-              <input
-                className="wl-notes"
-                defaultValue={o.chris_notes || ''}
+              <button
+                className={`wl-notes-btn${notePreview ? ' has-note' : ''}`}
                 disabled={busy}
-                placeholder="notes"
-                onBlur={(e) => {
-                  const v = e.target.value.trim()
-                  if (v !== (o.chris_notes || '')) onFlag(row.jobId, 'chris_notes', v || null)
-                }}
-              />
+                onClick={() => setShowNotes(true)}
+                title={notePreview || 'Add a billing note'}
+              >
+                {notePreview && <span className="wl-notes-dot" />}
+                <span className="wl-notes-preview">{notePreview || 'Notes'}</span>
+              </button>
             </div>
           ) : (
             <div className="wl-readonly">Read-only — billing flags are Admin-only</div>
           )}
         </div>
+      )}
+
+      {showNotes && (
+        <BillingNotesModal
+          jobLabel={row.jobNum}
+          initial={o.chris_notes || ''}
+          busy={busy}
+          onSave={(v) => onFlag(row.jobId, 'chris_notes', v)}
+          onClose={() => setShowNotes(false)}
+        />
       )}
     </div>
   )

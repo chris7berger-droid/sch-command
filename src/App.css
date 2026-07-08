@@ -5979,6 +5979,24 @@
 }
 .wl-notes { width: 120px; }
 
+/* Billing-card notes: compact button (preview + dot) → pop-up modal (BF-3) */
+.wl-notes-btn {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 180px;
+  font-size: 12px; padding: 4px 8px; border: 1px solid var(--brd);
+  border-radius: 5px; background: var(--bg-deep); color: var(--text-secondary);
+  cursor: pointer;
+}
+.wl-notes-btn.has-note { color: var(--text-primary); }
+.wl-notes-btn:disabled { opacity: 0.6; cursor: default; }
+.wl-notes-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--command-green); }
+.wl-notes-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-notes-area {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 90px;
+  font-family: var(--font-body, 'Barlow', sans-serif); font-size: 13px;
+  padding: 8px 10px; border: 1px solid var(--brd); border-radius: 5px;
+  background: var(--bg-deep); color: var(--text-primary); outline: none;
+}
+
 /* ── forecast ── */
 .bf-summary { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .bf-stat { background: var(--bg-card); border: 1px solid var(--brd); border-radius: 10px; padding: 14px 18px; flex: 1 1 200px; }
