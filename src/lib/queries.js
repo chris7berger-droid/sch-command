@@ -32,6 +32,30 @@ export async function loadAllRows(tableName, selectStr, {
   return { data: all, error: null, partial: false }
 }
 
+// ── Material Memory (Sales-owned materials_catalog) ─────────────────────────
+// Read-only reuse in the Field SOW materials picker so Schedule offers the SAME
+// saved materials as Sales' WTC builder. RLS scopes rows to the tenant (plus
+// system-default rows with tenant_id null). Dedupe by name+kit_size with tenant
+// rows winning over system defaults — mirrors sales-command WTCCalculator
+// loadCatalog VERBATIM so both apps show one consistent memory. Schedule never
+// WRITES this table (custom materials stay SOW-local); saving to the catalog is
+// a Sales-side action.
+export async function loadMaterialsCatalog() {
+  const { data, error } = await loadAllRows(
+    'materials_catalog',
+    'id, tenant_id, name, kit_size, price, coverage, supplier',
+    { orderBy: 'name', filterFn: (q) => q.eq('active', true) }
+  )
+  if (error) return { data: [], error }
+  const byKey = new Map()
+  for (const r of data) {
+    const key = `${(r.name || '').toLowerCase()}|${(r.kit_size || '').toLowerCase()}`
+    const prev = byKey.get(key)
+    if (!prev || (prev.tenant_id == null && r.tenant_id != null)) byKey.set(key, r)
+  }
+  return { data: [...byKey.values()], error: null }
+}
+
 // ── Staged/Ready checklist ─────────────────────────────────────────────────
 // Base checklist: SOW + date + crew + materials-decided.
 // Canonical "does this job have a Field SOW?" test (§4.1). Mirrored VERBATIM by

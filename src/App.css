@@ -3468,8 +3468,6 @@
   z-index: 9999;
 }
 .fsb-mat-picker-hdr {
-  position: sticky;
-  top: 0;
   padding: 6px 12px;
   font-size: 9px;
   font-weight: 700;
@@ -3521,6 +3519,31 @@
   color: var(--command-green);
   font-weight: 600;
   border-top: 1px solid rgba(28, 24, 20, 0.18);
+}
+.fsb-mat-picker-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.18);
+  background: var(--bg-deep);
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+}
+.fsb-mat-picker-note {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--sand-dark);
+  background: rgba(28, 24, 20, 0.04);
+  border-top: 1px solid rgba(28, 24, 20, 0.12);
 }
 .jd-gate-modal .jd-gate-sub {
   font-size: 12px;

@@ -33,7 +33,7 @@ const withIds = (val) => (Array.isArray(val) ? val : []).map(d => ({
   tasks: (Array.isArray(d.tasks) ? d.tasks : []).map(t => ({ ...t, id: t.id ?? uid() })),
 }))
 
-export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], focusDayIndex = null }) {
+export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], catalog = [], focusDayIndex = null }) {
   const [days, setDays] = useState(() => withIds(value))
   const [dirty, setDirty] = useState(false)
   const wrapRef = useRef(null)
@@ -82,6 +82,23 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
       name: safeName(source),
       kit_size: safeKit(source),
       qty_planned: 0, mils: 0, coverage_rate: source.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
+    }
+    return { ...d, materials: [...(d.materials || []), entry] }
+  }))
+
+  // Add a saved material from the Material Memory (materials_catalog). Populates
+  // name/kit/coverage from the catalog row but does NOT link material_id (the SOW
+  // stores denormalized specs; matches addMaterialToDay). A `cat_` id keeps it
+  // out of both the proposal-id namespace (dedup) and the custom-id namespace
+  // (so the name renders locked, like a proposal material, not an editable input).
+  const addCatalogMaterialToDay = (dayId, item) => update(days.map(d => {
+    if (d.id !== dayId) return d
+    const entry = {
+      wtc_material_id: `cat_${uid()}`,
+      material_id: null,
+      name: item.name || 'Unnamed material',
+      kit_size: item.kit_size || '',
+      qty_planned: 0, mils: 0, coverage_rate: item.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
     }
     return { ...d, materials: [...(d.materials || []), entry] }
   }))
@@ -291,7 +308,9 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
           <DayMaterials
             day={day}
             wtcMaterials={availableMaterials}
+            catalog={catalog}
             onAdd={(src) => addMaterialToDay(day.id, src)}
+            onAddCatalog={(item) => addCatalogMaterialToDay(day.id, item)}
             onAddCustom={() => addCustomMaterialToDay(day.id)}
             onRemove={(wtcId) => removeMaterialFromDay(day.id, wtcId)}
             onUpdate={(wtcId, key, val) => updateMaterialField(day.id, wtcId, key, val)}
@@ -302,9 +321,10 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   )
 }
 
-function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdate }) {
+function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, onAddCustom, onRemove, onUpdate }) {
   const [open, setOpen] = useState(false)
   const [dropUp, setDropUp] = useState(false)
+  const [q, setQ] = useState('')
   const ref = useRef(null)
   const btnRef = useRef(null)
 
@@ -319,6 +339,7 @@ function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdat
       const rect = btnRef.current.getBoundingClientRect()
       setDropUp(window.innerHeight - rect.bottom < 240)
     }
+    setQ('')
     setOpen(o => !o)
   }
 
@@ -327,6 +348,20 @@ function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdat
   const available = safeMaterials.filter(m => !selectedIds.has(safeId(m)))
 
   const dayMats = (day.materials || []).filter(m => m && m.wtc_material_id != null)
+
+  // Material Memory (materials_catalog) — search-filtered, excluding names already
+  // on this day, capped at 12 like Sales' picker. Read-only pull; picking one just
+  // populates a day material entry.
+  const hasCatalog = (catalog || []).length > 0
+  const dayNames = new Set(dayMats.map(m => (m.name || '').toLowerCase()).filter(Boolean))
+  const catalogMatches = (catalog || [])
+    .filter(m => m && m.name && !dayNames.has(m.name.toLowerCase()))
+    .filter(m => {
+      const query = q.trim().toLowerCase()
+      if (!query) return true
+      return `${m.name} ${m.kit_size || ''} ${m.supplier || ''}`.toLowerCase().includes(query)
+    })
+    .slice(0, 12)
 
   const specInput = (m, key, placeholder, type = 'text') => (
     <input
@@ -347,10 +382,12 @@ function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdat
       : { top: btnRect.bottom + 4 }),
   } : { position: 'fixed' }
 
+  // With the catalog available there's always something to pick, so the button
+  // reads generically; it only collapses to "custom" when there's truly nothing
+  // to choose (no proposal materials AND no memory).
   let btnLabel
-  if (safeMaterials.length === 0) btnLabel = '+ Add custom material'
-  else if (available.length === 0) btnLabel = '+ Add material (custom only)'
-  else btnLabel = '+ Add material from this job'
+  if (available.length === 0 && !hasCatalog) btnLabel = '+ Add custom material'
+  else btnLabel = '+ Add material'
 
   return (
     <div className="fsb-mats">
@@ -435,6 +472,16 @@ function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdat
         </button>
         {open && (
           <div className="fsb-mat-picker" style={pickerStyle}>
+            {hasCatalog && (
+              <input
+                className="fsb-mat-picker-search"
+                autoFocus
+                value={q}
+                placeholder="Search material memory…"
+                onChange={e => setQ(e.target.value)}
+              />
+            )}
+
             {available.length > 0 && (
               <div className="fsb-mat-picker-hdr">FROM PROPOSAL MATERIALS</div>
             )}
@@ -448,12 +495,36 @@ function DayMaterials({ day, wtcMaterials, onAdd, onAddCustom, onRemove, onUpdat
                 {safeKit(m) && <span className="fsb-mat-picker-kit">{safeKit(m)}</span>}
               </button>
             ))}
+
+            {hasCatalog && (
+              <>
+                <div className="fsb-mat-picker-hdr">FROM MATERIAL MEMORY</div>
+                {catalogMatches.length === 0 ? (
+                  <div className="fsb-mat-picker-empty">
+                    {q.trim() ? 'No saved materials match.' : 'No saved materials.'}
+                  </div>
+                ) : catalogMatches.map(m => (
+                  <button
+                    key={`cat-${m.id}`}
+                    className="fsb-mat-picker-row"
+                    onMouseDown={() => { onAddCatalog(m); setOpen(false) }}
+                  >
+                    <span>{m.name}</span>
+                    {m.kit_size && <span className="fsb-mat-picker-kit">{m.kit_size}</span>}
+                  </button>
+                ))}
+              </>
+            )}
+
             <button
               className="fsb-mat-picker-row fsb-mat-picker-custom"
               onMouseDown={() => { onAddCustom(); setOpen(false) }}
             >
               + Custom material…
             </button>
+            <div className="fsb-mat-picker-note">
+              Custom materials stay on this job. To save one for reuse, add it in Sales Command.
+            </div>
           </div>
         )}
       </div>
