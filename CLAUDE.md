@@ -1,5 +1,10 @@
 # Schedule Command
 
+> **SOW / Material-Flow pipeline work?** The cross-repo master schedule is the spine:
+> `command-suite-db/docs/MASTER_SCHEDULE.md`. Read it before picking up any Sales→Schedule→Field
+> SOW / material / mobilization work — it says which phase is done and what's next, so terminals on
+> different machines stop surfacing different slices as if they were different projects. (Set 2026-07-13.)
+
 ## RESUME ALERT (set 2026-05-14 from sales-command session)
 
 **Migration coordination (items 1–2) is RESOLVED 2026-06-29 by the migration
