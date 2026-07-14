@@ -1,6 +1,6 @@
 # Daily Material Schedule (DMS-1) — Phase-0 Plan + Ownership Matrix
 
-**Status:** Phase-0 plan — decisions ratified, migrations NOT yet authored, no code ships from this doc.
+**Status:** Phase-0 plan — decisions ratified, migrations NOT yet authored, no code ships from this doc. **Revision pass 1 applied 2026-07-14** (round-1 audit: 4H/2M, pattern `wrong-premise-baseline` — reader/writer map corrected against source, decisions unchanged; C1 grandfather ratified).
 **Loop:** ERD #42 (`mf-phase-d-phase0`) · locked 2026-07-14 11:28 · Fable terminal (T1 plan)
 **Branch:** `sch-command feat/dms1-phase0-plan`
 **Parents:** `command-suite-db/docs/MASTER_SCHEDULE.md` §4B step 2 · `sch-command/docs/BACKLOG.md` DMS-1 · `docs/plans/command_suite_shared_data_contract.md`
@@ -14,14 +14,14 @@ Everything below Tier 0 in the wall chart (`command-suite-db/docs/assets/wall_ch
 
 All **read-verified** (code/schema read on freshly-pulled main across 4 repos) except where marked. No run-verification was needed — this plan changes decisions and schema, not behavior; nothing below is assumed.
 
-1. **`field_sow` exists in three places** (the premise of decision #1):
-   - `proposal_wtc.field_sow` — authored in `sales-command/src/pages/WTCCalculator.jsx:876` (day shape: `{id, day_label, date, mobilization_id, sq_ft, linear_ft, tasks[], crew_count, hours_planned, materials[]}`)
+1. **`field_sow` exists in three places, and the flat copy has REAL readers + a live writer** (corrected in revision pass 1 — the draft claimed "no readers found"; that was a shallow grep, falsified by audit round 1):
+   - `proposal_wtc.field_sow` — authored in `sales-command/src/pages/WTCCalculator.jsx:876` (day shape: `{id, day_label, date, mobilization_id, sq_ft, linear_ft, tasks[], crew_count, hours_planned, materials[]}`). Read by Sales AND by Field `ReportTab.js:39-40` as fallback.
    - `job_wtcs[].field_sow` — per-WTC stamp at Send, `sales-command/src/components/ProposalDetail.jsx:720-724`
-   - `jobs.field_sow` — flat merged mirror at Send, `ProposalDetail.jsx:649-678`; code comment self-describes it as "legacy mirror"
-2. **Field Command reads `job_wtcs`, not `jobs.field_sow`:** PowerSync schema syncs the `job_wtcs` table (`field-command/src/lib/schema.js:174-180`, comment: "canonical, replaces the [flat read]"); run-verified historically by smoke #10159 (MASTER_SCHEDULE §3 ledger).
-3. **The SOW material entry already carries spec fields** (the premise of decision #2): `WTCCalculator.jsx:736-739` stamps `{wtc_material_id, name, kit_size, qty_planned, mils, coverage_rate, mix_time, mix_speed, cure_time}` at pick time — `coverage_rate` auto-fills from catalog `coverage`; the rest stamp empty/0 and are hand-typed per job.
+   - `jobs.field_sow` — flat merged mirror at Send (`ProposalDetail.jsx:649-678`). **Readers:** Field `ReportTab.js:36-45` (**PRIMARY** SOW source — reads `jobs.field_sow` first, `proposal_wtc` fallback; smoke #10159 covered TasksTab only); sch-command fallbacks for zero-WTC jobs at `FieldSowModal.jsx:160`, `StageJobCard.jsx:71`, `queries.js:69` (`hasFieldSow`). **Writer:** sch-command `CardSowModal.jsx` `saveLegacy` — allowlisted legacy writer for zero-WTC jobs (which exist: archive imports create no proposal/WTCs).
+2. **Field Command syncs BOTH `job_wtcs` and `jobs.field_sow`:** PowerSync client schema (`field-command/src/lib/schema.js:156,174-185`) is an explicit column list carrying `jobs.field_sow` AND `job_wtcs.field_sow`; TasksTab reads `job_wtcs` (canonical, smoke #10159), ReportTab still reads the flat copy.
+3. **The SOW material entry already carries spec fields, but the auto-fill is BROKEN TODAY** (corrected in revision pass 1): `WTCCalculator.jsx:735-739` stamps `{wtc_material_id, name, kit_size, qty_planned, mils, coverage_rate, mix_time, mix_speed, cure_time}` at pick time — but it picks from the WTC **Tab-3 cost lines**, not the catalog (a two-hop copy: catalog → `addFromDB` Tab-3 line `:483` → SOW entry). The Tab-3 line keeps **no catalog id** (`id: Date.now()`), and the stamp reads `m.coverage` while Tab-3 lines carry `coverage_rate` → **stamps `""` every time**. `mils`/`mix_time` default numeric `0`; Tab-3's `updateItem` coercion list (`:477-480`) parseFloats non-text keys, so a text spec like "20-25 mils" would corrupt to `20` on next edit.
 4. **`materials_catalog` has NO spec columns beyond `coverage`:** live schema = `id, tenant_id, name, kit_size, price, coverage, supplier, active, created_at, updated_at` (`command-suite-db/supabase/migrations/20260416200000_materials_catalog.sql:7-19`). Absence of `mils`/`mix_time`/`mix_speed`/`cure_time`/`unit` verified by reading the full migration — no later ALTER exists (grepped `command-suite-db/supabase/migrations/` for `materials_catalog`; single hit).
-5. **No revision stamp exists on `job_wtcs`** — no `sow_revised_*` anywhere (grep, all repos), and no Schedule write path to `field_sow` exists yet (`FieldSowModal.jsx` is the viewer/editor shell; canonical-home ambiguity is exactly what blocked it — contract doc line 93).
+5. **No revision stamp exists on `job_wtcs`** (no `sow_revised_*` anywhere; `job_wtcs` has only `created_at` — **no send timestamp either**, and `proposals.sent_at` means customer-email send and is nulled on pull-back, so it cannot anchor a badge). **A Schedule write path to `field_sow` ALREADY EXISTS** (corrected in revision pass 1 — the draft claimed it didn't): `sch-command/src/lib/queries.js:587-628` `updateJobWtcFieldSow()` writes canonical `job_wtcs[].field_sow` + derived date span with `job_changes` audit rows, driven by `CardSowModal` + `FieldSowBuilder` (which already adds materials from the catalog, BF-11). What was blocked on decision #1 is the full SOW-builder *port*, not the write path.
 6. **Mobilizations contract row registered 2026-07-13** (Phase B done) — `docs/plans/command_suite_shared_data_contract.md` "Contracted entities"; the copy-at-Send pattern this plan extends.
 7. **Reference PDF absent on this machine** — `find` across Desktop + all 4 repos: no `6618 - Lakes Crossing - Material Schedule.pdf` (open item #1).
 
@@ -44,21 +44,24 @@ Both are resolved below. Ratified by Chris 2026-07-14 (ERD loop #42 ideate pass)
 
 | Location | Written by | Read by | Verdict |
 |---|---|---|---|
-| `proposal_wtc.field_sow` | Sales authoring (`WTCCalculator.jsx`) | Sales only | **Keep — the authoring desk** |
-| `job_wtcs[].field_sow` | Send-to-Schedule per-WTC stamp (`ProposalDetail.jsx:720-724`) | Schedule cards + Field (PowerSync `job_wtcs` table, `field-command/src/lib/schema.js:174-180`) | **CANONICAL** |
-| `jobs.field_sow` | Send-to-Schedule flat merged mirror (`ProposalDetail.jsx:649-678`, self-described "legacy mirror") | none found (Field moved to `job_wtcs`, smoke #10159) | **Retire (Tier 4)** |
+| `proposal_wtc.field_sow` | Sales authoring (`WTCCalculator.jsx`) | Sales; Field `ReportTab.js:39-40` (fallback — migrates with ReportTab, below) | **Keep — the authoring desk** |
+| `job_wtcs[].field_sow` | Send-to-Schedule per-WTC stamp (`ProposalDetail.jsx:720-724`); Schedule post-Send via `updateJobWtcFieldSow` (`queries.js:587-628`) | Schedule cards + Field TasksTab (PowerSync `job_wtcs`, `schema.js:174-185`) | **CANONICAL** |
+| `jobs.field_sow` | Send-to-Schedule flat merged mirror (`ProposalDetail.jsx:649-678`); sch-command `CardSowModal.saveLegacy` (zero-WTC jobs) | Field `ReportTab.js:36-45` (**primary**); sch-command zero-WTC fallbacks (`FieldSowModal.jsx:160`, `StageJobCard.jsx:71`, `queries.js:69`) | **Retire (Tier 4) — gated, see preconditions below** |
 
 ### The ratified rule
 
 > **Author in the proposal. Send snapshots it. After Send, `job_wtcs[].field_sow` is the one living truth: Schedule edits it, Field reads it, the proposal is frozen forever.**
 
 - **Sales authors** `proposal_wtc.field_sow` inside the WTC. It is a draft until Send.
-- **Send** copies it per-WTC onto `job_wtcs[].field_sow` (copy-at-Send — same contract shape as mobilizations, registered 2026-07-13).
-- **Schedule owns post-Send edits.** Real-world adjustments that don't justify a new proposal (room sequence, equipment/power/truck changes) are edited **in Schedule only**, directly on `job_wtcs[].field_sow`.
+- **Send** copies it per-WTC onto `job_wtcs[].field_sow` (copy-at-Send — same contract shape as mobilizations, registered 2026-07-13). Per Plan 0 [G2]: the job copy is a **mirror the send flow writes, then Schedule owns and mutates** — it is not an immutable snapshot. **Named invariant (revision pass 1): Send is once-only per job today** (re-send is blocked once a job exists — verified round 1); MF4, if ever built, **must preserve or explicitly renegotiate this invariant**, because re-send overwriting Schedule's post-Send edits is the failure mode.
+- **Schedule owns post-Send edits.** Real-world adjustments that don't justify a new proposal (room sequence, equipment/power/truck changes) are edited **in Schedule only**, through the existing audit-logged choke point `updateJobWtcFieldSow()` — never raw `job_wtcs` updates (its own doc-comment already enforces this).
 - **Field is read-only. Always.** No SOW write path from field-command, ever.
-- **The proposal is frozen at Send** and never back-filled. Honesty is handled by a **derived badge**, not data backflow: every Schedule edit stamps `sow_revised_at` / `sow_revised_by` on the `job_wtcs` row; the Sales proposal screen checks `sow_revised_at > sent_at` and shows **"SOW updated in Schedule — this version is historical."** The badge is computed from the truth at render time, so it can never lie or go stale.
-- **Record-keeping (right-sized at 1 tenant):** who + when + a revision counter on the job copy. No full field-level edit history now; the revision stamp is the hook if we ever want it, no re-architecture needed.
-- **`jobs.field_sow` (flat legacy mirror): retire.** Stop writing at Send once verified reader-free (Tier 4, step 9 — plan-only there, with the legacy `materials` table).
+- **The proposal is frozen at Send** and never back-filled. Honesty is handled by a **derived badge**, not data backflow: substantive Schedule edits bump `sow_revision_count` on the `job_wtcs` row (stamped `sow_revised_at/by` — §4.3); the Sales proposal screen shows **"SOW updated in Schedule — this version is historical"** when **`sow_revision_count > 0`**. (Revision pass 1: the draft's `sow_revised_at > sent_at` comparison was unbuildable — no send timestamp exists on `job_wtcs`, and `proposals.sent_at` means customer-email send and is nulled on pull-back. Count `> 0` needs no timestamp, no join: `job_wtcs` rows exist only post-Send, so any revision = edited-after-Send.) **Calendar exception:** assigning per-day *dates* is normal Schedule workflow (`dates_tbd` jobs arrive undated) and must NOT trip the badge — the stamp compares date-normalized `field_sow` (§4.3).
+- **Record-keeping (right-sized at 1 tenant):** who + when + a revision counter on the job copy. No full field-level edit history now — but note `updateJobWtcFieldSow` already writes full before/after `job_changes` rows, so history exists in the audit log today.
+- **`jobs.field_sow` (flat legacy mirror): retire (Tier 4, step 9 — plan-only there), gated on explicit preconditions:**
+  1. Migrate Field `ReportTab.js:36-45` primary read to `job_wtcs` (and its `proposal_wtc` fallback) — **retiring before this breaks the crew report screen**;
+  2. Resolve the zero-WTC-job carrier (archive imports create jobs with no `job_wtcs` rows; `CardSowModal.saveLegacy` + the sch-command fallbacks exist for them) — either backfill `job_wtcs` rows for zero-WTC jobs or explicitly keep the flat column for that class;
+  3. Re-grep all 4 repos for readers/writers and record the zero-hit evidence in the Tier-4 plan.
 
 ### Multi-work-type jobs (the contract doc's test case)
 
@@ -75,23 +78,29 @@ Per-WTC canonical passes it by construction: each WTC carries its own `field_sow
 Chris: *"Anywhere there's an SOW with material, there should only be one format, and it has all the data: coverage rate, kit sizes."*
 
 - **Catalog = the master pad.** Specs (kit size, mils, coverage rate, mix time/speed, cure time, unit) live once per product on `materials_catalog`. Nobody re-types coverage rates job after job.
-- **Stamp, not lookup.** Picking a material copies its specs into the SOW entry right then. The SOW document is self-contained forever — a printed ticket from March always matches what was sent in March. Catalog corrections apply to *future* SOWs only; existing SOWs keep what they were stamped with. (Lookup was considered and rejected: a catalog edit would silently rewrite historical SOWs.)
+- **Stamp, not lookup — with a join key.** Picking a material copies its specs into the SOW entry right then, **along with `catalog_id` + `specs_stamped_at`** (revision pass 1 — without the id there is no linkage for auto-fill or staleness; today's two-hop copy drops it). The SOW document is self-contained forever — a printed ticket from March always matches what was sent in March. Catalog corrections apply to *future* SOWs only; existing SOWs keep what they were stamped with. (Lookup was considered and rejected: a catalog edit would silently rewrite historical SOWs.)
+- **The stamp travels the existing two-hop path** (revision pass 1): hop 1 — `addFromDB` copies `catalog_id` + all spec columns onto the WTC Tab-3 cost line; hop 2 — the SOW day-material picker stamps from the line (fixing today's broken `m.coverage` → `coverage_rate` read, §0.3). Field-mapping table in §4.2.
 - **Per-job/day override is free:** editing the stamped copy on that day deviates without polluting the catalog default.
-- **Stamped ≠ confirmed — the amber gate.** Stamped specs land marked unconfirmed with an amber chip: *"Specs pulled from Material Memory — confirm for this job's conditions."* A human confirms (or edits, then confirms) per material — the moment they check field conditions and manufacturer changes. **Send is gated on it** (joins the existing mobilization pre-send validation). Schedule adding a new material post-Send hits the same confirm gate.
-- **Staleness visible:** each spec shows "last updated <date>" from the catalog so an old spec looks old at a glance.
+- **Stamped ≠ confirmed — the amber gate, tri-state (grandfather ratified 2026-07-14):**
+  - `specs_confirmed` **absent** (any material stamped before this feature ships) → **exempt, passes the gate.** In-flight proposals keep sending; legacy hand-typed specs are today's accepted state. No confirm-ritual on blank data — that would train people to click through the gate.
+  - `specs_confirmed: false` (every NEW stamp initializes to this) → amber chip, **blocks Send**: *"Specs pulled from Material Memory — confirm for this job's conditions."*
+  - `specs_confirmed: true` → passes. **Editing any spec field on a confirmed entry resets it to `false`** — a changed spec is an unconfirmed spec.
+  - **Custom (non-catalog) materials get the same gate**, different chip text: *"Custom material — confirm specs for this job."*
+- **Enforcement points, named:** (1) Sales pre-Send validation (joins the existing mobilization gate); (2) post-Send there is no second Send, so Schedule-added materials are gated at the **Phase-4 ticket/MTRL print** — an unconfirmed spec can ride the SOW, but it cannot print onto the crew's material schedule.
+- **Staleness visible:** each spec shows "last updated <date>" resolved via the stamped `catalog_id` → `specs_updated_at`; `NULL` (spec never entered) displays "no spec date"; a forked/superseded catalog row displays "catalog row superseded" rather than a false date.
 
 **Failure mode this kills:** manufacturer updates a product, old coverage rate carries silently into an SOW, nobody re-checks, material doesn't go down at the proper rate, job is damaged.
 
-### Why this is completing an existing pattern, not inventing one (verified in code)
+### Why this is completing an existing pattern, not inventing one (verified in code; corrected in revision pass 1)
 
-The SOW day-material entry **already** carries the spec fields — `WTCCalculator.jsx:736-739`:
+The SOW day-material entry **already** carries the spec fields — `WTCCalculator.jsx:735-739`:
 
 ```js
 { wtc_material_id, name, kit_size, qty_planned,
   mils: 0, coverage_rate: m.coverage || "", mix_time: 0, mix_speed: "", cure_time: "" }
 ```
 
-`coverage_rate` already stamps from the catalog's `coverage` column at pick time. The other specs stamp **empty** because the catalog has no columns for them (`materials_catalog` = name, kit_size, price, coverage, supplier only) — so users hand-type mils/mix/cure per job today. Decision #2 = give the catalog the missing columns so the existing stamp auto-fills, then add the confirm gate.
+The intent (stamp at pick) is shipped; the plumbing is broken in three ways (§0.3): the source is the WTC Tab-3 line, not the catalog; no catalog id survives the hop; and the `m.coverage` read misses Tab-3's `coverage_rate`, so even the one wired spec stamps `""`. The catalog has no columns for the rest (`materials_catalog` = name, kit_size, price, coverage, supplier only) — users hand-type mils/mix/cure per job today. Decision #2 = give the catalog the missing columns, carry `catalog_id` + specs across both hops, fix the broken read, then add the confirm gate.
 
 ---
 
@@ -108,7 +117,7 @@ The per-entity contract. **Pipe** names how it physically moves: PostgREST (Sale
 | **Material allocations** (which material, `qty_planned`, which day, `task_ref` NEW) | Sales in step 3 of the WTC; Schedule may add post-Send | `materials[]` inside the `field_sow` day | Copy-at-Send | Schedule only | Schedule, Field (RO) | PowerSync `job_wtcs` |
 | **Material specs** (kit_size, mils, coverage_rate, mix_time, mix_speed, cure_time, unit) | Whoever maintains Material Memory (Sales-side; Admin/Manager per role rules) | `materials_catalog` (master) → **stamped** into each SOW material entry | **Stamp at pick** (self-contained thereafter) | Per-day stamped copy: Schedule. Catalog: Sales-side only (Schedule reads catalog RO — BF-11 scope decision stands) | All apps | Stamped inside `field_sow` via PowerSync `job_wtcs` |
 | **Spec confirmation** (`specs_confirmed`, by/at — NEW) | Human confirmer in Sales pre-Send; Schedule for post-Send additions | On the SOW material entry | n/a (lives with the stamp) | Schedule | Send gate, Schedule, Field (RO) | PowerSync `job_wtcs` |
-| **SOW revision stamp** (`sow_revised_at/by/count` — NEW) | Schedule, automatically on any post-Send SOW edit | `job_wtcs` row | n/a (derived badge in Sales) | Schedule (automatic) | Sales (badge), audit | n/a (web only) |
+| **SOW revision stamp** (`sow_revised_at/by/count` — NEW) | DB trigger on `job_wtcs` UPDATE (date-normalized diff, §4.3) — no client writes it | `job_wtcs` row | n/a (derived badge in Sales: `count > 0`) | trigger only | Sales (badge), audit | n/a (web only, not in client schema) |
 | **Task % progress** | Field crew (Phase E — future) | TBD in Phase E plan; likely PRT-adjacent, NOT a `field_sow` write | — | — | Schedule, Field | — (Field writes stay in Field-owned tables; SOW read-only rule holds) |
 
 **Legacy, scheduled to die (Tier 4, step 9):**
@@ -136,31 +145,53 @@ specs_updated_at timestamptz -- stamped when any spec column changes
 ```
 
 - `kit_size` and `coverage` (rate) already exist — extend the canonical table, don't twin it.
-- Spec fields stay **text** — they're human instructions for a printed ticket, matching existing `coverage`/`kit_size` (already text) and the shipped SOW-entry fields; only `qty_planned` does math today. Structured/numeric parsing is a later, additive migration if something ever needs to compute on them.
-- `specs_updated_at` is separate from `updated_at` (which fires on price edits) — it drives the "spec last updated <date>" staleness display. Set via trigger on the spec columns.
-- RLS unchanged: existing tenant policies stand; write-side role gating follows the standing money-table pattern (`is_admin_or_manager()`), consistent with [[feedback_role_gating]].
+- Spec fields stay **text** — they're human instructions for a printed ticket, matching existing `coverage`/`kit_size` (already text); only `qty_planned` does math today. **Consequence (revision pass 1): the SOW-entry shape and coercion lists must change to match** — `mils`/`mix_time` currently default numeric `0` and Tab-3's `updateItem` parseFloats them ("20-25 mils" → `20`). §4.2 declares them text end-to-end.
+- `specs_updated_at` is separate from `updated_at` (which fires on price edits) — it drives the "spec last updated <date>" staleness display. Set via trigger using `IS DISTINCT FROM` over the **enumerated column list `{mils, mix_time, mix_speed, cure_time, unit, coverage, kit_size}`** — `coverage` and `kit_size` included (revision pass 1): a coverage-rate correction is §2's exact floor-failure scenario and must bump the date.
+- **RLS — verified against the live migration chain** (revision pass 1, re-verified against source after the audit's E1 was itself half-wrong):
+  1. **Role gating ALREADY EXISTS** — `role_aware_money_rls.sql:132-165` gates all `materials_catalog` INSERT/UPDATE/DELETE on `tenant_id = get_user_tenant_id() AND is_admin_or_manager()`; no later migration loosens it (the two 2026-07-08 migrations only reference the table). **No new gating migration needed.** New spec columns inherit the table policies automatically. Consequence: **spec entry is Admin/Manager work** — consistent with the bookkeeping model (office maintains Material Memory); keep, don't loosen.
+  2. **System-default rows (`tenant_id NULL`, ~160 seed rows, `materials_catalog.sql:60-226`) are un-updatable by design** (role_aware comment: "system rows remain non-writable from the app") — so "enter specs once on the catalog" is unfulfillable for every default, and the existing edit UI **no-ops silently** for them (RLS filters to 0 rows, no error — `WTCCalculator.jsx:452-467` only catches errors). **Fork-on-spec-edit:** editing specs (or price) on a NULL-tenant default auto-copies the row to a tenant row, then edits the copy — the existing (name, kit_size) tenant-wins dedupe already makes the fork shadow the default in every picker. Stamped `catalog_id`s pointing at the old default remain valid (stamps are self-contained; staleness display shows "catalog row superseded", §2). Fix the silent no-op while in there: surface "0 rows updated" as an error.
 
-### 4.2 `field_sow` day/material jsonb — additive, NO migration
+### 4.2 `field_sow` day/material jsonb + Tab-3 line shape — additive, NO migration
 
 Per suite convention (additive jsonb, Plan 0):
 
 - Day gains: `scope_notes` (text).
-- Material entry gains: `task_ref` (link material → its TASK N; blank allowed — UI decision (c), Option A), `unit`, `specs_confirmed` (bool), `specs_confirmed_by`, `specs_confirmed_at`.
-- Already present, no change: `sq_ft`, `linear_ft` (shipped Screen-1·A), `mils`, `coverage_rate`, `mix_time`, `mix_speed`, `cure_time` (shipped shape, currently hand-typed).
+- Material entry gains: `catalog_id` (uuid, the join key — revision pass 1), `specs_stamped_at`, `task_ref` (link material → its TASK N; blank allowed — UI decision (c), Option A), `unit`, `specs_confirmed` (tri-state per §2: absent = pre-feature exempt / false / true), `specs_confirmed_by`, `specs_confirmed_at`.
+- **WTC Tab-3 cost line gains** (hop 1 of the stamp): `catalog_id`, `mils`, `mix_time`, `mix_speed`, `cure_time`, `unit` (it already carries `kit_size`, `coverage_rate`, `supplier`, `from_catalog`).
+- **Type change:** `mils`, `mix_time` become **text** in the SOW entry (were numeric-0 defaults). Coercion lists updated in both places: Tab-3 `updateItem` isText list (`WTCCalculator.jsx:477`) adds `mils/mix_time/mix_speed/cure_time/unit`; the SOW material `updateField` likewise. Existing numeric values read fine as-is (additive, no backfill).
+- Already present, no change: `sq_ft`, `linear_ft` (shipped Screen-1·A), `coverage_rate`, `mix_speed`, `cure_time`.
 
-### 4.3 `job_wtcs` — revision stamp (SQL migration)
+**Catalog → SOW field mapping (the stamp contract, both hops):**
+
+| `materials_catalog` column | Tab-3 line field | SOW material entry field |
+|---|---|---|
+| `id` | `catalog_id` (NEW) | `catalog_id` (NEW) |
+| `name` | `product` | `name` |
+| `kit_size` | `kit_size` | `kit_size` |
+| `coverage` | `coverage_rate` | `coverage_rate` ← **fixes the broken `m.coverage` read (§0.3)** |
+| `mils` (NEW) | `mils` (NEW) | `mils` |
+| `mix_time` (NEW) | `mix_time` (NEW) | `mix_time` |
+| `mix_speed` (NEW) | `mix_speed` (NEW) | `mix_speed` |
+| `cure_time` (NEW) | `cure_time` (NEW) | `cure_time` |
+| `unit` (NEW) | `unit` (NEW) | `unit` (NEW) |
+| — (stamp moment) | — | `specs_stamped_at` (NEW) |
+
+### 4.3 `job_wtcs` — revision stamp (SQL migration; respecced revision pass 1)
 
 ```
-sow_revised_at    timestamptz
-sow_revised_by    uuid
+sow_revised_at     timestamptz
+sow_revised_by     uuid REFERENCES auth.users(id)
 sow_revision_count integer NOT NULL DEFAULT 0
 ```
 
-Written by Schedule's SOW editor on every post-Send `field_sow` change. Sales badge = `sow_revised_at > sent_at` (derived; zero backflow).
+- **Writer = a DB trigger, not app code** (precedent: `20260518185000_proposal_wtc_track_local_edits.sql`): BEFORE UPDATE ON `job_wtcs`, when **date-normalized** `field_sow` is distinct (strip each day's `date` key before comparing OLD/NEW — calendar-date assignment is normal `dates_tbd` workflow and must not trip the badge, §1), stamp `sow_revised_at = now()`, `sow_revised_by = auth.uid()`, `count + 1`. Trigger-side stamping also closes the integrity hole where any client (incl. Sales) could write the stamp columns directly.
+- **Send never writes `sow_revised_*`** — Send INSERTs `job_wtcs` rows (defaults apply); the trigger fires on UPDATE only. Named invariant: send is once-only per job today (§1); if MF4 ever re-sends via UPDATE, the trigger semantics must be revisited there.
+- Sales badge = **`sow_revision_count > 0`** (derived; zero backflow; no timestamp comparison — see §1).
+- App path unchanged: Schedule edits keep routing through `updateJobWtcFieldSow()` for `job_changes` audit rows; the trigger rides the same UPDATE.
 
-### 4.4 PowerSync note
+### 4.4 PowerSync note (corrected revision pass 1)
 
-`job_wtcs` already syncs whole-row to Field (`schema.js:174-180`) — new columns ride along; jsonb additions are invisible to sync. Verify sync-rule column selection during Phase 1 (rule says `SELECT * FROM job_wtcs`; confirm live).
+The PowerSync **client schema is an explicit column list** (`field-command/src/lib/schema.js:174-185`) — new SQL columns do **NOT** ride along; they'd need a `schema.js` edit + app release. What does ride along invisibly: **jsonb additions inside `field_sow`** (synced as one text column) — which is everything Field actually needs (stamped specs, scope_notes, task_ref, confirm state). `sow_revised_*` is web-only (Sales badge) and deliberately NOT added to the client schema. Field does not read `materials_catalog` at all — specs reach the crew inside `field_sow`. Verify server-side sync-rule column selection during Phase 1 (dashboard-held, `SELECT * FROM job_wtcs` per code comment; confirm live).
 
 ---
 
@@ -169,11 +200,11 @@ Written by Schedule's SOW editor on every post-Send `field_sow` change. Sales ba
 | DMS-1 phase | Wall-chart step | Repo | What |
 |---|---|---|---|
 | **0 — this doc** | 2 | sch-command (doc) + contract amendment | Ownership matrix + decisions #1/#2 ratified. **DONE when audited.** |
-| **1 — migrations** | 3 | command-suite-db | §4.1 + §4.3 SQL; §4.2 is code-side jsonb. Run `check-migration-safety` + ledger-alignment checks per standing rules. |
-| **2 — Sales SOW** | 4–5 (A2) | sales-command | Specs auto-fill from catalog into existing stamp; amber confirm chip + Send gate; scope_notes + task_ref entry; catalog spec-entry UI; **GATE at step 4: decision #3 reskin scope (a)/(b) — design session first, not build-first (ERD #41 lesson)** |
-| **3 — Schedule SOW builder** | 7 | sch-command | Reads/edits canonical `job_wtcs[].field_sow`; revision stamping; confirm gate on post-Send material adds; inherits stamped specs |
+| **1 — migrations** | 3 | command-suite-db | §4.1 + §4.3 SQL **with rollback pairs, via the repo's `npm run db:push` wrapper** + ledger-alignment checks per standing rules. |
+| **2 — Sales SOW** | 4–5 (A2) | sales-command | Two-hop stamp with `catalog_id` (§4.2 mapping table) incl. the broken `m.coverage` fix; amber confirm chip + Send gate (tri-state, §2); scope_notes + task_ref entry; catalog spec-entry UI + fork-on-spec-edit for NULL-tenant defaults (§4.1); coercion-list changes; **GATE at step 4: decision #3 reskin scope (a)/(b) — design session first, not build-first (ERD #41 lesson)** |
+| **3 — Schedule SOW builder** | 7 | sch-command | **RETROFIT, not greenfield** (revision pass 1): extend the existing audit-logged `updateJobWtcFieldSow()` + `CardSowModal`/`FieldSowBuilder` — the write path and catalog picker already exist (BF-11). Adds: scope_notes + specs display, confirm gate on post-Send material adds, sqft/lf edit. Revision stamping arrives free via the §4.3 trigger. |
 | **4 — output** | 7 | sch-command | MTRL = Material Order Summary (page 1, per-material totals across days) + per-day ticket cards + print/sign frame; folds parked BF-12 `rollupSowMaterials()` (branch `feat/mtrl-sow-rollup` — fold, then delete) |
-| **5 — backfill + retire** | 9 | command-suite-db | Retire `materials` table + `jobs.field_sow` mirror; verify vs job 6618 |
+| **5 — backfill + retire** | 9 | command-suite-db | Retire `materials` table + `jobs.field_sow` mirror **subject to the §1 retirement preconditions (ReportTab migration, zero-WTC carrier, zero-hit re-grep)**; verify vs job 6618. **Amend `MASTER_SCHEDULE.md` §4B step 9 wording to include the `jobs.field_sow` mirror when this plan merges** — the spine doc currently names only the `materials` table (revision pass 1). |
 
 UI decisions already LOCKED in the DMS-1 backlog entry (2026-07-08) carry forward unchanged: (a) day-card header = day_label + TASK count, no "DAY X OF 7" badge; (b) Work-to-Complete = one row per task, "TASK N" + colored % badge (100 green / partial amber), split-day capable; (c) materials tagged with TASK N chip, blank allowed.
 
