@@ -79,9 +79,33 @@ Unlike the design-open rows above, these have a settled four-dimension answer be
 
 (The other already-coherent direction, **PRT + Daily Logs**, is contracted in the Evidence table above.)
 
+**SOW (`field_sow`)** — registered 2026-07-14 (DMS-1 Phase 0, ERD loop #42). Resolves open decision #1 below. Full rationale + ownership matrix: `docs/plans/daily_material_schedule.md`.
+
+| Dimension | Answer |
+|---|---|
+| **Direction** | Sales → Sch → Field |
+| **Source of truth (writer)** | Sales authors `proposal_wtc.field_sow` (draft until Send); **after Send, Schedule is the sole editor** of the canonical copy. Field never writes, ever. |
+| **Canonical location** | `job_wtcs[].field_sow` (per-WTC — multi-work-type jobs carry one SOW per WTC by construction). Proposal copy is frozen at Send. `jobs.field_sow` flat mirror: **retires for WTC-backed jobs only (Tier 4, gated on the ReportTab migration + zero-hit re-grep); it REMAINS the permanent carrier for zero-WTC (archive) jobs** — backfilling `job_wtcs` is ill-formed for them (NOT NULL FKs to `proposal_wtc`/`work_type`). Keep-for-class ratified 2026-07-14, `daily_material_schedule.md` §1 (rounds 1–2 audits). |
+| **Readers** | Schedule (read-write post-Send), Field (read-only), Sales (frozen proposal copy + derived badge) |
+| **Copy vs reference** | **Snapshot at Send** (copy). Post-Send drift from the proposal is accepted and made honest by a derived badge: Schedule edits stamp `sow_revised_at/by/count` on `job_wtcs`; Sales renders "SOW updated in Schedule — this version is historical" when `sow_revised_at > sent_at`. Zero backflow. |
+| **Sync pipe** | PostgREST (Sales / Sch web) · PowerSync `job_wtcs` table (Field) |
+| **Status** | ✅ CONTRACTED — decision ratified 2026-07-14; revision-stamp columns pending Phase 1 migration |
+
+**Material specs (catalog → SOW stamp)** — registered 2026-07-14 (DMS-1 Phase 0, ERD loop #42).
+
+| Dimension | Answer |
+|---|---|
+| **Direction** | Material Memory (Sales-side) → SOW entries everywhere (bid → Schedule → Field ticket) |
+| **Source of truth (writer)** | `materials_catalog` — specs (kit_size, mils, coverage rate, mix time/speed, cure time, unit) entered once per product; Admin/Manager write per money-table role rules |
+| **Canonical location** | Catalog = master default. Each SOW material entry carries its own **stamped copy** — self-contained document, one format, all the data. |
+| **Readers** | All apps. Schedule reads the catalog read-only (BF-11 scope decision stands); Field reads stamped specs inside `field_sow` via PowerSync. |
+| **Copy vs reference** | **Stamp at pick** (copy). Catalog corrections apply to future SOWs only; historical SOWs keep what they were stamped with. Per-job/day override = edit the stamped copy. **Stamped ≠ confirmed:** specs land unconfirmed (amber chip) and Send is gated on human confirmation per material. |
+| **Sync pipe** | PostgREST (web) · stamped inside `field_sow` via PowerSync `job_wtcs` (Field) |
+| **Status** | ✅ CONTRACTED — decision ratified 2026-07-14; catalog spec columns pending Phase 1 migration |
+
 ## Open decisions to resolve in the design session
 
-1. **Canonical `field_sow` location** — one home that Sales authors, Schedule edits, and Field reads; reconcile the `job_wtcs` (per-WTC) vs `jobs.field_sow` (single) split, with multi-work-type jobs as the test case.
+1. ~~**Canonical `field_sow` location**~~ — ✅ **RESOLVED 2026-07-14** (DMS-1 Phase 0): canonical = `job_wtcs[].field_sow`, Schedule sole post-Send editor, Field read-only, proposal frozen + derived badge, flat mirror retires. See the contracted SOW entry above + `docs/plans/daily_material_schedule.md`.
 2. **`jobs.notes` → Field Command** — should it sync, view-only? If yes, which pipe.
 3. **BILLED source of truth** — `billing_log` vs `invoices`/`invoice_lines`; which app owns billing state, and how the card derives % from it.
 4. **PROP/amount origin** — confirm where `jobs.amount` is set and whether it's a copy or reference.
