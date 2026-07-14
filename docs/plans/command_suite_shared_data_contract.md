@@ -61,6 +61,24 @@ Each row is a place where ownership / canonical location is ambiguous *today*:
 | **BILLED** | Sales → Sch | Card computes from `billing_log` (a Schedule table); no Sales write to it found; invoices live in `invoices`/`invoice_lines`. Three candidate owners. |
 | **Attachments** | Sch ↔ Field (view-only) | Not built (§7 deferred). Needs canonical store + cross-app read + PowerSync rules. |
 
+## Contracted entities — resolved, registered here
+
+Unlike the design-open rows above, these have a settled four-dimension answer because the mechanism already shipped. They are the contract, not the question.
+
+**Mobilizations (`mobilization_seq`)** — registered 2026-07-13 (Master Schedule Phase B).
+
+| Dimension | Answer |
+|---|---|
+| **Direction** | Sales → Sch → Field |
+| **Source of truth (writer)** | Sales — authored in `proposals.mobilizations`; stamped as `mobilization_seq` on each `field_sow` day at Send-to-Schedule; seeds `job_mobilizations` |
+| **Canonical location** | `mobilization_seq` on `job_wtcs.field_sow` days (the carrier) + `job_mobilizations` seed table |
+| **Readers** | Schedule groups by seq (job card / pull tickets); Field reads seq for the day banner — both read-only |
+| **Copy vs reference** | **Snapshot at Send** (copy) — matches the send-to-schedule handoff; re-send / backfill stays open (decision #6) |
+| **Sync pipe** | PostgREST (Sales / Sch web) · PowerSync (Field) |
+| **Status** | ✅ CONTRACTED — writer shipped Master Schedule Phase A, 2026-07-12 |
+
+(The other already-coherent direction, **PRT + Daily Logs**, is contracted in the Evidence table above.)
+
 ## Open decisions to resolve in the design session
 
 1. **Canonical `field_sow` location** — one home that Sales authors, Schedule edits, and Field reads; reconcile the `job_wtcs` (per-WTC) vs `jobs.field_sow` (single) split, with multi-work-type jobs as the test case.
