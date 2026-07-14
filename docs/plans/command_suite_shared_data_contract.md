@@ -85,7 +85,7 @@ Unlike the design-open rows above, these have a settled four-dimension answer be
 |---|---|
 | **Direction** | Sales → Sch → Field |
 | **Source of truth (writer)** | Sales authors `proposal_wtc.field_sow` (draft until Send); **after Send, Schedule is the sole editor** of the canonical copy. Field never writes, ever. |
-| **Canonical location** | `job_wtcs[].field_sow` (per-WTC — multi-work-type jobs carry one SOW per WTC by construction). Proposal copy is frozen at Send; `jobs.field_sow` flat mirror is legacy → retire (Tier 4), **gated: Field ReportTab still reads it as primary + zero-WTC jobs have no other carrier — preconditions in `daily_material_schedule.md` §1 (round-1 audit)**. |
+| **Canonical location** | `job_wtcs[].field_sow` (per-WTC — multi-work-type jobs carry one SOW per WTC by construction). Proposal copy is frozen at Send. `jobs.field_sow` flat mirror: **retires for WTC-backed jobs only (Tier 4, gated on the ReportTab migration + zero-hit re-grep); it REMAINS the permanent carrier for zero-WTC (archive) jobs** — backfilling `job_wtcs` is ill-formed for them (NOT NULL FKs to `proposal_wtc`/`work_type`). Keep-for-class ratified 2026-07-14, `daily_material_schedule.md` §1 (rounds 1–2 audits). |
 | **Readers** | Schedule (read-write post-Send), Field (read-only), Sales (frozen proposal copy + derived badge) |
 | **Copy vs reference** | **Snapshot at Send** (copy). Post-Send drift from the proposal is accepted and made honest by a derived badge: Schedule edits stamp `sow_revised_at/by/count` on `job_wtcs`; Sales renders "SOW updated in Schedule — this version is historical" when `sow_revised_at > sent_at`. Zero backflow. |
 | **Sync pipe** | PostgREST (Sales / Sch web) · PowerSync `job_wtcs` table (Field) |
