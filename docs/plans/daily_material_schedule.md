@@ -151,7 +151,7 @@ specs_updated_at timestamptz -- stamped when any spec column changes
 - **RLS — verified against the live migration chain** (revision pass 1, re-verified against source after the audit's E1 was itself half-wrong):
   1. **Role gating ALREADY EXISTS** — `role_aware_money_rls.sql:132-165` gates all `materials_catalog` INSERT/UPDATE/DELETE on `tenant_id = get_user_tenant_id() AND is_admin_or_manager()`; no later migration loosens it (the two 2026-07-08 migrations only reference the table). **No new gating migration needed.** New spec columns inherit the table policies automatically. Consequence: **spec entry is Admin/Manager work** — consistent with the bookkeeping model (office maintains Material Memory); keep, don't loosen.
   2. **System-default rows (`tenant_id NULL`, ~160 seed rows, `materials_catalog.sql:60-226`) are un-updatable by design** (role_aware comment: "system rows remain non-writable from the app") — so "enter specs once on the catalog" is unfulfillable for every default, and the existing edit UI **no-ops silently** for them (RLS filters to 0 rows, no error — `WTCCalculator.jsx:452-467` only catches errors). **Fork-on-spec-edit:** editing specs (or price) on a NULL-tenant default auto-copies the row to a tenant row, then edits the copy — the existing (name, kit_size) tenant-wins dedupe already makes the fork shadow the default in every picker. Stamped `catalog_id`s pointing at the old default remain valid (stamps are self-contained; staleness display shows "catalog row superseded", §2). Fix the silent no-op while in there: surface "0 rows updated" as an error. **Fork hardening (revision pass 2, C1):**
-     - Phase 1 adds a **unique expression index on `(tenant_id, name, COALESCE(kit_size, '')) WHERE tenant_id IS NOT NULL`** (revision pass 3, F3 — plain `(tenant_id, name, kit_size)` lets blank-kit-size duplicates through under NULLS-DISTINCT; Settings maps `''`→NULL). **Phase-1 pre-flight:** dedupe check BEFORE the index lands (duplicates may already exist and would fail the migration mid-push) — merge rule: keep the newest row, repoint losers' stamped `catalog_id`s to the winner.
+     - Phase 1 adds a **unique expression index on `(tenant_id, name, COALESCE(kit_size, '')) WHERE tenant_id IS NOT NULL`** (revision pass 3, F3 — plain `(tenant_id, name, kit_size)` lets blank-kit-size duplicates through under NULLS-DISTINCT; Settings maps `''`→NULL). **⚠️ SUPERSEDED AS BUILT — see [Build amendment A1](#build-amendments-phase-1-as-built) : the shipped index keys on `lower(name)` + `lower(COALESCE(kit_size, ''))`. F3's case-sensitive form contradicts C1's own "same predicate the picker uses" rule.** **Phase-1 pre-flight:** dedupe check BEFORE the index lands (duplicates may already exist and would fail the migration mid-push) — merge rule: keep the newest row, repoint losers' stamped `catalog_id`s to the winner.
      - **Superseded-detection rule, written:** a NULL-tenant row is "superseded" iff a same-tenant row with matching `(name, kit_size)` exists — the same predicate the picker dedupe already uses; the staleness display and Settings list both apply it.
      - **`Settings.jsx:240-265` is a second catalog editor** (tenant rows only) the plan previously never named — Phase 2 scope: spec columns, fork-awareness, and the same 0-rows error surfacing.
 
@@ -234,6 +234,79 @@ UI decisions already LOCKED in the DMS-1 backlog entry (2026-07-08) carry forwar
 ---
 
 *Companion amendment: `docs/plans/command_suite_shared_data_contract.md` — SOW row resolved + specs row registered, same session.*
+
+---
+
+## Build amendments (Phase 1, as built)
+
+_Appended 2026-07-14 by the Phase-1 build session (`command-suite-db`
+`feat/dms1-phase1-migrations`). Append-only: the §1–§5 decisions above are the
+audited record and are NOT rewritten. Each entry states where the shipped
+migrations diverge from, or resolve a gap in, the spec — so Phase 2 builds
+against reality._
+
+**A1 — §4.1 C1 index keys case-INSENSITIVELY. `[RATIFIED 2026-07-14, Chris]`**
+
+Shipped: `(tenant_id, lower(name), lower(COALESCE(kit_size, ''))) WHERE tenant_id IS NOT NULL`
+(`20260714120100`). F3 above specs the case-*sensitive* form; that contradicts
+C1's own rule that this index uses "the same predicate the picker dedupe already
+uses" — and the picker is case-insensitive: `WTCCalculator.jsx:443` keys on
+`` `${name.toLowerCase()}|${(kit_size||"").toLowerCase()}` ``. The plan never
+noticed. Under F3's letter, `'Crown X'/'3 Gallon'` and `'Crown X'/'3 gallon'`
+both pass the index, then collapse to ONE picker key where `:445` keeps whichever
+row the *unordered* query returned first — two shadows, arbitrary winner, i.e.
+exactly what C1 exists to prevent. Built to C1's intent.
+`lower()` only, **not** trim/whitespace-collapse: the picker doesn't trim, so
+`'10 lbs'` and `'10lbs'` are legitimately distinct to it. Mirror `:443` exactly —
+divergence either way reintroduces the bug.
+*Phase-2 carry:* the superseded-detection rule (§4.1) and the Settings list must
+apply the same `lower()` predicate, or they disagree with the constraint.
+
+**A2 — `specs_updated_at` is NOT stamped on INSERT. `[gap in §4.1, ruled at build]`**
+
+§4.1 says only "stamped when any spec column changes" and never specs the trigger
+event (contrast §4.3, explicit about `BEFORE UPDATE`). Shipped as UPDATE-only,
+deliberately: a trigger cannot tell a **typed** spec from one **inherited** by a
+fork, and §4.1:153 forks on a *price* edit too — so auto-stamping on INSERT would
+date a months-old inherited coverage rate TODAY. That is §2's stale-rate lie, and
+the same failure §4.2 [B1] already outlawed on the SOW hop.
+*Phase-2 requirement, load-bearing:* every catalog INSERT path must set
+`specs_updated_at` itself — `now()` for typed specs, the **source row's value**
+when forking a default (usually NULL). Until it does, a row inserted with specs
+reads "no spec date" (§2:91) — errs toward understating freshness, the safe
+direction. Revisit in `20260714120000` (`CREATE OR REPLACE FUNCTION`, no
+`ALTER TABLE`).
+
+**A3 — spec-change detection collapses `''`/NULL. `[gap in §4.1, found in code review]`**
+
+The trigger compares `COALESCE(col, '')` on both sides for all 7 enumerated
+columns. Required, not cosmetic: the ~161 seed rows store `coverage = ''`
+(`20260416200000:64+`) while app writers map blank to NULL
+(`WTCCalculator.jsx:495`), and `'' IS DISTINCT FROM NULL` is TRUE — so a
+price-only edit that merely round-tripped a seeded row through the form stamped
+`specs_updated_at = now()` on a rate nobody touched. Same NULL/`''` duality the
+C1 index handles with `COALESCE`. Genuine clears still stamp.
+
+**A4 — `job_wtcs.sow_revised_by` FK + trigger interaction. `[gap in §4.3]`**
+
+§4.3 specs `sow_revised_by uuid REFERENCES auth.users(id)` with no `ON DELETE`,
+which defaults to NO ACTION and makes any user who has ever edited a SOW
+undeletable — offboarding bounces on an FK violation. Shipped `ON DELETE SET NULL`
+(matching the `team_members.auth_id` convention).
+**That alone was not enough** and the interaction is worth knowing: the FK's SET
+NULL fires an internal `UPDATE` where `field_sow` is unchanged, so the stamp
+trigger's ELSE branch (the anti-forgery guard) restored the deleted uid and failed
+the FK on the row it was clearing. The trigger therefore also carries
+`WHEN (pg_trigger_depth() = 0)` so it stands down inside the cascade. Costs no
+integrity — PostgREST writes are always depth 0. Both halves are required; removing
+either re-breaks offboarding.
+
+**A5 — §4.3's Phase-1→2 badge window is live as specced.** No change; restating
+because it now has a shipped trigger behind it. Until the Phase-2 `FieldSowBuilder`
+passthrough lands, its lossy save rewrites day keys on ANY edit, so a date-only
+save *will* false-fire the date-normalized diff and badge the job. Accepted per
+§4.3 (no office users; window-edited jobs are test data). Counts only increment —
+false badges never clear.
 
 ---
 
