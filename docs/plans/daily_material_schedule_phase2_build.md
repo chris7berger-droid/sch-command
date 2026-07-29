@@ -43,9 +43,15 @@ crew_count, hours_planned, tasks, materials}` — dropping `mobilization_seq`, `
   keys the object already has. Add `task_ref`, `catalog_id`, `specs_stamped_at` (blank/null defaults)
   in ALL sch material constructors: `addMaterialToDay` / `addCatalogMaterialToDay` /
   `addCustomMaterialToDay` (`FieldSowBuilder.jsx:79-113`). (Sales `addMaterial :738` handled in Step 2.)
-- **[C3] Text-coercion — save AND keystroke.** Stop `parseFloat`-ing `mils`, `mix_time`, `cure_time`:
-  (1) on save (above); (2) at keystroke — `updateMaterialField` `numericKeys` (`:124`) must drop the
-  spec keys; and (3) the day-level `updateDayField` inline coercion (`:59`) keeps its text-passthrough
+- **[C3] Text-coercion — render, save AND keystroke.** Stop `parseFloat`-ing `mils`, `mix_time`,
+  `cure_time`:
+  (1) **[R1, round-2 regression] the sch RENDER inputs** — `FieldSowBuilder.jsx` `specInput` calls
+  for `mils` (`:435`) and `mix_time` (`:448`) pass `'number'` as the 4th arg → drop it so they render
+  as text (shared helper at `:366`; two-call-site edit). This is the sch twin of the sales `specInput`
+  fix in Step 2 [C2/C3] — the last unnamed site of the round-1 propagation pattern. Without it a
+  Schedule user physically cannot type "20-25 mils" (the browser rejects it).
+  (2) on save (above); (3) at keystroke — `updateMaterialField` `numericKeys` (`:124`) must drop the
+  spec keys; and (4) the day-level `updateDayField` inline coercion (`:59`) keeps its text-passthrough
   for `day_label`/`date` (day fields, not spec fields). Only true numerics (`crew_count`,
   `hours_planned`, `qty_planned`, `pct_complete`) get `parseFloat`.
 - **Acceptance:** edit a mob-carrying SOW in Schedule, save, reload → `mobilization_seq`, `sq_ft`,

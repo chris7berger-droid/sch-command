@@ -7,7 +7,7 @@ audited decisions — it references them.
 
 **Loop:** ERD #44 (`dms1-phase2-sales-sow`) · locked 2026-07-28 19:18 · branch `sch-command feat/dms1-phase2-plan`
 **Repos touched:** `sales-command` (SOW authoring) · `sch-command` (SOW builder + output) · `command-suite-db` (Phase-1 migrations already shipped; Phase-5 retire deferred)
-**Status:** Revision pass 1 applied 2026-07-28 (round-1 audit: 2H/6M, `scope-cut-shortage-math + partial-fix-propagation`). §4B shortage view cut to its own loop (ratified by Chris); buildable spine (§2A/2B/3/4A) hardened for 8 findings. Ready for round-2 re-audit (light pass — scope-cut + text tightening, no new mechanism).
+**Status:** BUILD-READY. Revision pass 2 applied 2026-07-28 (round-2 verification: 1H regression + 1L hygiene, `partial-fix-propagation`, converging 8→2). §4B shortage view cut to its own loop (ratified); buildable spine (§2A→2B→3→4A) hardened + the last render-input site (R1) named. No round-3 needed (mechanical call-site adds, no new mechanism). Ready for the build terminal (T3).
 
 ---
 
@@ -211,7 +211,7 @@ Agents weight severity against these: cross-tenant findings cap at Med while `li
 ### New mechanisms introduced
 - New jsonb fields: `scope_notes` (field_sow day), `task_ref` (per-material)
 - Tab-3 line additions: `catalog_id`, `specs_stamped_at`
-- New helper: shortage-check NEED calculator (coverage-rate parser + batch multiplier + per-material area/length basis)
+- New helper: shortage-check NEED calculator (coverage-rate parser + batch multiplier + per-material area/length basis) `[DEFERRED-LOOP — ships nothing this loop; see §4B]`
 - Folded helper: `rollupSowMaterials()` (exists on parked branch, not yet in main)
 - Amber "confirm specs" chip + tri-state Send gate (confirmed / unconfirmed / absent-grandfathered)
 - Fork-on-spec-edit app path (Phase-1 trigger already shipped; app-side fork is new)
