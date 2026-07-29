@@ -7,7 +7,7 @@ audited decisions — it references them.
 
 **Loop:** ERD #44 (`dms1-phase2-sales-sow`) · locked 2026-07-28 19:18 · branch `sch-command feat/dms1-phase2-plan`
 **Repos touched:** `sales-command` (SOW authoring) · `sch-command` (SOW builder + output) · `command-suite-db` (Phase-1 migrations already shipped; Phase-5 retire deferred)
-**Status:** DRAFT — for plan-audit (T2). No code ships from this doc until audited.
+**Status:** Revision pass 1 applied 2026-07-28 (round-1 audit: 2H/6M, `scope-cut-shortage-math + partial-fix-propagation`). §4B shortage view cut to its own loop (ratified by Chris); buildable spine (§2A/2B/3/4A) hardened for 8 findings. Ready for round-2 re-audit (light pass — scope-cut + text tightening, no new mechanism).
 
 ---
 
@@ -70,20 +70,22 @@ These refine / override the earlier "locked UI decisions" in the Phase-0 doc whe
 **Internal order [LOCKED, Phase-0 §5]:** the Schedule passthrough-on-save lands **first or same-deploy** as the Sales field work — else the §0.2b data-destruction window applies to the new fields too.
 
 ### 2A — Schedule save protection (do this first) — `sch-command`
-- **Fix the §0.2b live bug:** `FieldSowBuilder.jsx` `handleSave` (~:158-182) rebuilds each day/material from a key whitelist that **omits `mobilization_seq`, `sq_ft`, `linear_ft`** — silently erasing live Screen-1·A data on any edit. → **passthrough-on-save**: preserve all keys (spread, don't whitelist), so future fields (scope_notes, task_ref, specs) can't be stripped either.
-- Text coercion for spec fields on save (stop parseFloat-ing text specs).
+- **[A1] Fix `handleSave` (§0.2b live bug):** `FieldSowBuilder.jsx` `handleSave` (~:158-182) rebuilds each day/material from a key whitelist that **omits `mobilization_seq`, `sq_ft`, `linear_ft`** — silently erasing live Screen-1·A data on any edit. → **passthrough-on-save**: spread the day/material, don't whitelist.
+- **[A2] The `handleSave` fix ALONE is insufficient — seed the new keys at EVERY entry constructor too.** A spread only preserves keys that exist on the object; the constructors must put them there. Add `task_ref`, `catalog_id`, `specs_stamped_at` (blank/null defaults) at: sch `addMaterialToDay` / `addCatalogMaterialToDay` / `addCustomMaterialToDay` (`FieldSowBuilder.jsx:79-113`) AND sales `addMaterial` (`WTCCalculator.jsx:738`). Name all four in the build.
+- **[C2/C3] Text coercion — BOTH editors + the keystroke coercers.** Stop `parseFloat`-ing text specs on save AND at keystroke: sch `updateMaterialField` `numericKeys` (`:124`) must drop `mils/mix_time/cure_time`. (Sales side in 2B.)
 - One-hop catalog stamp on Schedule-side material adds (BF-11 picker already reads the catalog).
 
 ### 2B — Sales SOW authoring — `sales-command/src/pages/WTCCalculator.jsx`
-- **Fix the two-hop spec stamp (Phase-0 §4.2):**
-  - Hop 1 — `addFromDB` (~:485) copies `catalog_id` + all spec columns onto the Tab-3 cost line **and stamps `specs_stamped_at`** at pick time.
-  - Hop 2 — SOW day-material picker stamps from the line; **fix the broken `m.coverage` → `coverage_rate` read** (§0.3 — stamps `""` today).
-- **Spec inputs number→text** (`mils, mix_time, mix_speed, cure_time, unit`); add these to Tab-3 `updateItem` isText list (~:477) so text like "20-25 mils" stops corrupting to `20`.
-- **Amber "confirm specs" chip + Send gate** (tri-state per Phase-0 §2: confirmed / unconfirmed / absent-grandfathered). Send blocks on unconfirmed specs.
+- **[C1] Two-hop stamp — one canonical spec-key set, ALL fields, not just coverage.** Define the spec-key set once: `{mils, coverage_rate, mix_time, mix_speed, cure_time, unit}`. Today `mils`/`mix_time`/etc are hardcoded `0`/`""` — the same gap coverage has. Stamp ALL of them + `catalog_id` + `specs_stamped_at` at Hop 1.
+  - Hop 1 — `addFromDB` (~:485): copy every spec column from the catalog row + `catalog_id: m.id` + stamp `specs_stamped_at` at pick time. **Note: `catalog_id` + `specs_stamped_at` are NET-NEW keys, not a "fix" of existing ones.**
+  - Hop 2 — SOW day-material picker (~:735-741): stamp from the line; **fix the broken `m.coverage` → `coverage_rate` read** (§0.3 — stamps `""` today); carry `specs_stamped_at` (do not re-stamp `now()`).
+- **[C2/C3] Spec inputs number→text — BOTH editors.** (1) Tab-3 `updateItem` isText list (~:480) add `mils, mix_time, mix_speed, cure_time, unit`. (2) **`FieldSowMaterialPicker.specInput` (~:752-790) — the one whose values reach the crew ticket** — `mils`/`mix_time` are `type="number"` there too; make text.
+- **[D1] Catalog INSERT-stamp contract (write it verbatim in the build).** Migration `20260714120000`'s trigger stamps `specs_updated_at` on UPDATE only — **NOT on INSERT** (build-amendment A2). So every fork/insert path must set `specs_updated_at` **by hand**: typed specs → `now()`; price-only fork → **copy the source row's value** (never `now()` on inherited data). Also the **confirm-gate init rule:** initialize `specs_confirmed = false` only when the source row has ≥1 non-empty spec; blank-spec rows stay absent (no forced confirm ritual — Phase-0 §2).
+- **[D2] Fork-on-write + row-count error land in BOTH catalog editors (duplicated code).** `WTCCalculator.jsx:459-471` AND `Settings.jsx:257-275`. Either extract a shared `saveCatalogRow(...)` (preferred) or build both as separate line items. Each: fork NULL-tenant default → tenant row on spec/price edit (Phase-0 §4.1 [C1], `lower()` predicate per amendment A1); surface "0 rows updated" as an error (fixes today's silent RLS no-op).
+- **Amber "confirm specs" chip + Send gate** (tri-state per Phase-0 §2: confirmed / unconfirmed / absent-grandfathered). Send blocks on unconfirmed specs. `[AUDIT-SENSITIVE — angle-3 legacy edges]`
 - **Scope Notes** — new per-day textarea in the `SowTab` day card (jsonb-additive, no migration).
-- **task_ref (D5)** — per-material TASK N picker on the day-material entry → stored on the material, rendered as a chip. jsonb-additive.
-- **Catalog spec-entry UI** — spec columns in the `MaterialsTab` catalog editor + **`Settings.jsx:240-265` second editor** (Phase-0 §4.1); **fork-on-spec-edit** (editing specs/price on a NULL-tenant default forks to a tenant row); **surface "0 rows updated" as an error** (fixes today's silent no-op).
-- **Badge read on the proposal screen** — extend `ProposalDetail`'s existing proposal load with `sow_revision_count`; show "SOW updated in Schedule — this version is historical" when `> 0` (Phase-0 §4.3).
+- **task_ref (D5)** — per-material TASK N picker on the day-material entry → stored on the material, rendered as a chip. jsonb-additive. `[AUDIT-SENSITIVE — angle-3 restructure check]`
+- **[E1] Revision badge — read from `job_wtcs`, NOT a `proposals` column.** `sow_revision_count` lives on `job_wtcs` (Phase-1 trigger), and there can be multiple WTCs per job. Extend ProposalDetail's load with a **`job_wtcs` join by `call_log_id` + a `MAX(sow_revision_count)` aggregate**; show "SOW updated in Schedule — this version is historical" when the max `> 0` (Phase-0 §4.3). (The pre-audit draft wrongly treated it as a proposals column.)
 
 ### 2C — Gate at step 4 (reskin scope) — **CLEARED**
 Phase-0 §5 gated Phase 2 on "decision #3 reskin scope, design session first." **Resolved this session = D1 (lighter reskin).** No further design session needed; auditor should confirm the graft-not-restructure call against the `SowTab` layout.
@@ -101,30 +103,53 @@ Phase-0 §5 gated Phase 2 on "decision #3 reskin scope, design session first." *
 
 ---
 
-## §4 Phase 4 — Output (the printed ticket + shop shortage view) — `sch-command`
+## §4 Phase 4 — Output — `sch-command`
 
-### 4A — Crew ticket (print)
+**[Revision pass 1, round-1 audit] Scope-cut ratified by Chris 2026-07-28:** §4A (crew ticket) ships
+THIS loop — it prints what's on the SOW, no NEED math, buildable today. **§4B (shop-manager shortage
+view) is DEFERRED to its own loop** — the shortage math is not buildable from existing schema (no
+per-material area/length basis column, no batch-multiplier column → breaks §6 no-migration), the
+coverage parser is unspecified and there's already a table doing half the job (`job_material_lines`,
+migration `20260708120200`, carries `qty_ordered` + `coverage_status` OK/VERIFY/SHORT). See §5.
+
+### 4A — Crew ticket (print) `[ships this loop]`
 - **Material Order Summary (page 1, crew):** per-material totals rolled up across all days → plain checklist. **Folds parked BF-12 `rollupSowMaterials()`** (branch `feat/mtrl-sow-rollup` — fold, then delete the branch).
 - **Per-day cards** matching the reference: day label, subline, Work to Complete (tasks+%), Scope Notes callout, Materials Needed table (specs as **text**, D3), TASK N chips (D5).
 - **Print/sign frame:** logo, JOB/CUSTOMER/PREPARED BY header, LEAD/SALES signatures, `N DAYS SCHEDULED · GENERATED <date>` footer.
 - **Print gate:** enforce `specs_confirmed` before allowing print (Phase-0 §2 — no stale/unconfirmed specs go to the crew).
 
-### 4B — Shop-manager shortage view (screen, pre-job) [several DESIGN-OPEN items]
+### 4B — Shop-manager shortage view (screen, pre-job) `[DEFERRED — blocked, own loop]`
+
+**BLOCKED pending Q2/Q3/Q4/Q5/Q8 + the `job_material_lines` reuse decision.** Not built this loop.
+Preserved here as the seed for its own loop:
 - **NEED** = job total sqft (or LF) ÷ coverage_rate × batch multiplier, rounded up. Graceful fallback: range → "verify on site"; text-sourced rate → asterisk; no rate → "Not applicable" (uncounted).
 - **STATUS** = NEED vs ON ORDER → OK (+buffer) / Short N units / Verify / N/A. Three count buckets on top.
-- Inputs needed: job total **sqft + LF**, per-material **coverage_rate** (from the specs pipeline — this is why 2B matters), **ON ORDER** quantity, **batch multiplier**, per-material **basis** (area vs length).
+- Inputs it needs that **don't exist as clean data yet**: per-material **basis** (area vs length — no column, Q4), **batch multiplier** (no column, Q5), a **coverage-rate parser** (Q3), a **coverage-unit → kit_size bridge** (Q8 — "45 sqft per kit" vs ordering kits; the reference conflates lbs vs kits, e.g. Sand "short 1,446" is really ~14 kits).
+- **Reconcile, don't reinvent (Q2):** `job_material_lines` (migration `20260708120200`) already has `qty_ordered` + `coverage_status` (OK/VERIFY/SHORT). The shortage loop decides how to reuse it before adding anything.
 
 ---
 
-## §5 Open questions for plan-audit
+## §5 Open questions
 
-1. **[DESIGN-OPEN] Where the shop-manager shortage view lives** — Schedule (warehouse/office side) route? A tab on the job? New screen? Not yet decided (Phase-0 §6 flagged it too).
-2. **[DESIGN-OPEN] "ON ORDER" data source** — the `materials` table qty, the SOW `qty_planned`, or a new field? The shortage math is only as good as this number. Ties to Phase-5 `materials`-table retirement.
-3. **[DESIGN-OPEN] Coverage-rate parsing** — extracting a number from free text ("125 Sqft per gallon", "50LF per gallon mixed", ".75 lbs per foot", "Varies"). Define the parse rules + the range/asterisk/N-A fallbacks concretely.
-4. **[DESIGN-OPEN] Per-material basis (area vs length)** — the NEED formula picks sqft *or* LF per material. Where does that come from — parsed from the coverage unit, or a catalog field?
-5. **[DESIGN-OPEN] Batch multiplier** ("bags per mix") — source and where it's entered.
-6. **[DERIVED] Confirm the D1 graft-not-restructure call** against the actual `SowTab` render — auditor should verify no restructure is forced by scope_notes + task_ref.
-7. **Phase 5 (retire `materials` table + `jobs.field_sow` mirror)** — deferred, subject to Phase-0 §1 retirement preconditions. Named, not in this loop's core, but ties to Q2.
+**Q1–Q5 + Q8 belong to the DEFERRED §4B shortage-view loop, not this one.** Listed here so that loop starts with them.
+
+1. **[DEFERRED-LOOP] Where the shop-manager shortage view lives** — Schedule (warehouse/office side) route? A tab on the job? New screen? Not yet decided (Phase-0 §6 flagged it too).
+2. **[DEFERRED-LOOP] Reconcile against `job_material_lines`, don't reinvent** — migration `20260708120200` already carries `qty_ordered` + `coverage_status` (OK/VERIFY/SHORT). The shortage loop's FIRST decision: reuse that table's ordered-qty + status, or add alongside. "ON ORDER" resolves from here, not a new field. Ties to Phase-5 `materials`-table retirement.
+3. **[DEFERRED-LOOP] Coverage-rate parsing** — extracting a number from free text ("125 Sqft per gallon", "50LF per gallon mixed", ".75 lbs per foot", "Varies"). Note the round-1 audit: the reference version gets ".75 lbs per foot" backwards. Define parse rules + range/asterisk/N-A fallbacks concretely, with test cases.
+4. **[DEFERRED-LOOP] Per-material basis (area vs length)** — the NEED formula divides by sqft *or* LF per material; **no column exists** for this. Needs a `materials_catalog` field (migration). This alone makes §4B un-buildable this loop.
+5. **[DEFERRED-LOOP] Batch multiplier** ("bags per mix") — **no column exists**; needs a field. Source + entry point undecided.
+8. **[DEFERRED-LOOP] Coverage-unit → kit_size bridge** — coverage "45 sqft per kit" vs ordering in kits (a kit = N gallons/lbs). The reference conflates lbs vs kits (Sand "short 1,446" is really ~14 kits). The shortage math must map the coverage unit to the purchased unit.
+6. **[DERIVED] Confirm the D1 graft-not-restructure call** against the actual `SowTab` render — auditor should verify no restructure is forced by scope_notes + task_ref. (Angle-3, this loop.)
+7. **[OPEN] Phase 5 (retire `materials` table + `jobs.field_sow` mirror)** — deferred, subject to Phase-0 §1 retirement preconditions. Ties to Q2.
+
+---
+
+## §5·A Adjacent findings — file as backlog (round-1 audit, not this loop's build)
+
+- **Legacy rollup "verify on site" must not be silently uncounted** — a material whose coverage is unparseable should surface as VERIFY, not vanish from the count (ties to the deferred §4B loop; note now so the §4A rollup labels honestly).
+- **Print gate reuses the tri-state, not truthiness** — §4A's `specs_confirmed` print gate must read the tri-state (confirmed/unconfirmed/absent), not a JS-truthy check that would treat "absent-grandfathered" as unconfirmed and false-block printing.
+- **Catch unique-violation with a friendly message** — the catalog fork can hit the `(tenant, lower(name), lower(kit_size))` unique index; catch `23505` and show "material already in your catalog," not a raw error.
+- **Amber uses a design token** — the confirm chip's amber should be a named token, not a hardcoded hex, per the design-system rules.
 
 ---
 
