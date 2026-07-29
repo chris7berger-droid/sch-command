@@ -11,6 +11,14 @@ const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
 const newCustomId = () => `custom_${uid()}`
 const isCustomId = (id) => String(id || '').startsWith('custom_')
 
+const nowIso = () => new Date().toISOString()
+// A catalog/source row "carries specs" if any spec field is a non-empty value.
+// Drives the tri-state confirm init (§2 F1): stamp specs_confirmed=false only when
+// there's actually a spec to confirm — blank-spec rows stay absent (no click ritual).
+const hasAnySpec = (o = {}) =>
+  ['mils', 'coverage_rate', 'coverage', 'mix_time', 'mix_speed', 'cure_time', 'unit']
+    .some(k => o[k] != null && String(o[k]).trim() !== '')
+
 const newTask = () => ({ id: uid(), description: '', pct_complete: 0 })
 const newDay = (idx) => ({
   id: uid(),
@@ -79,9 +87,19 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     const entry = {
       wtc_material_id: safeId(source),
       material_id: null,
+      catalog_id: source.catalog_id ?? null,
+      task_ref: '',
       name: safeName(source),
       kit_size: safeKit(source),
-      qty_planned: 0, mils: 0, coverage_rate: source.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
+      qty_planned: 0,
+      mils: source.mils || '',
+      coverage_rate: source.coverage_rate || source.coverage || '',
+      mix_time: source.mix_time || '',
+      mix_speed: source.mix_speed || '',
+      cure_time: source.cure_time || '',
+      unit: source.unit || '',
+      specs_stamped_at: source.specs_stamped_at ?? null,
+      ...(hasAnySpec(source) ? { specs_confirmed: false } : {}),
     }
     return { ...d, materials: [...(d.materials || []), entry] }
   }))
@@ -93,12 +111,28 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   // (so the name renders locked, like a proposal material, not an editable input).
   const addCatalogMaterialToDay = (dayId, item) => update(days.map(d => {
     if (d.id !== dayId) return d
+    // One-hop catalog stamp (§4.2): pick straight from the catalog, so stamp
+    // catalog_id + every spec + specs_stamped_at = now() right here. specs_confirmed
+    // per the §2 F1 init rule (false only when the row actually carries specs).
+    const stamped = {
+      mils: item.mils || '',
+      coverage_rate: item.coverage || '',
+      mix_time: item.mix_time || '',
+      mix_speed: item.mix_speed || '',
+      cure_time: item.cure_time || '',
+      unit: item.unit || '',
+    }
     const entry = {
       wtc_material_id: `cat_${uid()}`,
       material_id: null,
+      catalog_id: item.id ?? null,
+      task_ref: '',
       name: item.name || 'Unnamed material',
       kit_size: item.kit_size || '',
-      qty_planned: 0, mils: 0, coverage_rate: item.coverage || '', mix_time: 0, mix_speed: '', cure_time: '',
+      qty_planned: 0,
+      ...stamped,
+      specs_stamped_at: nowIso(),
+      ...(hasAnySpec(stamped) ? { specs_confirmed: false } : {}),
     }
     return { ...d, materials: [...(d.materials || []), entry] }
   }))
@@ -108,9 +142,12 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     const entry = {
       wtc_material_id: newCustomId(),
       material_id: null,
+      catalog_id: null,
+      task_ref: '',
       name: '',
       kit_size: '',
-      qty_planned: 0, mils: 0, coverage_rate: '', mix_time: 0, mix_speed: '', cure_time: '',
+      qty_planned: 0, mils: '', coverage_rate: '', mix_time: '', mix_speed: '', cure_time: '', unit: '',
+      specs_stamped_at: null,
     }
     return { ...d, materials: [...(d.materials || []), entry] }
   }))
@@ -121,7 +158,9 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
 
   const updateMaterialField = (dayId, wtcId, key, val) => update(days.map(d => {
     if (d.id !== dayId) return d
-    const numericKeys = ['qty_planned', 'mils', 'mix_time']
+    // Only true numerics coerce. Specs (mils/mix_time/cure_time) stay TEXT so a
+    // range like "20-25 mils" survives a keystroke (was corrupting to 20).
+    const numericKeys = ['qty_planned']
     const next = numericKeys.includes(key) ? (parseFloat(val) || 0) : val
     return {
       ...d,
@@ -155,28 +194,23 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     // PERSIST stable day/task ids (do NOT strip) so a later reload can address
     // each day individually — stripping caused id===undefined collisions where a
     // single-day edit hit every day. ids are durable, render+update keys.
+    // PASSTHROUGH, not whitelist. A whitelist silently dropped live fields the
+    // builder doesn't render — mobilization_seq, sq_ft, linear_ft (shipped
+    // Screen-1·A) were erased on every save (§0.2b live bug), and it would strip
+    // scope_notes/task_ref/catalog_id/specs_stamped_at too. Spread the day/material
+    // and coerce ONLY the true numerics; specs stay TEXT (mils/mix_time/cure_time).
     const clean = days.map(d => ({
-      id: d.id,
-      day_label: d.day_label,
+      ...d,
       date: d.date || null,   // Schedule calendar layer (SCH2) — preserve per-day date
-      crew_count: d.crew_count || 0,
-      hours_planned: d.hours_planned || 0,
+      crew_count: parseFloat(d.crew_count) || 0,
+      hours_planned: parseFloat(d.hours_planned) || 0,
       tasks: (d.tasks || []).map(t => ({
-        id: t.id,
-        description: t.description || '',
+        ...t,
         pct_complete: parseFloat(t.pct_complete) || 0,
       })),
       materials: (d.materials || []).map(m => ({
-        material_id: m.material_id ?? null,
-        wtc_material_id: m.wtc_material_id ?? null,
-        name: m.name || '',
-        kit_size: m.kit_size || '',
+        ...m,
         qty_planned: parseFloat(m.qty_planned) || 0,
-        mils: parseFloat(m.mils) || 0,
-        coverage_rate: m.coverage_rate || '',
-        mix_time: parseFloat(m.mix_time) || 0,
-        mix_speed: m.mix_speed || '',
-        cure_time: m.cure_time || '',
       })),
     }))
     await onSave(clean)
@@ -432,7 +466,7 @@ function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, on
                 <div className="fsb-mat-field">
                   <label className="fsb-label">Mils</label>
                   <div className="fsb-mat-spec">
-                    {specInput(m, 'mils', '0', 'number')}
+                    {specInput(m, 'mils', 'e.g. 20-25')}
                     <span className="fsb-mat-suffix">mil</span>
                   </div>
                 </div>
@@ -445,7 +479,7 @@ function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, on
                 <div className="fsb-mat-field">
                   <label className="fsb-label">Mix Time</label>
                   <div className="fsb-mat-spec">
-                    {specInput(m, 'mix_time', '0', 'number')}
+                    {specInput(m, 'mix_time', 'e.g. 3 min')}
                     <span className="fsb-mat-suffix">min</span>
                   </div>
                 </div>

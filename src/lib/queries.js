@@ -43,7 +43,7 @@ export async function loadAllRows(tableName, selectStr, {
 export async function loadMaterialsCatalog() {
   const { data, error } = await loadAllRows(
     'materials_catalog',
-    'id, tenant_id, name, kit_size, price, coverage, supplier',
+    'id, tenant_id, name, kit_size, price, coverage, supplier, mils, mix_time, mix_speed, cure_time, unit, specs_updated_at',
     { orderBy: 'name', filterFn: (q) => q.eq('active', true) }
   )
   if (error) return { data: [], error }
