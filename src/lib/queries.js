@@ -80,20 +80,19 @@ export function hasFieldSow(job) {
 // `materials` table and is intentionally NOT updated this phase (deferred, Phase-5
 // owned). Safe because every live "ready" read recomputes THIS fn (no consumer
 // trusts the stored ready_confirmed_at without recompute — verified 2026-07-30).
+// SINGLE SOURCE OF TRUTH for the materials half of the gate — imported by the card
+// signals (StageJobCard) too so they can't drift from the gate (T5 finding #1).
+export function materialsDecided(job, materialRows) {
+  if (!hasFieldSow(job)) return true                 // no SOW → no materials expected
+  if (materialRows.length === 0) return false        // fail-closed: SOW but unseeded tracker
+  return materialRows.every(m => m.status != null && !['Not Ordered', 'Delayed'].includes(m.status))
+}
+
 export function baseChecklistPasses(job, crewRows, materialRows) {
   const hasSOW = hasFieldSow(job)
   const hasDate = (job.scheduled_start || job.start_date) != null
   const hasCrew = crewRows.length >= 1
-  const NOT_READY = ['Not Ordered', 'Delayed']
-  let materialsDecided
-  if (!hasSOW) {
-    materialsDecided = true
-  } else if (materialRows.length === 0) {
-    materialsDecided = false                     // fail-closed: SOW but unseeded tracker
-  } else {
-    materialsDecided = materialRows.every(m => m.status != null && !NOT_READY.includes(m.status))
-  }
-  return hasSOW && hasDate && hasCrew && materialsDecided
+  return hasSOW && hasDate && hasCrew && materialsDecided(job, materialRows)
 }
 
 // Full isReady = base checklist + manual promotion gate.
@@ -729,12 +728,20 @@ export async function syncJobMaterialLines(jobId, changedBy, source = 'schedule_
   }
 
   // Audit-log the deltas, line-identified by material_key (round-3 item 5).
+  // Compare qty_needed NUMERICALLY (T5 hardening): PostgREST may round-trip a
+  // `numeric` back as a string, so a raw JSON compare would log a phantom "change"
+  // every sync for a fractional need (e.g. 1000/3). Number() normalizes both sides.
+  const sameNum = (a, b) => (a == null && b == null) || (a != null && b != null && Number(a) === Number(b))
   const logs = []
   for (const r of rows) {
     const ex = existingByKey.get(r.material_key)
     const before = ex ? { qty_needed: ex.qty_needed, coverage_status: ex.coverage_status, coverage_reason: ex.coverage_reason } : null
     const after = { qty_needed: r.qty_needed, coverage_status: r.coverage_status, coverage_reason: r.coverage_reason }
-    if (JSON.stringify(before) !== JSON.stringify(after)) {
+    const changed = !ex
+      || !sameNum(ex.qty_needed, r.qty_needed)
+      || (ex.coverage_status ?? null) !== (r.coverage_status ?? null)
+      || (ex.coverage_reason ?? null) !== (r.coverage_reason ?? null)
+    if (changed) {
       logs.push({ job_id: jid, call_log_id: callLogId, field: `material_line[${r.material_key}].sync`,
         old_value: before ? JSON.stringify(before) : null, new_value: JSON.stringify(after), changed_by: changedBy, source })
     }

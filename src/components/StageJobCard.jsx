@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
-import { baseChecklistPasses, hasFieldSow } from '../lib/queries'
+import { baseChecklistPasses, hasFieldSow, materialsDecided } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import CardSowModal from './CardSowModal'
@@ -119,7 +119,10 @@ function StageBanner({ job, stage, crewRows, matRows, prtMap, today }) {
     const missing = []
     if (!hasFieldSow(job)) missing.push('📋')
     if (crewRows.length === 0) missing.push('👷')
-    if (matRows.length > 0 && matRows.some(m => ['Not Ordered', 'Delayed'].includes(m.status))) missing.push('📦')
+    // Materials signal mirrors the fail-closed gate (baseChecklistPasses): a SOW-
+    // bearing job with 0 tracker rows, or any row with NULL/Not-Ordered/Delayed
+    // status, is NOT decided. No-SOW jobs need no materials.
+    if (!materialsDecided(job, matRows)) missing.push('📦')
     if ((job.scheduled_start || job.start_date) == null) missing.push('📅')
     return (
       <div className="sjc-banner sjc-banner-staged">
@@ -226,8 +229,8 @@ function IdentityRow({ job }) {
 function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, onCrewClick, onMtrlClick, onDateClick }) {
   const hasSOW = hasFieldSow(job)
   const hasCrew = crewRows.length >= 1
-  const undecidedMats = matRows.filter(m => ['Not Ordered', 'Delayed'].includes(m.status)).length
-  const matsOk = matRows.length === 0 || undecidedMats === 0
+  // Mirror the fail-closed gate (baseChecklistPasses): SOW + 0 tracker rows = not OK.
+  const matsOk = materialsDecided(job, matRows)
   const start = job.scheduled_start || job.start_date || null
   const end = job.scheduled_end || job.end_date || null
   const hasDate = start != null

@@ -191,6 +191,9 @@ function LogisticsRow({ mat, onFieldUpdate }) {
     setLocalOrdered(mat.qty_ordered ?? '')
   }, [mat.notes, mat.arrival_date, mat.qty_ordered])
 
+  // Clear pending debounced writes on unmount (T5 hardening).
+  useEffect(() => () => { clearTimeout(notesTimer.current); clearTimeout(orderedTimer.current) }, [])
+
   const handleNotesChange = (e) => {
     const val = e.target.value
     setLocalNotes(val)
@@ -206,7 +209,8 @@ function LogisticsRow({ mat, onFieldUpdate }) {
     const val = e.target.value
     setLocalOrdered(val)
     clearTimeout(orderedTimer.current)
-    orderedTimer.current = setTimeout(() => onFieldUpdate(mat.material_key, 'qty_ordered', val === '' ? null : (parseFloat(val) || 0)), 600)
+    // Clamp ≥ 0 (T5): the DB qty_nonneg_chk rejects negatives — never send one.
+    orderedTimer.current = setTimeout(() => onFieldUpdate(mat.material_key, 'qty_ordered', val === '' ? null : Math.max(0, parseFloat(val) || 0)), 600)
   }
 
   const color = statusColor(mat.status)
@@ -222,7 +226,7 @@ function LogisticsRow({ mat, onFieldUpdate }) {
       <td className="mat-cell-qty" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{fmtNeeded(mat.qty_needed)}</td>
       <td className="mat-cell-qty">
         <input
-          type="number" className="mat-notes-input" value={localOrdered} onChange={handleOrderedChange}
+          type="number" min="0" className="mat-notes-input" value={localOrdered} onChange={handleOrderedChange}
           placeholder="0" style={{ width: 64, textAlign: 'center' }}
         />
       </td>
