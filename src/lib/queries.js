@@ -163,18 +163,24 @@ function normalizeJob(row) {
 //   sent     = all sent, at least one unpaid → days since the OLDEST send,
 //              plus the earliest unpaid due date (the one that bites first)
 //   paid     = every deposit invoice is paid
-// amount = the sum of the deposit invoices (net of discount) — no hand-typed
-// figure to keep in sync.
+//
+// amount is the figure to SHOW, and it answers the question the tag is asking:
+// while anything is unpaid that's what's STILL OWED, not the job's deposit size —
+// a job with $4k in and $6k out should read $6k, not $10k. Once everything is
+// paid it flips to the full total collected. amountTotal always carries the sum,
+// for anywhere that wants the deposit's overall size. Both net of discount, and
+// both derived from the invoices — no hand-typed figure to keep in sync.
 export function depositState(job, depositsByJob) {
   const list = depositsByJob.get(job?.call_log_id) || []
   if (!list.length) return null
 
-  const amount = list.reduce(
-    (sum, i) => sum + (Number(i.amount) || 0) - (Number(i.discount) || 0),
-    0,
-  )
+  const net = (i) => (Number(i.amount) || 0) - (Number(i.discount) || 0)
+  const amountTotal = list.reduce((sum, i) => sum + net(i), 0)
   const unpaid = list.filter((i) => !i.paid_at)
-  if (!unpaid.length) return { status: 'paid', amount, daysSince: null, dueDate: null }
+  if (!unpaid.length) {
+    return { status: 'paid', amount: amountTotal, amountTotal, daysSince: null, dueDate: null }
+  }
+  const amount = unpaid.reduce((sum, i) => sum + net(i), 0)
 
   // Earliest due date among the ones still owed — that's the date that matters.
   const dueDate = unpaid
@@ -183,14 +189,14 @@ export function depositState(job, depositsByJob) {
     .sort()[0] || null
 
   const unsent = unpaid.filter((i) => !i.sent_at)
-  if (unsent.length) return { status: 'required', amount, daysSince: null, dueDate }
+  if (unsent.length) return { status: 'required', amount, amountTotal, daysSince: null, dueDate }
 
   // All sent, some unpaid → age off the oldest outstanding send.
   const oldestSent = unpaid.map((i) => i.sent_at).filter(Boolean).sort()[0]
   const daysSince = oldestSent
     ? Math.floor((Date.now() - new Date(oldestSent).getTime()) / 86400000)
     : null
-  return { status: 'sent', amount, daysSince, dueDate }
+  return { status: 'sent', amount, amountTotal, daysSince, dueDate }
 }
 
 // Best-effort: enrich jobs in place with j._deposit. Reads the ACTIVE deposit

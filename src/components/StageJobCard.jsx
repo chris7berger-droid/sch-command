@@ -295,6 +295,9 @@ function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick
           if (!dep) return null
           const color = dep.status === 'paid' ? 'ok' : dep.status === 'sent' ? 'neutral' : 'bad'
           const due = fmtMD(dep.dueDate)
+          // dep.amount is what's STILL OWED while unpaid, so the tooltip says which
+          // figure it is — "Deposit $6,000" beside a yellow tag would otherwise read
+          // as the job's whole deposit. Part-paid jobs show owed-of-total.
           const val = dep.status === 'paid'
             ? 'Paid'
             : dep.status === 'sent'
@@ -303,7 +306,13 @@ function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick
           return (
             <div
               className={`sjc-score sjc-score-${color}`}
-              title={dep.amount != null ? `Deposit ${fmtMoney(dep.amount)}` : 'Deposit'}
+              title={dep.amount == null
+                ? 'Deposit'
+                : dep.status === 'paid'
+                  ? `Deposit paid — ${fmtMoney(dep.amount)}`
+                  : dep.amountTotal > dep.amount
+                    ? `Deposit outstanding ${fmtMoney(dep.amount)} of ${fmtMoney(dep.amountTotal)}`
+                    : `Deposit outstanding ${fmtMoney(dep.amount)}`}
             >
               <span className="sjc-score-icon">{'🏦'}</span>
               <span className="sjc-score-label">DEPOSIT</span>
