@@ -99,7 +99,10 @@ function DayCard({ day, index }) {
     <div className="sow-day">
       <div className="sow-day-header">
         <div className="sow-day-title">{day.day_label || `Day ${index + 1}`}</div>
+        {/* Step 8 (R7 — labels only): these are Sales' PROPOSED figures; the crew
+            board is the finalized/actual schedule. Label them so the two don't blur. */}
         <div className="sow-day-meta" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {(day.crew_count || day.hours_planned) ? <span style={{ opacity: 0.75, fontSize: 10, letterSpacing: '0.04em' }}>PROPOSED</span> : null}
           {day.crew_count ? <span>Crew: {day.crew_count}</span> : null}
           {day.hours_planned ? <span style={{ marginLeft: 12 }}>Hrs: {day.hours_planned}</span> : null}
         </div>
