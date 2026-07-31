@@ -9,370 +9,347 @@ Sales-side reach-back (task size/unit). Spans `sch-command` (bulk) + `sales-comm
 **Terminal roles:** Plan terminal (T1) authored + revised this; it does NOT ship code. Build terminal (T3)
 executes. Audit terminal (T2) runs `/runaudit`.
 
-> **Revision pass 1 (round-1 audit response, 2026-07-30).** Pattern: `shared-carrier-blindspot`. The
-> round-1 fixes collapse the plan: the warehouse tracking table, the coverage flag, and the Settings
-> asset lists **already exist live** (plan0 foundation, 2026-07-08). This spec now REUSES them instead of
-> building twins. See §1.
+> **Revision pass 2 (round-2 audit response, 2026-07-30).** Pattern: `reuse-rests-on-false-premise`. Round 2
+> caught two false premises the round-1 reuse pivot introduced: catalog coverage/unit are **TEXT and mostly
+> blank** (not numeric), and `job_material_lines` is **empty/unwritten** (not a populated table to "reuse").
+> Both corrected here. **Coverage source ratified (2026-07-30): the SOW line's own `coverage_rate`** (the WTC
+> Materials "Coverage Rate" field, estimator-entered per job) — parse the number+area-unit from that text;
+> the catalog-coverage join is DELETED. Pass 2 corrects premises + tightens; it adds no new surface.
 
 ---
 
 ## §0 Baseline — observed current state (read-verified 2026-07-30, code grep + Read; not run-verified)
 
-**Type:** feature (adds new Schedule-side surface; no pre-existing defect). Evidence from `sch-command`
-HEAD `04b93e2`, `sales-command` main, and `command-suite-db` live migrations.
+**Type:** feature. Evidence from `sch-command` HEAD `04b93e2`, `sales-command` main, `command-suite-db` migrations.
 
-- **Schedule SOW builder — `sch-command/src/components/FieldSowBuilder.jsx`:** `newTask()` (`:22`) =
-  `{id, description, pct_complete}` — **no `size`/`unit`**. Materials carry `wtc_material_id` (minted in
-  every constructor: `safeId` `:88`, `cat_${uid()}` `:126`, custom `:143`), `catalog_id`, `task_ref`,
-  `specs_confirmed` (seeded false via `hasAnySpec` `:102/:135`). `updateMaterialField` (`:159`,
-  `numericKeys=['qty_planned']`), `specInput` (`:400`), spec inputs `:469-492`. `handleSave` (`:193`) =
-  passthrough spread (Phase-2). **No `SPEC_KEYS` constant, no lock branch today.**
-- **Canonical SOW write path — `CardSowModal.jsx`** → `updateJobWtcFieldSow` (`queries.js:598`,
-  audit-logged). `FieldSowModal.jsx` = read/print. `loadMaterialsCatalog` (`queries.js:43-46`) selects
-  numeric `coverage` + `unit` from `materials_catalog`.
-- **Legacy `materials` table** is read by the modal AND by other consumers (see Step 3 reader list). Its
-  status vocabulary (`MaterialsModal.jsx:4`) = **Not Ordered / Ordered / In Stock / Delayed**.
-- **CANONICAL tracking table ALREADY LIVE — `job_material_lines`** (migration `20260708120200`, live
-  2026-07-08). Columns: `job_id` (FK), `material_key` (= the material's `wtc_material_id`), `qty_needed`
-  (size ÷ coverage, aggregated across WTCs/days), `qty_ordered`, `coverage_status` (CHECK `OK/VERIFY/SHORT`,
-  NULL = not-yet-computed). UNIQUE `(job_id, material_key)`, upsert `ON CONFLICT (job_id, material_key)`.
-  **It carries no `status`/`arrival_date`/`notes`** (the four-word screen status lives only on the legacy
-  `materials` table today). Migration header (`:5-6,26`, fixed by `20260714120300`) documents: `material_key`
-  is the **per-WTC line id**, NOT a product id — so the same product across two WTCs does NOT auto-merge.
-- **Settings asset lists ALREADY LIVE** (migration `20260708120000_material_flow_settings_tables`):
-  `tenant_vehicles` (`identifier`), `tenant_power` (`spec`), `tenant_equipment`, `tenant_consumables` —
-  all tenant-scoped, indexed, RLS'd, updated_at + forbid-hard-delete triggers.
-- **Job home — `JobDetail.jsx`:** `PLANNING_TABS` (`:135`) = `[Materials]`; `MANAGEMENT_TABS` (`:139`) =
-  `[Overview, Production, Daily Log, Billing, History]`. Overview: Vehicle/Equipment/Power as free-text
-  writing single columns `jobs.vehicle/equipment/power_source`. **No SOW tab.**
-- **NOT yet built:** task `size`/`unit`; a Needed COMPUTATION (the `qty_needed` column exists but nothing
-  writes it); per-JOB asset assignment (which trucks on THIS job + available flag — the `tenant_*` LISTS
-  exist, the job↔asset link does not); `status`/`arrival_date`/`notes` on `job_material_lines`.
-- **Deployment reality:** `sch-command` prod live but **no office users yet — Chris-only testing**; old
-  Apps Script parallel. `sales-command` live prod (HDSP daily). 1 tenant.
-
-**Absence assertions verified by grep:** no task size/unit (both repos), no SOW tab, no writer to
-`qty_needed`, no `jobs.*asset*`/`vehicle_ids` migration. Read-verified, not run-verified — §5 smoke is the
-run-verification gate.
+- **Schedule SOW builder — `FieldSowBuilder.jsx`:** `newTask()` (`:22`) = `{id, description, pct_complete}`
+  — no `size`/`unit`. Materials carry `wtc_material_id` (constructors `:88/:126/:143`), `catalog_id`,
+  `task_ref`, `coverage_rate` (TEXT, stamped from the WTC line), `specs_confirmed` (`hasAnySpec` `:102/:135`).
+  `updateMaterialField` (`:159`, `numericKeys=['qty_planned']`), `specInput` (`:400`), spec inputs `:469-492`.
+  `handleSave` (`:193`) passthrough spread. No `SPEC_KEYS`, no lock branch today.
+- **Coverage is TEXT and usually blank (REG-1 corrected).** `materials_catalog.coverage`/`unit` are TEXT
+  (migration `20260714120000:11-14`: *"coverage... already text"*); ~161 seed rows store `coverage = ''`.
+  **The populated, per-job coverage is the WTC Materials line's `coverage_rate`** (auto-filled from the
+  price list, estimator-editable — screenshot 2026-07-30), stamped onto each SOW material. §2 sources from
+  there, not the catalog.
+- **Canonical SOW write path — `CardSowModal.jsx`** → `updateJobWtcFieldSow` (`queries.js:598`, audit-logged).
+  `FieldSowModal.jsx` = read/print.
+- **`job_material_lines` is LIVE BUT EMPTY (REG-2 corrected).** Migration `20260708120200` created it
+  (`job_id`, `material_key` = `wtc_material_id`, `qty_needed`, `qty_ordered`, `coverage_status` CHECK
+  `OK/VERIFY/SHORT`, UNIQUE `(job_id, material_key)`, RLS 4-policy jobs→call_log.tenant_id chain `:103-168`,
+  forbid-hard-delete trigger). **Nothing writes it** (grep both apps = 0). No `status`/`arrival_date`/`notes`
+  columns. So Phase 3 is a **fresh write path onto an empty table**, not a reuse of populated data.
+- **Legacy `materials` table** — read by MANY consumers (Step 3 list) INCLUDING a realtime channel
+  (`Jobs.jsx:251` `channel('materials-changes')`) and the job-promotion gate (`queries.js:73-84`). Status
+  words (`MaterialsModal.jsx:4`) = Not Ordered / Ordered / In Stock / Delayed.
+- **Settings asset lists LIVE** (`20260708120000_material_flow_settings_tables`): `tenant_vehicles`,
+  `tenant_power`, `tenant_equipment`, `tenant_consumables` — tenant-scoped, RLS'd, indexed.
+- **Job home — `JobDetail.jsx`:** `PLANNING_TABS` (`:135`)=[Materials]; MANAGEMENT=[Overview…]. Overview
+  Vehicle/Equipment/Power = free-text → `jobs.vehicle/equipment/power_source`. No SOW tab.
+- **Deployment reality:** `sch-command` live, no office users yet (Chris-only); `sales-command` live prod; 1 tenant.
 
 ---
 
-## Design floor — ideation decisions this spec implements (all Chris-ratified 2026-07-30)
+## Design floor — ideation decisions (all Chris-ratified 2026-07-30)
 
-Banked in ERD LOG.md Loop #44 NOTES. Restated as the design floor:
-
-1. **One SOW, four ownership STAGES** (Sales → Scheduling → Logistics → Field) — one live `field_sow`,
-   not four records; no unique identifier. `[LOCKED]`
-2. **Sales authors the first draft of everything** (scope, specs, materials, *proposed* dates/crew/mob);
-   each downstream stage FINALIZES its slice. `[LOCKED]`
-3. **Two Schedule roles, structurally distinct:** Crew Allocator (time/labor) vs Warehouse Manager
-   (materials/logistics). Unified READ, scoped EDIT. `[LOCKED]`
-4. **Logistics = trucks + equipment + power + materials.** Keep the screen's four material status words
-   (**Not Ordered / Ordered / In Stock / Delayed**) — do NOT adopt the ordering enum. `[LOCKED · ratified 2026-07-30]`
-5. **No inventory counting.** Phase 2 laid the piping; Phase 3 computes/displays, does not count stock. `[LOCKED]`
-6. **The Materials modal stays its own job area, but becomes a WINDOW onto canonical data** — no drifting copy. `[LOCKED]`
-7. **Needed vs Ordered:** read-only Needed beside editable Ordered; the gap is the signal. `[LOCKED]`
-8. **Three-state flag:** green ✓ covered / red ⚠ SHORT / amber ? CAN'T-TELL (missing size/coverage —
-   never a dash). Backed by the live `coverage_status` column (OK/VERIFY/SHORT + NULL). `[LOCKED]`
-9. **Needed math follows the daily task breakout:** each task gets **size + unit (SQFT/LF)** beside its
-   `pct_complete`; **Needed = task size ÷ material coverage**. Confirmed vs Chris's original Excel. `[LOCKED]`
-10. **Confirm/lock (simplifies DMS-2):** Sales-confirmed specs LOCK; adding more of a confirmed material
-    inherits; a NEW/SWAPPED material is unconfirmed and must be confirmed in Schedule before it can print;
-    warehouse override of a locked spec requires a typed reason (logged, re-confirmed, shown downstream). `[LOCKED]`
-11. **Job-home layout** (preserve `JobDetail` tabs): NEW read-only **SOW** tab; RENAME **Materials →
-    Logistics**; Overview stays the scheduler's room. `[LOCKED]`
+1. One SOW, four ownership STAGES (Sales→Scheduling→Logistics→Field); no unique id. `[LOCKED]`
+2. Sales authors first draft of everything (incl. proposed dates/crew/mob); downstream FINALIZES its slice. `[LOCKED]`
+3. Two Schedule roles distinct: Crew Allocator (time/labor) vs Warehouse (materials/logistics). Unified READ, scoped EDIT. `[LOCKED]`
+4. Logistics = trucks+equipment+power+materials. Keep the four material status words. `[LOCKED]`
+5. No inventory counting. `[LOCKED]`
+6. Materials modal = a WINDOW onto canonical data, no drifting copy. `[LOCKED]`
+7. Needed vs Ordered; the gap is the signal. `[LOCKED]`
+8. Three-state flag green ✓ / red ⚠ SHORT / amber ? CAN'T-TELL, backed by `coverage_status`. `[LOCKED]`
+9. **Needed = task size ÷ material coverage** (per task). `[LOCKED]`
+10. Confirm/lock: Sales-confirmed specs lock; new/swapped confirm in Schedule; override needs a typed reason. `[LOCKED]`
+11. Job-home layout: new read-only SOW tab; rename Materials→Logistics; Overview stays scheduler's. `[LOCKED]`
 
 ---
 
-## §1 Data home — REUSE the live `job_material_lines` (R1 resolved: not A, not A′, REUSE)
+## §1 Data home — `job_material_lines`, a FRESH write path onto an empty table (REG-2 corrected)
 
-`[LOCKED · round-1 resolution]` The round-1 audit prescribed a new `job_material_tracking` table (A′);
-my draft proposed a jsonb map on `job_wtcs` (A). **Both were twins of a table that already exists live.**
+`[LOCKED · round-2 reframe]` `job_material_lines` exists live but is **empty**. Phase 3 is the code that
+first WRITES it. Not "reuse populated data" — a new write path onto the canonical (already-migrated) home.
 
-- **Warehouse tracking lives in `job_material_lines`** (live since 2026-07-08), keyed by
-  **`(job_id, material_key)` where `material_key = wtc_material_id`.** This satisfies the audit's own item 3
-  (key on `wtc_material_id`) and its shared-carrier finding (a proper table, NOT jsonb inside the synced
-  `field_sow`). **`mat_uid` is DELETED** — `wtc_material_id` is the existing key.
-- **Grain: per-job.** One row per `(job_id, material_key)` (the table's UNIQUE index). `material_key` is a
-  per-WTC line id (not a product) — so a product used in two WTCs yields two rows; the modal groups for
-  display but the storage grain stays per-line-per-job. `[LOCKED — respects the live schema, §2 handles the grouping]`
-- **Column reuse:** `qty_needed` (Needed), `qty_ordered` (Ordered), `coverage_status` (flag OK/VERIFY/SHORT).
-- **Additive columns to add** (the only tracking schema change — §4): `status text` (the four screen words,
-  CHECK `Not Ordered/Ordered/In Stock/Delayed`), `arrival_date date`, `notes text`. These are the modal
-  fields `job_material_lines` lacks. Additive; distinct from the live `material_status` ordering enum.
-- **PowerSync:** verify `job_material_lines` is not on the crew's REQUIRED read/sync path (MIG-4 notes the
-  single un-filtered bucket). If it syncs, that is unused warehouse rows on the phone, not a correctness
-  break — but confirm nothing in Field READS it. Do not add it to `field-command/schema.js`. `[verify in build]`
+- **Grain: one row per SOW material line**, keyed `(job_id, material_key = wtc_material_id)` (the table's
+  UNIQUE index). A product on 3 days = 3 lines = 3 rows. `mat_uid` deleted — `wtc_material_id` is the key.
+- **Additive columns (§4):** `status text` (four words, CHECK), `arrival_date date`, `notes text`,
+  `coverage_reason text` (§2's CAN'T-TELL reason, persisted with the row).
+- **Two ownership classes of column on the row — the writer must respect the split:**
+  - SOW-DERIVED (writer SETs/replaces): `qty_needed`, `coverage_status`, `coverage_reason`.
+  - WAREHOUSE-OWNED (writer NEVER touches): `qty_ordered`, `status`, `arrival_date`, `notes`.
+- **When rows are created / the seeder (REG-2):** the rollup writer (§2) runs on **(a)** every SOW save
+  (`CardSowModal`/`FieldSowBuilder` `handleSave`), and **(b)** lazily on Logistics-tab open (seeds jobs
+  sent before this feature). Each run upserts one row per current SOW line, SETting only the SOW-derived
+  columns. **Orphan cleanup:** a material removed from the SOW → delete its `job_material_lines` row (or the
+  gate/print would count a phantom). `[DERIVED — confirm delete-vs-tombstone in build]`
+- **PowerSync:** `job_material_lines` is web-only warehouse data — do NOT add to `field-command/schema.js`;
+  confirm nothing in Field READS it. `[verify in build]`
 
 ---
 
-## §2 The Needed rollup → writes `job_material_lines.qty_needed` + `coverage_status`
+## §2 The Needed rollup → writes `job_material_lines` (SET, per line, no summing)
 
-`[DERIVED]` Pulled forward from §5 Phase 4 (the modal needs it now; Phase-4 print reuses it). New pure
-helper `rollupSowMaterials(fieldSow, catalogById)` in new `src/lib/sowMaterials.js` (no I/O), plus an
-**audit-logged** writer that upserts `job_material_lines` `ON CONFLICT (job_id, material_key)`.
+`[LOCKED math · round-2 corrected]` New pure helper `rollupSowMaterials(fieldSow)` in `src/lib/sowMaterials.js`
+(no I/O) + an **audit-logged** writer (`queries.js`) that upserts per line.
 
-**Needed math (numeric, catalog-sourced — audit item 2):**
-- Per material, resolve **coverage + unit from the catalog by `catalog_id`** (`materials_catalog.coverage`,
-  `.unit` — numeric, `queries.js:46`), NOT by parsing the free-text `coverage_rate` on the SOW line.
-- `qty_needed = task.size ÷ catalog.coverage`, aggregated across every day/WTC the material's tagged to
-  (`ON CONFLICT` sums per `(job_id, material_key)`). Unit (SQFT/LF) on the task must match `catalog.unit`.
-- **NO round-up** (audit item 2 — "drop or numerically define"): store the raw quotient in `qty_needed`;
-  display may round for readability but the stored value is exact. Round-up mechanism struck.
-- **`coverage_status` derivation:** `qty_ordered ≥ qty_needed` → `OK` (green); `< qty_needed` → `SHORT`
-  (red); **cannot compute → `VERIFY`/NULL** (amber ? CAN'T-TELL).
-- **CAN'T-TELL reason enum (named — audit item 2):** `NO_TASK_TAG` (blank `task_ref`), `NO_TASK_SIZE`
-  (task `size` null), `NO_COVERAGE` (catalog coverage null), `UNIT_MISMATCH` (task unit ≠ catalog unit),
-  `NO_CATALOG` (custom material, no `catalog_id`). The flag names the reason; a wrong number never shows.
-- **Cross-WTC:** the job's modal rolls up across all WTCs' `field_sow`; storage stays per
-  `(job_id, material_key)` per the live grain. `[verify multi-WTC job in smoke]`
+**Coverage source + parse spec (ratified option i, from the SOW line — audit item 0):**
+- Coverage = the SOW material's own **`coverage_rate` TEXT** (estimator-entered per job). **No catalog join.**
+- **Parse:** leading numeric token = the coverage number; the area-unit in the string (`sqft`/`sf`/`lf`/
+  `ft`) = the coverage numerator area-unit (e.g. `"200 sqft/gal"` → number 200, area-unit SQFT, per gal).
+  Unparseable / empty → `coverage_reason = NO_COVERAGE`.
+- **Unit check (audit item 2):** compare `task.unit` to the parsed **coverage numerator area-unit** (NOT
+  `catalog.unit`, which is a free-text spec field). Mismatch → `UNIT_MISMATCH`.
+
+**Needed (audit item 2 — per line, SET, never additive):**
+- `qty_needed` for a line = `task.size ÷ parsed_coverage_number` (task the line is tagged to). Writer **SETs
+  (replaces)** `qty_needed`; **drop "ON CONFLICT sums across WTCs/days"** — one row = one line = its own quotient.
+- **No round-up** (struck round 1): store the exact quotient; display may round.
+- **Display grouping is display-only AND must NOT sum quotients across lines sharing a `task_ref`** (the
+  multi-day overcount trap — 3 day-lines on one task each hold the task's full need; summing = 3×). Show a
+  task's material need ONCE per `(task_ref, product)`. `[known weak point — see manifest]`
+
+**`coverage_status` + CAN'T-TELL reason (audit item 7 — persisted home):**
+- `qty_ordered ≥ qty_needed` → `OK` (green); `< qty_needed` → `SHORT` (red); cannot compute → `VERIFY`
+  (amber ? CAN'T-TELL) with `coverage_reason` ∈ **{NO_TASK_TAG, NO_TASK_SIZE, NO_COVERAGE, UNIT_MISMATCH}**.
+- `coverage_status` + `coverage_reason` are **stored columns** (persisted with the row), re-SET every writer
+  run — so the gate/print read a durable verdict without recomputing. (Chosen over recompute-live so the
+  promotion gate and Phase-4 print have a stable read.)
 
 ---
 
 ## §3 Ordered build steps
 
-Sequencing: **Sales (Step 0) deploys to prod FIRST, then Schedule** — Schedule's Needed can't compute
-until tasks carry a size (audit item 6; no "same-deploy").
+Sequencing: **Sales (Step 0) → prod FIRST, then the migration, then Schedule** (audit item 6; no same-deploy).
 
-### Step 0 — Sales: size + unit per task `[LOCKED intent · DERIVED UI]`
-**Repo:** `sales-command` · `src/pages/WTCCalculator.jsx` (`newTask` `:944`, task row `:1183-1198`).
-- `newTask()` gains `size: null, unit: 'SQFT'`. **Old tasks seed `size: null`, NOT `0`** (audit item 6) —
-  so un-authored tasks fire CAN'T-TELL (`NO_TASK_SIZE`), never a false "0 needed".
-- **Task coercion is a keyed map, not blanket `parseFloat`** (audit item 6): `{ size: v => v===''? null :
-  (parseFloat(v)||null), unit: v => v }` — `unit` passes through as text; other task keys unchanged.
-- UI: size number + SQFT/LF toggle (restrict the existing `UNITS` to SQFT/LF for tasks) beside `pct_complete`.
-- jsonb-additive, no migration; rides `field_sow`.
-- **Acceptance:** author `5100 LF` + `10%/day`, Send → task carries `size`+`unit`; old task reads `size:null`.
+### Step 0 — Sales: size + unit per task `[LOCKED intent]`
+**Repo:** `sales-command` · `WTCCalculator.jsx` (`newTask :944`, task row `:1183-1198`).
+- `newTask()` gains `size: null, unit: 'SQFT'`. Old tasks seed `size: null` (NOT 0 → CAN'T-TELL, not false-0).
+- **Keyed task coercion** `{ size: v => v===''?null:(parseFloat(v)||null), unit: v => v }` — unit passthrough,
+  no blanket `parseFloat`.
+- UI: size number + SQFT/LF toggle beside `pct_complete`. jsonb-additive, no migration.
+- **Acceptance:** author 5100 LF + 10%/day, Send → task carries size+unit; old task reads size:null.
 
 ### Step 1 — Schedule: pass through + display task size/unit `[LOCKED]`
-**Repo:** `sch-command` · `FieldSowBuilder.jsx` (`newTask` `:22`, task render `:293-339`).
-- Mirror `newTask` = `{...,size:null,unit:'SQFT'}`; keyed coercion (`size`→num-or-null, `unit`→text).
-- Read-only in Schedule (Sales authors; scheduler finalizes dates/crew, not task sizes — §Step 8). `[DERIVED]`
-- **Acceptance:** a Phase-0 SOW shows each task's size+unit in Schedule; save/reload preserves.
+`FieldSowBuilder.jsx` `newTask :22` mirrors `{…,size:null,unit:'SQFT'}`; keyed coercion; read-only display.
+- **Acceptance:** SOW shows each task's size+unit in Schedule; save/reload preserves.
 
 ### Step 2 — Schedule: SOW read-only tab `[LOCKED]`
-**Repo:** `sch-command` · `JobDetail.jsx` (`PLANNING_TABS` `:135`).
-- Add `{key:'sow',label:'SOW'}`. Render read-only: per-day scope notes, tasks (desc+size/unit+%), materials
-  with specs as TEXT (non-empty checks, no `" min"` suffix — spine §4.2 A2 rule). Reuse `FieldSowModal.jsx`.
-- **Acceptance:** SOW tab shows what Sales authored; no editable fields; text specs visible.
+`JobDetail.jsx` `PLANNING_TABS :135` += `{key:'sow',label:'SOW'}`. Read-only: scope notes, tasks
+(desc+size/unit+%), material specs as TEXT (A2 rule). Reuse `FieldSowModal.jsx`.
+- **Acceptance:** SOW tab shows what Sales authored; no editable fields.
 
-### Step 3 — Schedule: rename Materials → Logistics + repoint ALL `materials`-table readers `[LOCKED]`
-**Repo:** `sch-command` · `JobDetail.jsx`, `MaterialsModal.jsx`, `Materials.jsx`, `queries.js`, new `sowMaterials.js`.
-- Rename tab label `Materials → Logistics`; keep/redirect `/materials` route (audit for stale `key` refs).
-- **Materials section** = `job_material_lines` (Needed/Ordered/`coverage_status`) joined to the SOW rollup
-  (§2) for display; columns: Material · Kit · **Needed** (read-only `qty_needed`) · **Ordered** (editable
-  `qty_ordered`) · Status (four words, new `status` col) · **Flag** (green/red/amber ← `coverage_status`) ·
-  Arrival · Notes. Reuse `STATUS_OPTIONS`/`statusColor` verbatim.
-- **Enumerate + repoint EVERY `materials`-table reader** (audit item 5 — miss one and the job-promotion
-  gate reads a dead table and auto-promotes). Known readers to repoint at `job_material_lines`:
-  - `queries.js:73-84` — `baseChecklistPasses`/`isReady` (`materialsDecided` gate) **← highest risk**
-  - `views/Jobs.jsx` — `loadAllRows('materials',…)` → `matsByJobId` feeding `isReady`
-  - `views/Materials.jsx:127/193/213/227` — the `/materials` view reads + writes `materials`
-  - `lib/exports.js:113` — `from('materials')` export
-  - `components/StageJobCard.jsx` — MTRL signal (verify lines; audit cited `:122/229`)
-  - **Build MUST re-grep** `\.from\(['"]materials['"]\)|loadAllRows\(['"]materials['"]` across `src/` and
-    repoint each hit; enumerate the full list in the revision, no silent cap.
-- **All writes audit-logged** (audit item 5): route through a new `queries.js` writer with `job_changes`
-  logging — do NOT copy the raw `.update()` from `MaterialsModal.jsx:40-49`.
-- **Acceptance:** correct Needed per material; a short material red; missing-coverage amber with reason;
-  status/arrival/notes persist to `job_material_lines`; **the promotion gate reads `job_material_lines`,
-  not the dead `materials` table**; every write hits `job_changes`.
+### Step 3 — Schedule: rename Materials → Logistics + repoint EVERY `materials` reader/channel `[LOCKED · REG-3]`
+`JobDetail.jsx`, `MaterialsModal.jsx`, `Materials.jsx`, `Jobs.jsx`, `queries.js`, `exports.js`, new `sowMaterials.js`.
+- Rename tab label; keep/redirect `/materials` route (audit stale `key` refs).
+- Logistics materials section = `job_material_lines` joined to the §2 rollup: Material · Kit · **Needed**
+  (`qty_needed`, read-only) · **Ordered** (`qty_ordered`, editable) · Status (four words) · **Flag**
+  (green/red/amber ← `coverage_status`, tooltip = `coverage_reason`) · Arrival · Notes. Reuse
+  `STATUS_OPTIONS`/`statusColor` verbatim.
+- **Repoint EVERY `materials`-table reader AND realtime channel** (REG-3 — audit found my list short):
+  - `queries.js:73-84` — `baseChecklistPasses`/`isReady` promotion gate **(highest risk)**
+  - `JobDetail.jsx:77` — `from('materials')` reader
+  - `MaterialsModal.jsx:26,42` — the modal's own reads
+  - `Materials.jsx:127/193/213/227` — `/materials` view reads+writes
+  - `Jobs.jsx` — `loadAllRows('materials')` → `matsByJobId` **AND the realtime channel `Jobs.jsx:251`
+    `channel('materials-changes')`** (repoint to a `job_material_lines` channel or it goes silent → the
+    board stops refreshing on Logistics edits)
+  - `exports.js:113` — `from('materials')` export
+  - **Build MUST re-grep** `\.from\(['"]materials['"]\)|loadAllRows\(['"]materials['"]|channel\(['"]materials`
+    across `src/` and repoint every hit — no silent cap. Enumerate the full list in the revision.
+- **Modal disposition (REG-3):** `MaterialsModal.jsx` becomes the Logistics materials view (repointed to
+  `job_material_lines`), NOT deleted; `Materials.jsx` `/materials` view likewise repointed. State both.
+- **All writes audit-logged:** a new `queries.js` writer with `job_changes` logging — do NOT copy the raw
+  `.update()` from `MaterialsModal.jsx:40-49`.
+- **Acceptance:** correct Needed per material; short=red, missing=amber+reason; status/arrival/notes persist
+  to `job_material_lines`; **promotion gate + realtime channel read `job_material_lines`, not the dead
+  `materials` table**; every write hits `job_changes`.
 
 ### Step 4 — Schedule: warehouse add-material `[LOCKED core · DESIGN-OPEN attach point]`
-**Repo:** `sch-command` · catalog picker path + the §2 writer.
-- Warehouse adds via the existing catalog picker; the add writes to `field_sow` (so Needed computes) +
-  upserts its `job_material_lines` row. New/swapped → `specs_confirmed=false` (§7).
-- **DESIGN-OPEN (R5):** which day/task a warehouse-add attaches to (frequent path). Proposal: attach to a
-  chosen day/task, defaulting to a "warehouse additions" bucket day. Settle with Chris or at build.
-- **Acceptance:** warehouse add appears with Needed (or CAN'T-TELL), editable Ordered/status, persisted.
+Catalog picker → writes `field_sow` + upserts its `job_material_lines` row; new/swapped → `specs_confirmed=false`.
+- **DESIGN-OPEN (R5):** which day/task a warehouse-add attaches to. Settle with Chris / at build.
+- **Acceptance:** add appears with Needed (or CAN'T-TELL), editable Ordered/status, persisted.
 
 ### Step 5 — Schedule: assign trucks/equipment/power to a job `[LOCKED intent · new job↔asset home]`
-**Repo:** `sch-command` + `command-suite-db` (migration).
-- Vehicle/Equipment/Power become **pick-many** from the live `tenant_vehicles`/`tenant_equipment`/
-  `tenant_power` lists, each pick marked **Available / Unavailable (per-job)**.
-- **The per-JOB assignment has no home today** (the LISTS exist; the job↔asset link does not). Add it as a
-  small additive structure — proposal: a `job_assets` table `(job_id, asset_type, asset_id, available bool)`
-  in `command-suite-db` (§4). Keep old `jobs.vehicle/equipment/power_source` text readable during
-  transition; don't strip. `[DERIVED — confirm table vs jsonb]`
-- **Acceptance:** pick two trucks + one generator from Settings, mark one Unavailable; per-job persist; shows in Logistics.
+Pick-many from live `tenant_vehicles/equipment/power`, each **Available/Unavailable (per-job)**. The per-JOB
+link has no home → new `job_assets` table (§4). Keep old text columns readable; don't strip.
+- **Acceptance:** pick 2 trucks + 1 generator, mark one Unavailable; per-job persist; shows in Logistics.
 
 ### Step 6 — Schedule: Settings UI over the EXISTING asset lists `[LOCKED — no new tables]`
-**Repo:** `sch-command` (new Settings view) — **tables already exist** (`tenant_*`, live, RLS'd; audit item 7 confirmed).
-- Build a minimal per-tenant list editor UI over `tenant_vehicles`/`tenant_equipment`/`tenant_power`
-  (add/edit/soft-delete; the forbid-hard-delete trigger already guards). No schema work here.
-- **Acceptance:** customer adds "F-350 + trailer" to the Vehicle list → it appears in the Step-5 picker.
+New minimal per-tenant list editor over `tenant_*` (tables live, RLS'd; forbid-hard-delete guards soft-delete). No schema work.
+- **Acceptance:** customer adds "F-350 + trailer" → appears in the Step-5 picker.
 
-### Step 7 — Schedule: confirm/lock + override escape hatch `[LOCKED · locate in code]`
-**Repo:** `sch-command` · `FieldSowBuilder.jsx` / `CardSowModal.jsx`.
-- **Define `SPEC_KEYS`** in `FieldSowBuilder.jsx` = `{mils, coverage_rate, mix_time, mix_speed, cure_time,
-  unit}` (there is none today — audit item 4).
-- **Lock, located in code (audit item 4):** (1) `specInput` (`:400`) gains an **`isLocked` branch** —
-  when `m.specs_confirmed === true`, render specs read-only; (2) `updateMaterialField` (`:159`) **rejects**
-  writes to any `SPEC_KEYS` key on a locked material (no-op + guard); (3) the reset-downgrade (DMS-2) —
-  editing a `SPEC_KEYS` value on an UNconfirmed material downgrades `specs_confirmed` true→false (mirrors
-  Sales `WTCCalculator.updateField`). Confirmed specs are locked, not reset.
-- **Print gate predicate, defined NOW (audit item 4):** a material **cannot print** iff
-  `specs_confirmed !== true && hasAnySpec(m)`. Phase 3 sets/holds `specs_confirmed` correctly and ships this
-  predicate as the contract; **Phase 4 enforces the actual block at print** (no printer in Phase 3). The
-  Phase-3 acceptance is therefore flag-state + predicate correctness, not a live print block.
-- **Override escape hatch:** editing a LOCKED spec requires a typed reason (non-skippable) → write new value,
-  log `{by,at,old,new,reason}` (jsonb `spec_overrides[]` on the material), re-confirm as warehouse-confirmed,
-  surface "coverage changed by warehouse: <reason>" on the SOW tab + Phase-4 ticket.
-- **Acceptance:** a Sales-confirmed spec is read-only + `updateMaterialField` rejects its edit; editing an
-  unconfirmed spec downgrades the flag; overriding a locked spec forces a reason and logs it; the
-  print-gate predicate returns true (cannot print) for `unconfirmed + hasAnySpec`.
+### Step 7 — Schedule: confirm/lock + override escape hatch `[LOCKED · located in code · round-2 corrected]`
+`FieldSowBuilder.jsx` / `CardSowModal.jsx`.
+- **`SPEC_KEYS = {mils, coverage_rate, mix_time, mix_speed, cure_time}`** (audit item 5 — `unit` EXCLUDED;
+  reconcile the divergence: `unit` is a task-level SQFT/LF concept, not a locked material spec).
+- **Lock (located in code, audit item 4):** (1) `specInput :400` gains `isLocked` branch → read-only when
+  `specs_confirmed === true`; (2) `updateMaterialField :159` rejects writes to any `SPEC_KEYS` key on a
+  locked material; (3) reset-downgrade — editing a `SPEC_KEYS` value on an UNconfirmed material downgrades
+  true→false (mirrors Sales `updateField`).
+- **Override = its own multi-field handler `overrideSpec()` (audit item 5)** — do NOT route through the
+  single-key `updateMaterialField`. Editing a LOCKED spec requires a typed reason (non-skippable) → write
+  value(s), log `{by,at,old,new,reason}` to `spec_overrides[]`, re-confirm as warehouse-confirmed, surface
+  "coverage changed by warehouse: <reason>" downstream.
+- **Print-gate predicate (defined now, enforced Phase 4):** cannot print iff `specs_confirmed !== true &&
+  hasAnySpec(m)`. Phase-3 acceptance = flag-state + predicate correctness, not a live print block.
+- **Acceptance:** confirmed spec read-only + `updateMaterialField` rejects its edit; editing an unconfirmed
+  spec downgrades the flag; `overrideSpec` forces a reason, writes multi-field, logs it.
 
-### Step 8 — Schedule: crew-allocator "finalize" of Sales' proposal `[DESIGN-OPEN — likely labels only]`
-**Repo:** `sch-command` · Overview + existing Schedule board.
-- Sales proposes dates/crew/mob; scheduler FINALIZES. Today's board already sets dates/crew → likely a
-  "proposed vs finalized" label/badge, not new mechanism. `[DESIGN-OPEN — verify current board first (R7).]`
-- **Acceptance:** scheduler sees proposed values, can finalize/adjust; ownership visible.
+### Step 8 — Schedule: crew-allocator "finalize" `[DESIGN-OPEN — likely labels only]`
+Sales proposes dates/crew/mob; scheduler finalizes (board likely already covers it → proposed-vs-finalized
+label). `[DESIGN-OPEN — verify board first (R7).]`
 
 ---
 
 ## §4 Data-model summary
 
 - **jsonb-additive, NO migration:** task `size`/`unit`; `spec_overrides[]`; confirm stamps.
-- **REQUIRED additive migration — `command-suite-db` ONLY, `npm run db:push` + rehearsal** (audit item 7 —
-  NOT "no migration"):
-  1. `ALTER job_material_lines ADD status text` (CHECK the four words) `+ arrival_date date + notes text`.
-  2. `job_assets (job_id, asset_type, asset_id, available bool)` — the per-job asset assignment home (§Step 5).
-  - Both additive, no data rewrite; rehearse from a prod-shaped throwaway before push (standing rule); one
-    migration, ledger-aligned.
-- **Reused live, NO schema work:** `job_material_lines` (`qty_needed`/`qty_ordered`/`coverage_status`),
-  `tenant_vehicles`/`tenant_equipment`/`tenant_power`.
-- **PowerSync:** task size/unit + overrides ride `field_sow` (crew-visible, correct). `job_material_lines`
-  + `job_assets` are web-only — confirm not on the Field required read path; no `schema.js` change.
-- **Legacy `materials` table:** Phase 3 STOPS reading it (all readers repointed, §Step 3); Phase 5 drops it.
+- **REQUIRED additive migration — `command-suite-db` ONLY, `npm run db:push` + rehearsal** (one migration):
+  1. `ALTER job_material_lines ADD status text` (CHECK the four words — must not reject the 0 existing rows)
+     `+ arrival_date date + notes text + coverage_reason text`.
+  2. `CREATE TABLE job_assets (id, job_id int8 NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+     asset_type text CHECK (asset_type in ('vehicle','equipment','power')), asset_id uuid NOT NULL,
+     available boolean NOT NULL DEFAULT true, tenant_id …, created/updated_at)`.
+     - **RLS (audit item 4): `ENABLE ROW LEVEL SECURITY` + the 4-policy `jobs.call_log_id → call_log.tenant_id`
+       chain copied VERBATIM from `job_material_lines.sql:103-168`.** `job_id` FK `ON DELETE CASCADE`.
+     - **Documented cross-table `asset_id` tenant check:** `asset_id` references a `tenant_*` row — a policy
+       (or trigger) must verify the referenced asset's `tenant_id` matches the job's tenant, so a job can't
+       point at another tenant's truck. State the check explicitly.
+  - Both additive; rehearse from a prod-shaped throwaway before push; ledger-aligned.
+- **Reused live, NO schema work:** `job_material_lines` core cols; `tenant_vehicles/equipment/power`.
+- **Legacy `materials` table:** Phase 3 STOPS reading it (all readers+channel repointed); Phase 5 drops it.
 
 ---
 
 ## §5 Deploy / verification / sequencing
 
-- **Order:** Sales (Step 0) → prod first. Then the `command-suite-db` migration (§4). Then Schedule. No same-deploy.
-- **Preview-deploy each repo's branch; verify on preview** (never localhost-only for shared surface).
-- **Smoke (shared DB):** author a 6618-style SOW with per-task sizes → SOW tab shows it → Logistics shows
-  Needed-vs-Ordered with correct flags (incl. a deliberate SHORT + a CAN'T-TELL with named reason) →
-  warehouse add + confirm + one locked-spec override-with-reason → **promote the job and confirm the gate
-  reads `job_material_lines`** → reload survives. Include a **multi-WTC job** (rollup grain).
+- **Order:** Sales (Step 0) → prod first → `command-suite-db` migration (rehearsed) → Schedule.
+- **Preview-deploy each branch; verify on preview.**
+- **Promotion-gate ready-semantics (audit item 6 — define explicitly):** `isReady`/`baseChecklistPasses` on
+  `job_material_lines`: a row's `status = NULL` counts as **undecided** (blocks ready, like Not Ordered).
+  **Fail-closed:** a SOW-bearing job with **zero `job_material_lines` rows is NOT ready** (today's
+  `materialRows.length===0 → materialsDecided=true` would auto-pass an unseeded job — must invert for
+  SOW-bearing jobs). No-SOW jobs keep the empty-is-fine behavior.
+- **Smoke (shared DB):** author a 6618-style SOW with per-task sizes + a `coverage_rate` per material → SOW
+  tab shows it → Logistics shows Needed-vs-Ordered with correct flags (deliberate SHORT + a CAN'T-TELL naming
+  its reason) → warehouse add + confirm + one `overrideSpec` with reason → **promote the job: gate reads
+  `job_material_lines` and a zero-line SOW job is held** → board realtime refreshes on a Logistics edit →
+  reload survives. Include a **multi-WTC job** and a **same-material-on-two-days** case (overcount check).
 - **Gate through terminals:** buildvsplan (T4) → code-review (T5) → security-review (T6) before merge.
-- **Phase 3 done when:** the warehouse opens any job, sees honest Needed-vs-Ordered per material, tracks
-  status + trucks/equipment, the confirm/lock holds, and the promotion gate reads canonical data — leaving
-  `field_sow` + `job_material_lines` ready for Phase 4 to PRINT.
 
 ---
 
-## §6 Ratification items (Chris — before build)
+## §6 Ratification items (Chris)
 
 | # | Item | Resolution | Tag |
 |---|------|-----------|-----|
-| R1 | Warehouse tracking data-home | **REUSE `job_material_lines`** (live) — not A/A′. Ratified 2026-07-30 | LOCKED |
-| R1b | Material status words | Keep the screen's four (add as `status` col) — ratified 2026-07-30 | LOCKED |
-| R2 | Pull `rollupSowMaterials()` into Phase 3 | Yes — writes the live `qty_needed` | DERIVED |
-| R3 | Round-up on Needed | **Struck** — store exact quotient | LOCKED |
-| R4 | Task size read-only in Schedule | Yes (Sales authors) | DERIVED |
-| R5 | Where a warehouse-add attaches (day/task) | needs a beat / build call | DESIGN-OPEN |
-| R7 | Step 8 finalize — new mechanism or labels? | verify current board first | DESIGN-OPEN |
-| R8 | `job_assets` per-job home: table vs jsonb | table proposed | DERIVED |
+| R0 | Coverage source | **Parse the SOW line's `coverage_rate` text** (option i, from the line; no catalog join). Ratified 2026-07-30 | LOCKED |
+| R1 | Tracking home | REUSE `job_material_lines` as a FRESH write path (empty table). Ratified | LOCKED |
+| R1b | Status words | Keep the four (add `status` col). Ratified | LOCKED |
+| R3 | Round-up | Struck — exact quotient | LOCKED |
+| R9 | Multi-day-same-task overcount | display groups per `(task_ref,product)`, never sums quotients | DERIVED |
+| R5 | Warehouse-add attach point | needs a beat / build call | DESIGN-OPEN |
+| R7 | Step 8 finalize scope | verify board first | DESIGN-OPEN |
+| R8 | `job_assets` table + cross-tenant `asset_id` check | table w/ verbatim RLS chain + tenant check | DERIVED |
 
 ---
 
 ## Audit manifest
 
-_Generated by `/auditcriteria` (round 1), restamped after revision pass 1 (2026-07-30). Consumed by `/runaudit`._
+_Restamped after revision pass 2 (round-2 response), 2026-07-30. Consumed by `/runaudit` for round 3._
 
 ### Bottom line (plain English)
-The big round-1 fix already happened: we found the warehouse tracking table, the covered/short flag, and
-the truck/equipment lists **already exist** — so this revision reuses them instead of building duplicates,
-and the plan got smaller. Round 2 is a lighter check on three things: that we're reading/writing that
-existing table correctly (especially the tricky "same material in two work-types" case), that we repointed
-**every** old reader so the job-promotion gate can't read a dead table, and that the one small database
-change is done safely.
+Round 2 was right — it caught that my "reuse" leaned on two things that aren't true (there's no ready-made
+number for coverage, and the table it reuses is empty). Both fixed: coverage now comes from the number the
+estimator already types on the job, and the plan treats the table as something we fill fresh. Round 3 is a
+short confirmation check on three spots: the coverage-parsing + the "same material on two days" counting
+trap, that we repointed *every* old reader (there was a hidden live-refresh channel), and that the new
+truck-assignment table is locked down the same way the others are.
 
 ### Round
 - Plan type: feature
-- Current round: 2
-- Plan revision under audit: revision pass 1 (sha stamped at this commit)
-- Findings trend: round 1 (5H/2M + 4 adjacent) → round 2 (?) — expect DOWN (reuse dissolved the twin-table findings)
+- Current round: 3
+- Plan revision under audit: revision pass 2 (sha stamped at this commit)
+- Findings trend: round 1 (5H/2M) → round 2 (1C/4H/4M, plateau fired) → round 3 (?) — expect DOWN (pass 2
+  corrected premises + tightened; added no new surface).
 
 ### Prior rounds
 - Round 1: `f23de81` · 5H/2M + 4 adjacent · pattern: `shared-carrier-blindspot`
+- Round 2: `9fddc00` · 1C/4H/4M + 3 adjacent · pattern: `reuse-rests-on-false-premise`
 
-**Briefing for agents**: do NOT re-find round-1 issues (twin-table home, mat_uid, coverage parse, reader
-repoint, deploy order — all addressed in revision pass 1). Attack ONLY the reuse as written. Cite
-`file:line` / `migration:line` you read this round.
+**Briefing for agents**: do NOT re-find round-1/2 issues (twin table, mat_uid, numeric-coverage premise,
+empty-table premise, reader-repoint list, deploy order, coverage source — all addressed). Attack ONLY the
+pass-2 corrections. Cite `file:line`/`migration:line` read this round. **Plateau is active** — if round-3
+count is not clearly DOWN, the only build-prompt option is scope-cut (defer §2 auto-Needed to Phase 4, option
+iii), not more mechanism.
 
 ### Deployment context
-- **Live tenants**: 1 — HDSP only.
-- **Prod / staging / dev**: `sch-command` live but no office users yet (Chris-only testing); `sales-command`
-  live prod; `command-suite-db` migration hits the shared prod DB (rehearse first).
-- **Blocking feature flags**: none.
-- **Concurrency profile**: solo. Multi-user race findings cap at Low; cross-tenant cap at Med while `live_tenants == 1`.
+- Live tenants: 1 (HDSP). Affected `sch-command` live but no office users yet; migration hits shared prod (rehearse).
+- Blocking flags: none. Concurrency: solo → race findings cap Low, cross-tenant cap Med.
 
 ### Time budget + finding cap
-- **Time budget**: ~150 min (Chris-confirmed).
-- **Finding cap**: 15 findings.
+- Time budget: ~150 min. Finding cap: 15.
 
 ### Surface
-- Total lines: ~ (regenerated) · Sections: 10 (h2)
-- [LOCKED]: majority (reuse resolved most forks) · [DESIGN-OPEN]: 2 (R5, R7/Step 8) · [DERIVED]: ~5
-- Plan shrank vs round 1 (twin table + jsonb map + mat_uid + new Settings tables all removed).
+- Sections: 10 (h2). [LOCKED] majority; [DESIGN-OPEN]: 2 (R5, R7); [DERIVED]: ~4.
+- Pass 2 shrank/held the surface (removed the catalog-coverage join; no new mechanism beyond the required RLS + gate semantics).
 
 ### Layers touched
-- UI / components (SOW tab; Materials→Logistics; Settings list editor; Overview asset pickers)
-- Data layer (new `sowMaterials.js` rollup; new audit-logged `job_material_lines` writer; repoint all `materials` readers)
-- State model (task size/unit; `job_material_lines` +status/+arrival/+notes; `job_assets`; `spec_overrides[]`)
-- Migrations / schema (ONE additive command-suite-db migration: `job_material_lines` cols + `job_assets`)
+- UI/components (SOW tab; Materials→Logistics; Settings editor; Overview pickers)
+- Data layer (`sowMaterials.js` rollup; audit-logged `job_material_lines` writer + seeder; repoint all `materials` readers + realtime channel)
+- State model (task size/unit; `job_material_lines` +status/+arrival/+notes/+coverage_reason; `job_assets`; `spec_overrides[]`)
+- Migrations/schema (ONE additive command-suite-db migration: cols + `job_assets` with RLS)
 - Cross-repo (sales-command Step 0; command-suite-db migration)
-- Real-time / sync (confirm `job_material_lines`/`job_assets` not on Field required path)
-- Audit logging (all Logistics writes → `job_changes`)
+- Real-time/sync (repoint `materials-changes` channel; confirm web-only tables off Field required path)
+- Audit logging (all Logistics writes → `job_changes`); RLS/multi-tenancy (`job_assets` chain + cross-tenant asset_id)
 
 ### New mechanisms introduced
-- Helper: `rollupSowMaterials()` (Needed math + named CAN'T-TELL reason enum) in `src/lib/sowMaterials.js`
-- Audit-logged writer for `job_material_lines` (upsert ON CONFLICT)
-- Additive cols: `job_material_lines.status/arrival_date/notes`; new `job_assets` table
-- Lock mechanism: `SPEC_KEYS` + `specInput` isLocked branch + `updateMaterialField` reject + reset-downgrade + print-gate predicate
+- Helper `rollupSowMaterials()` (text-coverage parse + named CAN'T-TELL enum) + audit-logged writer/seeder
+- Additive cols `job_material_lines.status/arrival_date/notes/coverage_reason`; new `job_assets` table (RLS)
+- Lock: `SPEC_KEYS` (5 keys) + `specInput` isLocked + `updateMaterialField` reject + reset-downgrade + `overrideSpec()` multi-field + print-gate predicate
 - Task size/unit (Sales)
-- **Reused, NOT new:** `job_material_lines`, `tenant_*` asset tables, `coverage_status`, `qty_needed/qty_ordered`
+- Reused, NOT new: `job_material_lines` core, `tenant_*`, `coverage_status`, `qty_needed/qty_ordered`
 
 ### Cross-system reach
-- `sales-command` Step 0 (deploys prod FIRST)
-- `command-suite-db` (the one additive migration; shared ledger; rehearse)
-- `field-command`/PowerSync (confirm web-only tables don't reach the crew's required read)
+- `sales-command` Step 0 (deploys prod FIRST); `command-suite-db` (one additive migration, shared ledger, rehearse);
+  `field-command`/PowerSync (confirm web-only tables off the crew's required read).
 
 ### Irreversibility
-- Additive migration only (new cols + new table); no destructive/backfill; reversible.
-- `materials` table read-repointed (code, reversible); table NOT dropped in Phase 3.
+- Additive migration only (cols + new table); no destructive/backfill; reversible. `materials` read-repointed (code); dropped in Phase 5.
 
 ### Known weak points
-- **`material_key` semantics (§1/§2):** it's a per-WTC LINE id, not a product — a product in two WTCs yields
-  two rows. Does the modal's grouping + the `qty_needed` aggregation handle that without double-count or
-  merge-that-doesn't-happen? Prime target.
-- **Reader-repoint completeness (§Step 3):** the `isReady`/`baseChecklistPasses` promotion gate
-  (`queries.js:73-84`) MUST read `job_material_lines`; any missed `materials` reader silently breaks a gate.
-- **Coverage source (§2):** catalog numeric `coverage`/`unit` vs the SOW line's text `coverage_rate` — is
-  the catalog value always present for stamped materials, or does CAN'T-TELL (`NO_COVERAGE`) fire correctly?
-- **Migration safety (§4):** additive to a LIVE table on the shared prod DB — rehearsal + ledger alignment;
-  the `status` CHECK must not reject existing rows (there may be 0 today — verify).
-- **Print-gate predicate is defined but enforced in Phase 4** — confirm no Phase-3 acceptance over-claims a live block.
+- **Coverage-text parse (§2):** real-world `coverage_rate` strings ("130 to 154 LF per kit/5,100 total LF")
+  — does the leading-number + area-unit parse extract the right number, and does blank→NO_COVERAGE fire cleanly?
+- **Multi-day-same-task overcount (§2/R9):** the fix is "display groups per (task_ref,product), never sum
+  quotients" — verify it actually prevents 3× on a material split across days; and that per-line storage +
+  display-grouping stay consistent for the gate/print.
+- **Writer column-ownership split (§1/§2):** the writer SETs qty_needed/coverage_status/coverage_reason but
+  must NOT clobber qty_ordered/status/arrival/notes — verify the upsert is column-scoped, and orphan cleanup
+  removes rows for deleted SOW materials.
+- **Reader/channel repoint completeness (§Step 3):** the promotion gate AND the `materials-changes` realtime
+  channel must move; any missed reader silently breaks a gate or freezes the board.
+- **Gate fail-closed (§5):** inverting "zero rows = ready" for SOW-bearing jobs — verify it doesn't break
+  legitimately no-material jobs.
+- **`job_assets` cross-tenant `asset_id` (§4):** the FK is to a `tenant_*` row; the tenant match needs an
+  explicit policy/trigger, not just the jobs→call_log chain.
 
 ### Open questions
-- Count: 2 [DESIGN-OPEN] (R5 warehouse-add attach point; R7/Step 8 finalize scope).
-- Highest-pressure: R5 (frequent path, under-specified).
+- Count: 2 [DESIGN-OPEN] (R5 attach point; R7 finalize scope). Highest-pressure: R5.
 
 ### Suggested attack angles (3 total)
-1. **Reuse correctness of `job_material_lines`** — covers Data layer + State model. Reading:
-   `migration 20260708120200`, `§1`, `§2`, `queries.js:43-46`, `FieldSowBuilder.jsx` constructors. Pressure:
-   `material_key` per-WTC-line semantics, cross-WTC aggregation, coverage source, `coverage_status`/reason mapping.
-2. **Reader-repoint + promotion-gate + audit logging** — covers Data layer + Audit. Reading: `queries.js:73-84`,
-   `Jobs.jsx`, `Materials.jsx`, `exports.js:113`, `StageJobCard.jsx`, `MaterialsModal.jsx`. Pressure: any
-   missed `materials` reader; gate reading a dead table; raw un-logged writes.
-3. **Migration + deploy order + lock coverage** — covers Migrations + Cross-repo + business logic. Reading:
-   `§4`, `§5`, Step 0, Step 7, `command-suite-db` ledger/rehearsal conventions. Pressure: additive-safety on
-   a live table, Sales-first deploy order, and whether the lock holds across every spec edit path.
+1. **Coverage parse + Needed correctness** — Data/State. Reading: `§2`, `FieldSowBuilder.jsx` coverage_rate
+   stamp, sample `coverage_rate` strings. Pressure: text parse robustness, unit-numerator match, multi-day
+   overcount, SET-not-additive, column-ownership split + orphan cleanup.
+2. **Reader/channel repoint + gate semantics** — Data/Audit/Real-time. Reading: `queries.js:73-84`,
+   `Jobs.jsx:77?/251`, `MaterialsModal.jsx:26/42`, `Materials.jsx`, `exports.js:113`, `§5` gate. Pressure:
+   any missed `materials` reader or channel; fail-closed correctness; audit-logged writes.
+3. **Migration + `job_assets` RLS + lock coverage** — Migrations/RLS/business logic. Reading: `§4`,
+   `job_material_lines.sql:103-168`, Step 0, Step 7. Pressure: additive-safety on a live table (status CHECK
+   vs existing rows), the verbatim RLS chain + cross-tenant `asset_id` check, Sales-first deploy, lock across
+   every spec path + `overrideSpec` multi-field.
 
 ### Suggested agent count: 3
 
-Rationale: reuse collapsed the surface — cross-system + novel mechanisms dropped, so the round-2 verification
-folds cleanly into 3 non-overlapping angles (reuse correctness / reader-repoint / migration+lock). Below 3
-would blur the promotion-gate risk into the rollup angle; above 3 is over-staffing a shrinking plan.
+Rationale: same three non-overlapping risk clusters as round 2, now verifying pass-2's corrections; plateau
+is active so this is a convergence check, not a re-expansion — 3 holds.
