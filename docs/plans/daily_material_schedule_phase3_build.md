@@ -42,11 +42,26 @@ executes. Audit terminal (T2) runs `/runaudit`.
   there, not the catalog.
 - **Canonical SOW write path — `CardSowModal.jsx`** → `updateJobWtcFieldSow` (`queries.js:598`, audit-logged).
   `FieldSowModal.jsx` = read/print.
-- **`job_material_lines` is LIVE BUT EMPTY (REG-2 corrected).** Migration `20260708120200` created it
-  (`job_id`, `material_key` = `wtc_material_id`, `qty_needed`, `qty_ordered`, `coverage_status` CHECK
-  `OK/VERIFY/SHORT`, UNIQUE `(job_id, material_key)`, RLS 4-policy jobs→call_log.tenant_id chain `:103-168`,
-  forbid-hard-delete trigger). **Nothing writes it** (grep both apps = 0). No `status`/`arrival_date`/`notes`
-  columns. So Phase 3 is a **fresh write path onto an empty table**, not a reuse of populated data.
+- **`job_material_lines` is LIVE BUT EMPTY (REG-2 corrected; live shape re-verified 2026-07-30 build).**
+  Migration `20260708120200` created it. **Actual live columns (`information_schema` 2026-07-30 — §0 prior
+  draft under-described this; corrected here):** `id uuid pk`, `job_id int8 NOT NULL` (FK `jobs(job_id) ON
+  DELETE CASCADE`), `material_key text NOT NULL` (= `wtc_material_id`), **`name text NOT NULL`**, `kit_size
+  text`, `coverage text`, `supplier text`, `qty_needed numeric`, `qty_ordered numeric`, `qty_received
+  numeric`, `coverage_status text` (CHECK `NULL OR OK/VERIFY/SHORT`), `received_at timestamptz`, `received_by
+  uuid`, `created_at`, `updated_at`. UNIQUE `(job_id, material_key)` present as index
+  `idx_job_material_lines_job_id_material_key_uniq` → upsert `ON CONFLICT (job_id, material_key)` works.
+  Additional CHECK `qty_* >= 0`. RLS 4-policy jobs→call_log.tenant_id chain (`job_material_lines.sql:103-168`),
+  forbid-hard-delete trigger. **`name` is NOT NULL → the writer MUST populate it (and `kit_size/coverage/
+  supplier` as SOW-derived display) on insert** (see §1 writer-set list). The 4 migration cols
+  (`status/arrival_date/notes/coverage_reason`) genuinely do not exist yet → additive-safe. Note `coverage`
+  (existing display text) is DISTINCT from the new `coverage_reason` (CAN'T-TELL enum). **Nothing writes it**
+  (grep both apps = 0). So Phase 3 is a **fresh write path onto an empty table**, not a reuse of populated data.
+- **REALTIME (verified 2026-07-30 build): `supabase_realtime` publishes ONLY `jobs`.** `materials` is NOT
+  published — so the `channel('materials-changes')` (`Jobs.jsx:251`, `postgres_changes` on `public.materials`)
+  **has never fired**; the board has never live-refreshed on material changes. **Board-freeze is pre-existing,
+  NOT caused by Phase 3.** The §4 migration adds `job_material_lines` to the publication, so repointing the
+  channel (Step 3) is a net improvement over today's dead channel — zero regression. (Aside: `assignments` is
+  also unpublished → `assignments-changes` also dead; filed as BACKLOG DMS-4, out of Phase-3 scope.)
 - **Legacy `materials` table** — read by MANY consumers (Step 3 list) INCLUDING a realtime channel
   (`Jobs.jsx:251` `channel('materials-changes')`) and the job-promotion gate (`queries.js:73-84`). Status
   words (`MaterialsModal.jsx:4`) = Not Ordered / Ordered / In Stock / Delayed.
@@ -83,9 +98,15 @@ first WRITES it. Not "reuse populated data" — a new write path onto the canoni
   UNIQUE index). A product on 3 days = 3 lines = 3 rows. `mat_uid` deleted — `wtc_material_id` is the key.
 - **Additive columns (§4):** `status text` (four words, CHECK), `arrival_date date`, `notes text`,
   `coverage_reason text` (§2's CAN'T-TELL reason, persisted with the row).
-- **Two ownership classes of column on the row — the writer must respect the split:**
-  - SOW-DERIVED (writer SETs/replaces): `qty_needed`, `coverage_status`, `coverage_reason`.
-  - WAREHOUSE-OWNED (writer NEVER touches): `qty_ordered`, `status`, `arrival_date`, `notes`.
+- **Two ownership classes of column on the row — the writer must respect the split (Chris-ratified
+  2026-07-30, corrected for the live `NOT NULL` shape):**
+  - SOW-DERIVED (writer SETs/replaces — on insert AND every upsert): `job_id`, `material_key`, **`name`**
+    (product name — NOT NULL, required on insert), **`kit_size`**, **`coverage`** (text display = the SOW
+    `coverage_rate`), **`supplier`**, `qty_needed`, `coverage_status`, `coverage_reason`.
+  - WAREHOUSE-OWNED (writer NEVER touches): `qty_ordered`, `status`, `arrival_date`, `notes`, and the
+    receiving fields `qty_received`, `received_at`, `received_by` (plan-0 receiving workflow — leave alone).
+  - `ON CONFLICT (job_id, material_key) DO UPDATE SET` must list **only the SOW-derived columns**, so a
+    re-run never clobbers warehouse-owned values. `coverage` (text) and `coverage_reason` (enum) stay separate.
 - **When rows are created / the seeder (REG-2):** the rollup writer (§2) runs on **(a)** every SOW save
   (`CardSowModal`/`FieldSowBuilder` `handleSave`), and **(b)** lazily on Logistics-tab open (seeds jobs
   sent before this feature). Each run upserts one row per current SOW line, SETting only the SOW-derived
