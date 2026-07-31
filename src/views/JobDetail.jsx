@@ -5,6 +5,7 @@ import { loadJobWithWTCs, updateJobField, loadPRTsForJob, loadDailyLogsForJob, l
 import { useUser } from '../lib/user'
 import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
+import { FieldSowView } from '../components/FieldSowModal'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -133,6 +134,7 @@ export default function JobDetail() {
   }
 
   const PLANNING_TABS = [
+    { key: 'sow', label: 'SOW' },
     { key: 'materials', label: 'Materials' },
   ]
 
@@ -406,6 +408,13 @@ export default function JobDetail() {
         )}
 
         {/* ── Materials ──────────────────────────────────── */}
+        {/* ── SOW (read-only, Step 2) ────────────────────── */}
+        {tab === 'sow' && (
+          <div className="jd-section">
+            <FieldSowView job={job} />
+          </div>
+        )}
+
         {tab === 'materials' && (
           <div className="jd-section">
             {materials.length === 0 ? (

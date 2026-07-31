@@ -37,7 +37,10 @@ const PRINT_CSS = `
   .sow-task:last-child { border-bottom: none; }
   .sow-task-check { width: 14px; height: 14px; border: 2px solid #1c1814; border-radius: 2px; flex-shrink: 0; }
   .sow-task-desc { flex: 1; }
+  .sow-task-size { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #5a5249; white-space: nowrap; }
   .sow-task-pct { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #30cfac; }
+  .sow-scope-notes { margin-bottom: 12px; }
+  .sow-scope-notes-body { font-size: 13px; color: #2d2720; white-space: pre-wrap; line-height: 1.4; }
   .sow-mats { margin-top: 12px; }
   .sow-mat { display: grid; grid-template-columns: 1fr 70px 50px 50px 55px 55px 55px 65px; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(28,24,20,0.08); font-size: 12px; align-items: center; }
   .sow-mat:last-child { border-bottom: none; }
@@ -74,7 +77,10 @@ const MODAL_CSS = `
   .sow-task:last-child { border-bottom: none; }
   .sow-task-check { width: 14px; height: 14px; border: 2px solid #1c1814; border-radius: 2px; flex-shrink: 0; }
   .sow-task-desc { flex: 1; }
+  .sow-task-size { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #5a5249; white-space: nowrap; }
   .sow-task-pct { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600; color: #30cfac; background: #1c1814; border-radius: 6px; padding: 3px 10px; white-space: nowrap; }
+  .sow-scope-notes { margin-bottom: 12px; }
+  .sow-scope-notes-body { font-size: 13px; color: #2d2720; white-space: pre-wrap; line-height: 1.4; }
   .sow-mats { margin-top: 12px; }
   .sow-mat { display: grid; grid-template-columns: 1fr 70px 50px 50px 55px 55px 55px 65px; gap: 6px; padding: 4px 0; border-bottom: 1px solid rgba(28,24,20,0.08); font-size: 12px; align-items: center; }
   .sow-mat:last-child { border-bottom: none; }
@@ -99,6 +105,12 @@ function DayCard({ day, index }) {
         </div>
       </div>
       <div className="sow-day-body">
+        {day.scope_notes && String(day.scope_notes).trim() !== '' && (
+          <div className="sow-scope-notes">
+            <div className="sow-tasks-title">Scope Notes</div>
+            <div className="sow-scope-notes-body">{day.scope_notes}</div>
+          </div>
+        )}
         {tasks.length > 0 && (
           <>
             <div className="sow-tasks-title" style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -109,6 +121,7 @@ function DayCard({ day, index }) {
               <div className="sow-task" key={t.id || ti}>
                 <div className="sow-task-check" />
                 <div className="sow-task-desc">{t.description || 'Untitled task'}</div>
+                {t.size != null && <div className="sow-task-size">{Number(t.size).toLocaleString()} {t.unit || 'SQFT'}</div>}
                 {t.pct_complete != null && <div className="sow-task-pct">{t.pct_complete}%</div>}
               </div>
             ))}
@@ -149,16 +162,64 @@ function DayCard({ day, index }) {
   )
 }
 
-export default function FieldSowModal({ job, onClose }) {
-  const printRef = useRef()
+// Chrome-less read-only SOW render. Reused by the print modal (below) AND the
+// JobDetail read-only "SOW" tab (Step 2) — one source of truth for the SOW view.
+// Self-contained: injects MODAL_CSS so it styles correctly wherever it's mounted.
+export function FieldSowView({ job }) {
   if (!job) return null
-
   // Canonical per-WTC sections; legacy zero-WTC → flat jobs.field_sow (Fold O1).
   const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
   const sections = wtcs.length > 0
     ? wtcs.map((w, i) => ({ key: w.id, label: `WTC ${i + 1} — ${w.work_type_name || 'Work Type'}`, days: Array.isArray(w.field_sow) ? w.field_sow : [] }))
     : [{ key: 'legacy', label: null, days: Array.isArray(job.field_sow) ? job.field_sow : [] }]
   const hasAnyDays = sections.some(s => s.days.length > 0)
+
+  return (
+    <>
+      <style>{MODAL_CSS}</style>
+      <div className="sow-page">
+        <div className="sow-header">
+          <div className="sow-header-left">
+            <h1>Schedule <span>Commander</span></h1>
+            <div style={{ fontSize: 11, color: '#b5a896', marginTop: 2 }}>FIELD STATEMENT OF WORK</div>
+          </div>
+          <div className="sow-header-right">
+            <div className="sow-job-num">{job.job_num}</div>
+            <div>{job.job_name}</div>
+          </div>
+        </div>
+
+        <div className="sow-info">
+          <div className="sow-info-item"><label>Work Type</label><span>{job.work_type || '-'}</span></div>
+          <div className="sow-info-item"><label>Size</label><span>{job.size ? `${Number(job.size).toLocaleString()} ${job.size_unit || 'SF'}` : '-'}</span></div>
+          <div className="sow-info-item"><label>Lead</label><span>{job.lead ? flipName(job.lead) : '-'}</span></div>
+          <div className="sow-info-item"><label>Start</label><span>{job.start_date || '-'}</span></div>
+          <div className="sow-info-item"><label>End</label><span>{job.end_date || '-'}</span></div>
+        </div>
+
+        {!hasAnyDays ? (
+          <div style={{ fontSize: 13, color: '#5a5249', padding: '20px 0' }}>No Field SOW data for this job.</div>
+        ) : (
+          sections.map(section => (
+            <Fragment key={section.key}>
+              {section.label && <div className="sow-wtc-section">{section.label}</div>}
+              {section.days.map((day, i) => <DayCard key={day.id || i} day={day} index={i} />)}
+            </Fragment>
+          ))
+        )}
+
+        <div className="sow-footer">
+          <div>Schedule Commander — YES</div>
+          <div>Printed {new Date().toLocaleDateString()}</div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+export default function FieldSowModal({ job, onClose }) {
+  const printRef = useRef()
+  if (!job) return null
 
   function handlePrint() {
     const el = printRef.current
@@ -180,45 +241,8 @@ export default function FieldSowModal({ job, onClose }) {
           </div>
         </div>
 
-        <style>{MODAL_CSS}</style>
-
         <div ref={printRef}>
-          <div className="sow-page">
-            <div className="sow-header">
-              <div className="sow-header-left">
-                <h1>Schedule <span>Commander</span></h1>
-                <div style={{ fontSize: 11, color: '#b5a896', marginTop: 2 }}>FIELD STATEMENT OF WORK</div>
-              </div>
-              <div className="sow-header-right">
-                <div className="sow-job-num">{job.job_num}</div>
-                <div>{job.job_name}</div>
-              </div>
-            </div>
-
-            <div className="sow-info">
-              <div className="sow-info-item"><label>Work Type</label><span>{job.work_type || '-'}</span></div>
-              <div className="sow-info-item"><label>Size</label><span>{job.size ? `${Number(job.size).toLocaleString()} ${job.size_unit || 'SF'}` : '-'}</span></div>
-              <div className="sow-info-item"><label>Lead</label><span>{job.lead ? flipName(job.lead) : '-'}</span></div>
-              <div className="sow-info-item"><label>Start</label><span>{job.start_date || '-'}</span></div>
-              <div className="sow-info-item"><label>End</label><span>{job.end_date || '-'}</span></div>
-            </div>
-
-            {!hasAnyDays ? (
-              <div style={{ fontSize: 13, color: '#5a5249', padding: '20px 0' }}>No Field SOW data for this job.</div>
-            ) : (
-              sections.map(section => (
-                <Fragment key={section.key}>
-                  {section.label && <div className="sow-wtc-section">{section.label}</div>}
-                  {section.days.map((day, i) => <DayCard key={day.id || i} day={day} index={i} />)}
-                </Fragment>
-              ))
-            )}
-
-            <div className="sow-footer">
-              <div>Schedule Commander — YES</div>
-              <div>Printed {new Date().toLocaleDateString()}</div>
-            </div>
-          </div>
+          <FieldSowView job={job} />
         </div>
       </div>
     </div>
