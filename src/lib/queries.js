@@ -202,13 +202,17 @@ async function attachDepositState(jobs) {
   const callLogIds = [...new Set(jobs.map((j) => j.call_log_id).filter(Boolean))]
   const byJob = new Map()
   if (callLogIds.length) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('invoices')
       .select('id, call_log_id, amount, discount, sent_at, due_date, paid_at')
       .eq('is_deposit', true)
       .in('call_log_id', callLogIds)
       .is('voided_at', null)
       .is('deleted_at', null)
+    // Best-effort, but NOT silent: "query failed" and "this job has no deposits"
+    // both render as no tag, so a swallowed error is indistinguishable from a
+    // correct empty result (e.g. deployed before the is_deposit migration lands).
+    if (error) console.warn('[deposit] could not load deposit invoices:', error.message)
     for (const inv of data || []) {
       const list = byJob.get(inv.call_log_id)
       if (list) list.push(inv)
