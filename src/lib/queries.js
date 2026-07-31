@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { STATUS_OPTIONS_PICKER } from './jobStatus'
+import { rollupSowMaterials, coverageStatusFor } from './sowMaterials'
 
 // ── Paginating loader ──────────────────────────────────────────────────────
 // PostgREST caps at 1000 rows. This helper pages through with .range().
@@ -69,13 +70,29 @@ export function hasFieldSow(job) {
     || job?.field_sow != null
 }
 
-// Uses blacklist for materials to match SQL job_base_checklist_passes().
+// DMS-1 Phase 3 (§5): materials gate now reads job_material_lines (materialRows =
+// that table's rows), with FAIL-CLOSED semantics:
+//   - No-SOW job → no materials expected → empty is fine (unchanged).
+//   - SOW-bearing job with ZERO tracker rows → NOT decided (fail-closed; inverts
+//     the old "empty ⇒ auto-pass" so an unseeded SOW job can't slip through).
+//   - status NULL (seeded, warehouse hasn't set it) → undecided, blocks (like Not Ordered).
+// NOTE (DMS-5): the SQL mirror job_base_checklist_passes() still reads the OLD
+// `materials` table and is intentionally NOT updated this phase (deferred, Phase-5
+// owned). Safe because every live "ready" read recomputes THIS fn (no consumer
+// trusts the stored ready_confirmed_at without recompute — verified 2026-07-30).
 export function baseChecklistPasses(job, crewRows, materialRows) {
   const hasSOW = hasFieldSow(job)
   const hasDate = (job.scheduled_start || job.start_date) != null
   const hasCrew = crewRows.length >= 1
-  const materialsDecided = materialRows.length === 0
-    || materialRows.every(m => !['Not Ordered', 'Delayed'].includes(m.status))
+  const NOT_READY = ['Not Ordered', 'Delayed']
+  let materialsDecided
+  if (!hasSOW) {
+    materialsDecided = true
+  } else if (materialRows.length === 0) {
+    materialsDecided = false                     // fail-closed: SOW but unseeded tracker
+  } else {
+    materialsDecided = materialRows.every(m => m.status != null && !NOT_READY.includes(m.status))
+  }
   return hasSOW && hasDate && hasCrew && materialsDecided
 }
 
@@ -632,6 +649,138 @@ export async function updateJobWtcFieldSow(jobWtcId, nextFieldSow, changedBy, so
       source,
     })
   }
+
+  return { error: null }
+}
+
+// ── job_material_lines: SOW→tracker write path (DMS-1 Phase 3 §1/§2) ─────────
+// The canonical Needed rollup lands here. The writer SETs ONLY the SOW-derived
+// columns (name/kit_size/coverage/supplier/qty_needed/coverage_status/
+// coverage_reason); the warehouse-owned columns (qty_ordered/status/arrival_date/
+// notes + receiving fields) are NEVER in the upsert payload, so ON CONFLICT never
+// clobbers them. One row per REAL logical need (rollup grain, REG-4).
+
+const JML_SELECT = 'id, job_id, material_key, name, kit_size, coverage, supplier, qty_needed, qty_ordered, coverage_status, coverage_reason, status, arrival_date, notes'
+
+// Read all tracker rows for a job (Logistics view). Joined to the rollup in the UI.
+export async function loadJobMaterialLines(jobId) {
+  const { data, error } = await supabase
+    .from('job_material_lines')
+    .select(JML_SELECT)
+    .eq('job_id', jobId)
+    .order('name')
+  return { data: data || [], error: error || null }
+}
+
+// Rebuild the tracker from the job's CURRENT SOW. Runs on every SOW save AND
+// lazily on Logistics-tab open (seeds jobs sent before this feature). Rolls up
+// every WTC's field_sow (legacy zero-WTC jobs fall back to jobs.field_sow),
+// upserts one row per need (SOW-derived cols only), deletes rows whose material
+// was removed from the SOW (orphan cleanup), and audit-logs the deltas.
+export async function syncJobMaterialLines(jobId, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const [{ data: job }, { data: wtcs }, { data: existingRows }] = await Promise.all([
+    supabase.from('jobs').select('call_log_id, field_sow').eq('job_id', jid).single(),
+    supabase.from('job_wtcs').select('field_sow').eq('job_id', jid),
+    supabase.from('job_material_lines').select('material_key, name, qty_needed, qty_ordered, coverage_status, coverage_reason').eq('job_id', jid),
+  ])
+  const callLogId = job?.call_log_id ?? null
+  const sows = (wtcs && wtcs.length) ? wtcs.map(w => w.field_sow) : [job?.field_sow]
+  const needs = sows.flatMap(fs => rollupSowMaterials(Array.isArray(fs) ? fs : []))
+
+  // Dedupe across WTCs by material_key (unique per source; last wins).
+  const byKey = new Map()
+  for (const n of needs) byKey.set(n.material_key, n)
+  const finalNeeds = [...byKey.values()]
+
+  const existingByKey = new Map((existingRows || []).map(r => [r.material_key, r]))
+
+  // Build upsert rows — SOW-derived columns ONLY. coverage_status is re-derived
+  // from the row's EXISTING qty_ordered (warehouse-owned; unchanged here).
+  const rows = finalNeeds.map(n => {
+    const ex = existingByKey.get(n.material_key)
+    return {
+      job_id: jid,
+      material_key: n.material_key,
+      name: n.name,
+      kit_size: n.kit_size,
+      coverage: n.coverage,
+      supplier: n.supplier,
+      qty_needed: n.qty_needed,
+      coverage_status: coverageStatusFor(n.qty_needed, ex?.qty_ordered ?? 0, n.coverage_reason),
+      coverage_reason: n.coverage_reason,
+    }
+  })
+
+  if (rows.length) {
+    const { error } = await supabase.from('job_material_lines').upsert(rows, { onConflict: 'job_id,material_key' })
+    if (error) return { error }
+  }
+
+  // Orphan cleanup: rows whose material was removed from the SOW.
+  const keep = new Set(finalNeeds.map(n => n.material_key))
+  const orphans = (existingRows || []).map(r => r.material_key).filter(k => !keep.has(k))
+  if (orphans.length) {
+    const { error: delErr } = await supabase.from('job_material_lines').delete().eq('job_id', jid).in('material_key', orphans)
+    if (delErr) return { error: delErr }
+  }
+
+  // Audit-log the deltas, line-identified by material_key (round-3 item 5).
+  const logs = []
+  for (const r of rows) {
+    const ex = existingByKey.get(r.material_key)
+    const before = ex ? { qty_needed: ex.qty_needed, coverage_status: ex.coverage_status, coverage_reason: ex.coverage_reason } : null
+    const after = { qty_needed: r.qty_needed, coverage_status: r.coverage_status, coverage_reason: r.coverage_reason }
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      logs.push({ job_id: jid, call_log_id: callLogId, field: `material_line[${r.material_key}].sync`,
+        old_value: before ? JSON.stringify(before) : null, new_value: JSON.stringify(after), changed_by: changedBy, source })
+    }
+  }
+  for (const k of orphans) {
+    const ex = existingByKey.get(k)
+    logs.push({ job_id: jid, call_log_id: callLogId, field: `material_line[${k}].removed`,
+      old_value: ex?.name || k, new_value: null, changed_by: changedBy, source })
+  }
+  if (logs.length) await supabase.from('job_changes').insert(logs)
+
+  return { error: null }
+}
+
+// Warehouse edit of a tracker row (qty_ordered/status/arrival_date/notes). Bespoke
+// (not updateJobField) but STILL audit-logged, line-identified by material_key. A
+// qty_ordered change re-derives coverage_status from the stored qty_needed + reason.
+const JML_WAREHOUSE_FIELDS = ['qty_ordered', 'status', 'arrival_date', 'notes']
+export async function updateJobMaterialLineField(jobId, materialKey, updates, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const { data: current, error: readErr } = await supabase
+    .from('job_material_lines')
+    .select('qty_needed, qty_ordered, coverage_status, coverage_reason, status, arrival_date, notes')
+    .eq('job_id', jid).eq('material_key', materialKey).single()
+  if (readErr) return { error: readErr }
+
+  // Only warehouse-owned fields may be written through here.
+  const payload = {}
+  for (const f of JML_WAREHOUSE_FIELDS) if (f in updates) payload[f] = updates[f]
+
+  // A qty_ordered change re-derives the stored coverage_status (OK/SHORT/VERIFY).
+  if ('qty_ordered' in payload) {
+    payload.coverage_status = coverageStatusFor(current.qty_needed, payload.qty_ordered ?? 0, current.coverage_reason)
+  }
+
+  const { error } = await supabase.from('job_material_lines').update(payload).eq('job_id', jid).eq('material_key', materialKey)
+  if (error) return { error }
+
+  const { data: job } = await supabase.from('jobs').select('call_log_id').eq('job_id', jid).single()
+  const logs = []
+  for (const f of Object.keys(payload)) {
+    const oldV = String(current?.[f] ?? '')
+    const newV = String(payload[f] ?? '')
+    if (oldV !== newV) {
+      logs.push({ job_id: jid, call_log_id: job?.call_log_id ?? null, field: `material_line[${materialKey}].${f}`,
+        old_value: oldV || null, new_value: newV || null, changed_by: changedBy, source })
+    }
+  }
+  if (logs.length) await supabase.from('job_changes').insert(logs)
 
   return { error: null }
 }
