@@ -717,9 +717,12 @@ export async function syncJobMaterialLines(jobId, changedBy, source = 'schedule_
     if (error) return { error }
   }
 
-  // Orphan cleanup: rows whose material was removed from the SOW.
+  // Orphan cleanup: rows whose material was removed from the SOW. Warehouse-added
+  // rows (material_key `wh_…`, R5 — not on the SOW) are EXCLUDED so a SOW re-sync
+  // never deletes them.
   const keep = new Set(finalNeeds.map(n => n.material_key))
-  const orphans = (existingRows || []).map(r => r.material_key).filter(k => !keep.has(k))
+  const orphans = (existingRows || []).map(r => r.material_key)
+    .filter(k => !keep.has(k) && !String(k).startsWith('wh_'))
   if (orphans.length) {
     const { error: delErr } = await supabase.from('job_material_lines').delete().eq('job_id', jid).in('material_key', orphans)
     if (delErr) return { error: delErr }
@@ -744,6 +747,36 @@ export async function syncJobMaterialLines(jobId, changedBy, source = 'schedule_
   if (logs.length) await supabase.from('job_changes').insert(logs)
 
   return { error: null }
+}
+
+// Warehouse-add (Step 4, R5): a material NOT on the SOW. Direct job_material_lines
+// row with a `wh_` key (excluded from SOW orphan cleanup), UNASSIGNED to any task →
+// qty_needed null / VERIFY / NO_TASK_TAG (amber can't-tell); the warehouse types
+// Ordered directly. Audit-logged. Does not touch the frozen SOW.
+export async function addWarehouseMaterialLine(jobId, item, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const rnd = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const material_key = `wh_${rnd}`
+  const row = {
+    job_id: jid,
+    material_key,
+    name: item.name || 'Unnamed material',
+    kit_size: item.kit_size || null,
+    coverage: item.coverage || item.coverage_rate || null,
+    supplier: item.supplier || null,
+    qty_needed: null,
+    coverage_status: 'VERIFY',
+    coverage_reason: 'NO_TASK_TAG',
+  }
+  const { error } = await supabase.from('job_material_lines').insert(row)
+  if (error) return { error }
+  const { data: job } = await supabase.from('jobs').select('call_log_id').eq('job_id', jid).single()
+  await supabase.from('job_changes').insert({
+    job_id: jid, call_log_id: job?.call_log_id ?? null,
+    field: `material_line[${material_key}].added`, old_value: null, new_value: row.name,
+    changed_by: changedBy, source,
+  })
+  return { error: null, material_key }
 }
 
 // Warehouse edit of a tracker row (qty_ordered/status/arrival_date/notes). Bespoke

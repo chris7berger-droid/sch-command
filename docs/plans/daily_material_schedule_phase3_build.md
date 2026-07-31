@@ -304,8 +304,8 @@ label). `[DESIGN-OPEN — verify board first (R7).]`
 | R1b | Status words | Keep the four (add `status` col). Ratified | LOCKED |
 | R3 | Round-up | Struck — exact quotient | LOCKED |
 | R9 | Multi-day-same-task overcount | display groups per `(task_ref,product)`, never sums quotients | DERIVED |
-| R5 | Warehouse-add attach point | needs a beat / build call | DESIGN-OPEN |
-| R7 | Step 8 finalize scope | verify board first | DESIGN-OPEN |
+| R5 | Warehouse-add attach point | **RESOLVED 2026-07-31: UNASSIGNED — no task.** Warehouse-add writes a DIRECT job_material_lines row (material_key `wh_<uid>`), qty_needed null → amber CAN'T-TELL (NO_TASK_TAG); warehouse types Ordered directly. Excluded from SOW orphan-cleanup (survives SOW re-sync). Does NOT edit the frozen SOW (supersedes the plan's earlier "writes field_sow" — R5 decoupled it from a task). | LOCKED |
+| R7 | Step 8 finalize scope | **RESOLVED 2026-07-31: LABELS ONLY.** Board already sets actual crew+dates (assignments + calendar); Sales' SOW crew_count/mobilization = the proposal. Step 8 = surface proposed-vs-actual labels, no new finalize mechanism. | LOCKED |
 | R8 | `job_assets` table + cross-tenant `asset_id` check | table w/ verbatim RLS chain + tenant check | DERIVED |
 
 ---

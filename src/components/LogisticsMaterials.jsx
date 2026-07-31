@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { loadJobMaterialLines, syncJobMaterialLines, updateJobMaterialLineField } from '../lib/queries'
+import { loadJobMaterialLines, syncJobMaterialLines, updateJobMaterialLineField, addWarehouseMaterialLine, loadMaterialsCatalog } from '../lib/queries'
 
 // DMS-1 Phase 3 Step 3 — the warehouse Logistics materials view. Reused by both
 // the card's modal (MaterialsModal) and the JobDetail "Logistics" tab (one source
@@ -46,6 +46,9 @@ export default function LogisticsMaterials({ job, changedBy, onUpdated }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [catalog, setCatalog] = useState([])
+  const [addOpen, setAddOpen] = useState(false)
+  const [addQuery, setAddQuery] = useState('')
 
   const reload = useCallback(async () => {
     const { data, error } = await loadJobMaterialLines(job.job_id)
@@ -76,38 +79,101 @@ export default function LogisticsMaterials({ job, changedBy, onUpdated }) {
     onUpdated && onUpdated()
   }, [job.job_id, changedBy, reload, onUpdated])
 
+  // Warehouse-add (Step 4, R5): catalog pick → direct unassigned tracker row.
+  useEffect(() => {
+    let alive = true
+    loadMaterialsCatalog().then(({ data }) => { if (alive) setCatalog(data || []) })
+    return () => { alive = false }
+  }, [])
+
+  const addMaterial = useCallback(async (item) => {
+    const { error } = await addWarehouseMaterialLine(job.job_id, item, changedBy)
+    if (error) { alert('Error adding: ' + error.message); return }
+    setAddOpen(false); setAddQuery('')
+    await reload()
+    onUpdated && onUpdated()
+  }, [job.job_id, changedBy, reload, onUpdated])
+
   const undecided = rows.filter(m => m.status == null || ['Not Ordered', 'Delayed'].includes(m.status)).length
 
   if (loading) return <div style={{ fontSize: 13, color: '#6b6358', padding: '20px 0' }}>Loading logistics…</div>
   if (error) return <div className="error-msg">Error: {error}</div>
-  if (rows.length === 0) return (
-    <div style={{ fontSize: 13, color: '#5a5249', padding: '20px 0' }}>
-      No materials on this job's SOW yet. Add them in the Field SOW, or use “Add material” below (coming with warehouse-add).
-    </div>
-  )
+
+  const catalogMatches = (catalog || [])
+    .filter(m => m && m.name)
+    .filter(m => {
+      const query = addQuery.trim().toLowerCase()
+      if (!query) return true
+      return `${m.name} ${m.kit_size || ''} ${m.supplier || ''}`.toLowerCase().includes(query)
+    })
+    .slice(0, 12)
 
   return (
     <div>
-      <div style={{ fontSize: 12, color: undecided ? '#c0392b' : '#27ae60', marginBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>
-        {undecided ? `${undecided} undecided` : 'all decided'}
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 13, color: '#5a5249', padding: '12px 0' }}>
+          No materials on this job's SOW yet. Add them in the Field SOW, or use “Add material” below.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: undecided ? '#c0392b' : '#27ae60', marginBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>
+            {undecided ? `${undecided} undecided` : 'all decided'}
+          </div>
+          <table className="mat-table">
+            <thead>
+              <tr>
+                <th>Material</th>
+                <th>Kit</th>
+                <th>Needed</th>
+                <th>Ordered</th>
+                <th>Status</th>
+                <th title="Coverage flag">Flag</th>
+                <th>Arrival</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(m => <LogisticsRow key={m.material_key} mat={m} onFieldUpdate={updateField} />)}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {/* Step 4 — warehouse add (unassigned; enter Ordered directly) */}
+      <div style={{ marginTop: 10 }}>
+        {!addOpen ? (
+          <button className="app-act-btn" onClick={() => setAddOpen(true)}>+ Add material</button>
+        ) : (
+          <div style={{ border: '1px solid rgba(28,24,20,0.18)', borderRadius: 8, padding: 10, background: 'var(--bg-card, #c8bcaa)' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+              <input
+                autoFocus type="text" placeholder="Search catalog…" value={addQuery}
+                onChange={e => setAddQuery(e.target.value)}
+                style={{ flex: 1, border: '1.5px solid rgba(28,24,20,0.2)', borderRadius: 6, padding: '6px 10px', fontSize: 13, background: 'var(--input-bg, #bfb3a1)', color: '#1c1814', outline: 'none' }}
+              />
+              <button className="app-act-btn" onClick={() => { setAddOpen(false); setAddQuery('') }}>Cancel</button>
+            </div>
+            <div style={{ maxHeight: 220, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {catalogMatches.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#6b6358', padding: '6px 2px' }}>
+                  {addQuery.trim() ? 'No catalog materials match.' : 'No saved materials in the catalog.'}
+                </div>
+              ) : catalogMatches.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => addMaterial(item)}
+                  style={{ textAlign: 'left', border: '1px solid rgba(28,24,20,0.15)', borderRadius: 6, padding: '6px 10px', background: 'transparent', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: '#1c1814' }}
+                >
+                  <strong>{item.name}</strong>{item.kit_size ? ` · ${item.kit_size}` : ''}{item.supplier ? ` · ${item.supplier}` : ''}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: '#6b6358', marginTop: 6 }}>
+              Added materials aren't tagged to a task — they show “can't-tell” and you enter Ordered directly.
+            </div>
+          </div>
+        )}
       </div>
-      <table className="mat-table">
-        <thead>
-          <tr>
-            <th>Material</th>
-            <th>Kit</th>
-            <th>Needed</th>
-            <th>Ordered</th>
-            <th>Status</th>
-            <th title="Coverage flag">Flag</th>
-            <th>Arrival</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(m => <LogisticsRow key={m.material_key} mat={m} onFieldUpdate={updateField} />)}
-        </tbody>
-      </table>
     </div>
   )
 }
