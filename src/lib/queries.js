@@ -876,6 +876,48 @@ export async function removeJobAsset(jobId, id, changedBy, source = 'schedule_co
   return { error: null }
 }
 
+// ── Tenant asset lists — Settings editor (Step 6) ───────────────────────────
+// Minimal per-tenant CRUD over the live tenant_* tables. "Delete" = soft-delete
+// (active=false) because a forbid-hard-delete guard blocks real deletes. tenant_id
+// is NOT NULL with no default, so inserts supply it from get_user_tenant_id().
+const TENANT_ASSET_TABLE = { vehicle: 'tenant_vehicles', equipment: 'tenant_equipment', power: 'tenant_power' }
+
+export async function getUserTenantId() {
+  const { data, error } = await supabase.rpc('get_user_tenant_id')
+  return { tenantId: data ?? null, error: error || null }
+}
+
+export async function loadTenantAssetList(type) {
+  const table = TENANT_ASSET_TABLE[type]
+  if (!table) return { data: [], error: new Error(`unknown asset type ${type}`) }
+  const { data, error } = await supabase.from(table).select('id, name, active').eq('active', true).order('name')
+  return { data: data || [], error: error || null }
+}
+
+export async function addTenantAsset(type, name) {
+  const table = TENANT_ASSET_TABLE[type]
+  if (!table) return { error: new Error(`unknown asset type ${type}`) }
+  const { tenantId, error: tErr } = await getUserTenantId()
+  if (tErr) return { error: tErr }
+  if (!tenantId) return { error: new Error('Could not resolve your tenant') }
+  const { error } = await supabase.from(table).insert({ name: name.trim(), tenant_id: tenantId })
+  return { error: error || null }
+}
+
+export async function renameTenantAsset(type, id, name) {
+  const table = TENANT_ASSET_TABLE[type]
+  if (!table) return { error: new Error(`unknown asset type ${type}`) }
+  const { error } = await supabase.from(table).update({ name: name.trim() }).eq('id', id)
+  return { error: error || null }
+}
+
+export async function deactivateTenantAsset(type, id) {
+  const table = TENANT_ASSET_TABLE[type]
+  if (!table) return { error: new Error(`unknown asset type ${type}`) }
+  const { error } = await supabase.from(table).update({ active: false }).eq('id', id)
+  return { error: error || null }
+}
+
 // ── Billing forecast + worklist (billing-forecast feature) ──────────────────
 // Reads canonical Sales-owned invoices read-only (no writes to Sales tables).
 // The only Schedule-owned write target is billing_worklist (manual overrides).
