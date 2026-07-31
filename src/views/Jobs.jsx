@@ -178,7 +178,7 @@ export default function Jobs() {
       supabase.from('assignments').select('*'),
       loadBillingWorklist(),
       supabase.from('team_members').select('id, name, role').eq('active', true).order('name'),
-      loadAllRows('materials', 'id, job_id, status', { orderBy: 'id' }),
+      loadAllRows('job_material_lines', 'id, job_id, status', { orderBy: 'id' }),
       loadAllRows('daily_log_entries', 'id, job_id', { orderBy: 'id' }),
     ])
     if (thisLoad !== loadIdRef.current) return
@@ -248,8 +248,8 @@ export default function Jobs() {
       supabase.channel('assignments-changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'assignments' }, debouncedLoad)
         .subscribe(),
-      supabase.channel('materials-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'materials' }, debouncedLoad)
+      supabase.channel('job-material-lines-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'job_material_lines' }, debouncedLoad)
         .subscribe(),
     ]
     return () => {

@@ -108,18 +108,19 @@ export async function printJobList() {
 // worklist + 90-day forecast. A real invoice-based export is a future feature.
 
 export async function printMaterialsList() {
+  // DMS-1 Phase 3: repointed off the dead `materials` table to job_material_lines.
   const [jobRes, matRes] = await Promise.all([
     supabase.from('jobs').select('*').or('deleted.is.null,deleted.eq.No'),
-    supabase.from('materials').select('*'),
+    supabase.from('job_material_lines').select('*'),
   ])
   const jobs = jobRes.data || []
   const materials = matRes.data || []
 
-  let b = '<h2>Materials List</h2><div class="sub">All materials by job</div>'
-  b += '<table><thead><tr><th>Job</th><th>Material</th><th>Status</th><th>Arrival</th><th>Notes</th></tr></thead><tbody>'
+  let b = '<h2>Materials List</h2><div class="sub">Needed vs Ordered by job</div>'
+  b += '<table><thead><tr><th>Job</th><th>Material</th><th>Needed</th><th>Ordered</th><th>Status</th><th>Arrival</th><th>Notes</th></tr></thead><tbody>'
   for (const m of materials) {
     const j = jobs.find(jj => String(jj.job_id) === String(m.job_id))
-    b += '<tr><td>' + (j ? j.job_num + ' - ' + j.job_name : m.job_id) + '</td><td>' + (m.name || '') + '</td><td>' + (m.status || '') + '</td><td>' + (m.arrival_date || '') + '</td><td>' + (m.notes || '') + '</td></tr>'
+    b += '<tr><td>' + (j ? j.job_num + ' - ' + j.job_name : m.job_id) + '</td><td>' + (m.name || '') + '</td><td>' + (m.qty_needed ?? '') + '</td><td>' + (m.qty_ordered ?? '') + '</td><td>' + (m.status || '') + '</td><td>' + (m.arrival_date || '') + '</td><td>' + (m.notes || '') + '</td></tr>'
   }
   b += '</tbody></table>'
   printWin('Materials List', b)

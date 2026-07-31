@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import FieldSowBuilder from './FieldSowBuilder'
-import { updateJobWtcFieldSow, updateJobField, hasFieldSow, loadMaterialsCatalog } from '../lib/queries'
+import { updateJobWtcFieldSow, updateJobField, hasFieldSow, loadMaterialsCatalog, syncJobMaterialLines } from '../lib/queries'
 
 // In-card Field SOW editor (remediation §6.1 step 1). The card path users
 // actually reach. Hosts ONE FieldSowBuilder per job_wtcs row (WTC tabs), each
@@ -53,6 +53,8 @@ export default function CardSowModal({
     if (error) { console.error(error); setSaving(false); return }
     const nextWtcs = localWtcs.map(w => w.id === wtc.id ? { ...w, field_sow: next } : w)
     setLocalWtcs(nextWtcs)
+    // DMS-1 Phase 3: refresh the material tracker from the saved SOW (Needed rollup).
+    await syncJobMaterialLines(job.job_id, changedBy)
     await maybeDemote(nextWtcs, job.field_sow)
     setSaving(false)
     if (onUpdated) onUpdated()
@@ -64,6 +66,7 @@ export default function CardSowModal({
     const { error } = await updateJobField(job.job_id, 'field_sow', next, changedBy)
     if (error) { console.error(error); setSaving(false); return }
     setLocalFieldSow(next)
+    await syncJobMaterialLines(job.job_id, changedBy)
     await maybeDemote([], next)
     setSaving(false)
     if (onUpdated) onUpdated()

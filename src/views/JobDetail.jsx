@@ -6,6 +6,7 @@ import { useUser } from '../lib/user'
 import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
 import { FieldSowView } from '../components/FieldSowModal'
+import LogisticsMaterials from '../components/LogisticsMaterials'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -52,7 +53,7 @@ export default function JobDetail() {
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode') // 'planning' | 'management' | null
   const user = useUser()
-  const changedBy = user?.name || changedBy
+  const changedBy = user?.name || 'unknown'
   const [job, setJob] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState(null)
@@ -60,7 +61,6 @@ export default function JobDetail() {
   // sub-data
   const [assignments, setAssignments] = useState([])
   const [billingLog, setBillingLog] = useState([])
-  const [materials, setMaterials] = useState([])
   const [changes, setChanges] = useState([])
   const [fieldCrew, setFieldCrew] = useState([])
   const [prts, setPrts] = useState([])
@@ -71,22 +71,22 @@ export default function JobDetail() {
   const fetchData = useCallback(async () => {
     setLoading(true)
     const jid = parseInt(jobId)
-    const [jobRes, asgnRes, blRes, matRes, chgRes] = await Promise.all([
+    // DMS-1 Phase 3: JobDetail no longer reads the dead `materials` table — the
+    // Logistics tab's LogisticsMaterials loads job_material_lines itself.
+    const [jobRes, asgnRes, blRes, chgRes] = await Promise.all([
       loadJobWithWTCs(jid),  // SCH1: populate job._wtcs so the Field SOW editor binds to canonical job_wtcs
       supabase.from('assignments').select('crew_name, date').eq('job_id', jid).order('date', { ascending: false }),
       supabase.from('billing_log').select('*').eq('job_id', jid).order('date', { ascending: false }),
-      supabase.from('materials').select('*').eq('job_id', jid).order('ordinal'),
       supabase.from('job_changes').select('*').eq('job_id', jid).order('changed_at', { ascending: false }).limit(100),
     ])
     if (jobRes.data) {
       setJob(jobRes.data)
       // Field SOW editing moved to the in-card CardSowModal (remediation step 3);
-      // JobDetail no longer hosts the SOW editor. Planning default → materials.
-      setTab(prev => prev || (mode === 'planning' ? 'materials' : 'overview'))
+      // JobDetail no longer hosts the SOW editor. Planning default → SOW.
+      setTab(prev => prev || (mode === 'planning' ? 'sow' : 'overview'))
     }
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
-    setMaterials(matRes.data || [])
     setChanges(chgRes.data || [])
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
@@ -135,7 +135,7 @@ export default function JobDetail() {
 
   const PLANNING_TABS = [
     { key: 'sow', label: 'SOW' },
-    { key: 'materials', label: 'Materials' },
+    { key: 'logistics', label: 'Logistics' },
   ]
 
   const MANAGEMENT_TABS = [
@@ -415,28 +415,10 @@ export default function JobDetail() {
           </div>
         )}
 
-        {tab === 'materials' && (
+        {/* ── Logistics (job_material_lines, Step 3) ─────── */}
+        {tab === 'logistics' && (
           <div className="jd-section">
-            {materials.length === 0 ? (
-              <div className="jh-empty">No materials tracked</div>
-            ) : (
-              <table className="jd-table">
-                <thead>
-                  <tr><th>#</th><th>Material</th><th>Status</th><th>Arrival</th><th>Notes</th></tr>
-                </thead>
-                <tbody>
-                  {materials.map((m, i) => (
-                    <tr key={m.id || i}>
-                      <td>{m.ordinal}</td>
-                      <td>{m.name}</td>
-                      <td>{m.status || '-'}</td>
-                      <td>{m.arrival_date || '-'}</td>
-                      <td>{m.notes || ''}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            <LogisticsMaterials job={job} changedBy={changedBy} onUpdated={fetchData} />
           </div>
         )}
 

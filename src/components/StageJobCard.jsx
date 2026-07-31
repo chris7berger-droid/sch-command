@@ -734,6 +734,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
       {showMtrlModal && (
         <MaterialsModal
           job={job}
+          changedBy={changedBy}
           onClose={() => setShowMtrlModal(false)}
           onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
         />
