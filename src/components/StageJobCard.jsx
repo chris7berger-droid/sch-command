@@ -231,6 +231,8 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
   const hasCrew = crewRows.length >= 1
   // Mirror the fail-closed gate (baseChecklistPasses): SOW + 0 tracker rows = not OK.
   const matsOk = materialsDecided(job, matRows)
+  // Count for the score chip: rows that are NULL/Not-Ordered/Delayed (undecided).
+  const undecidedMats = matRows.filter(m => m.status == null || ['Not Ordered', 'Delayed'].includes(m.status)).length
   const start = job.scheduled_start || job.start_date || null
   const end = job.scheduled_end || job.end_date || null
   const hasDate = start != null
@@ -247,7 +249,7 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
         <div className={`sjc-score sjc-score-click ${matsOk ? 'sjc-score-ok' : 'sjc-score-bad'}`} onClick={onMtrlClick}>
           <span className="sjc-score-icon">{'📦'}</span>
           <span className="sjc-score-label">MTRL</span>
-          <span className="sjc-score-val">{matsOk ? '✓' : undecidedMats}</span>
+          <span className="sjc-score-val">{matsOk ? '✓' : (undecidedMats || '!')}</span>
         </div>
         <div className={`sjc-score sjc-score-click ${hasCrew ? 'sjc-score-ok' : 'sjc-score-bad'}`} onClick={onCrewClick}>
           <span className="sjc-score-icon">{'👷'}</span>
