@@ -4,7 +4,7 @@
 // joins the warehouse row (qty_ordered/status/arrival/notes) onto these by
 // material_key. See docs/plans/daily_material_schedule_phase3_build.md §1/§2.
 //
-// Grain (build decision, ratify at Step 3): one entry per STABLE logical need
+// Grain (Chris-ratified 2026-07-30, REG-4): one entry per STABLE logical need
 // = (normalized task.description, catalog_id ?? product). task_ref is a fresh
 // uid minted per day, so the SAME logical task on N days has N task_refs —
 // grouping on the stable identity (not task_ref) is what stops the N× overcount

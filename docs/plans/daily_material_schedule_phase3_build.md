@@ -94,8 +94,15 @@ executes. Audit terminal (T2) runs `/runaudit`.
 `[LOCKED · round-2 reframe]` `job_material_lines` exists live but is **empty**. Phase 3 is the code that
 first WRITES it. Not "reuse populated data" — a new write path onto the canonical (already-migrated) home.
 
-- **Grain: one row per SOW material line**, keyed `(job_id, material_key = wtc_material_id)` (the table's
-  UNIQUE index). A product on 3 days = 3 lines = 3 rows. `mat_uid` deleted — `wtc_material_id` is the key.
+- **Grain: one row per REAL logical material need** `[REG-4 corrected · Chris-ratified 2026-07-30]`, keyed
+  `(job_id, material_key = wtc_material_id)` (the table's UNIQUE index). **The prior "3 days = 3 rows" rested
+  on a false premise** — build found `wtc_material_id` is NOT unique per day-line: proposal-sourced materials
+  reuse `String(source.id)` every day, so the UNIQUE index collapses N days to ONE row (3 rows is physically
+  impossible on the dominant path); only catalog/custom adds mint a fresh id per day. So the writer keys on
+  the **stable logical need** (`rollupSowMaterials` groups by normalized task.description + catalog_id ??
+  product) and upserts **one row per need**, using the group's representative `wtc_material_id` as the key.
+  This matches the proposal path exactly (already one row) and gives the warehouse one Ordered box per
+  material. `mat_uid` deleted. BUILD-VERIFY (`sowMaterials.verify.mjs`, 26/26) proves no N× overcount.
 - **Additive columns (§4):** `status text` (four words, CHECK), `arrival_date date`, `notes text`,
   `coverage_reason text` (§2's CAN'T-TELL reason, persisted with the row).
 - **Two ownership classes of column on the row — the writer must respect the split (Chris-ratified
