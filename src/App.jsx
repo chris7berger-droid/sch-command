@@ -27,7 +27,7 @@ const NAV_ITEMS = [
   { path: '/schedule', label: 'Crew Schedule' },
   { path: '/calendar', label: 'Calendar' },
   { path: '/daily', label: 'Daily' },
-  { path: '/materials', label: 'Materials' },
+  { path: '/materials', label: 'Logistics' },
   { path: '/billing', label: 'Billing' },
   { path: '/production-rate', label: 'Production Rate' },
   { path: '/schedules', label: 'Schedules' },
