@@ -170,9 +170,12 @@ export default function Jobs() {
     (m[r.job_id] ||= []).push(r); return m
   }, {}), [materials])
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async ({ background = false } = {}) => {
     const thisLoad = ++loadIdRef.current
-    setLoading(true)
+    // Background refresh (realtime / after a modal write) updates data IN PLACE —
+    // no loading-flip, so the `if (loading) return` below never unmounts the cards
+    // (and any open modal) out from under the user. Spinner only on the first load.
+    if (!background) setLoading(true)
     const [jobsRes, assignRes, billRes, tmRes, matsRes, logsRes] = await Promise.all([
       loadJobs({ withWTCs: true }),
       supabase.from('assignments').select('*'),
@@ -239,7 +242,7 @@ export default function Jobs() {
     let timer = null
     const debouncedLoad = () => {
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => loadData(), 300)
+      timer = setTimeout(() => loadData({ background: true }), 300)
     }
     const channels = [
       supabase.channel('jobs-changes')
@@ -457,7 +460,7 @@ export default function Jobs() {
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               today={today}
-              onJobUpdate={loadData}
+              onJobUpdate={() => loadData({ background: true })}
               emptyText="No staged jobs in this date range"
             />
           )}
@@ -471,7 +474,7 @@ export default function Jobs() {
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               today={today}
-              onJobUpdate={loadData}
+              onJobUpdate={() => loadData({ background: true })}
               emptyText="No ready jobs in this date range"
             />
           )}
@@ -489,7 +492,7 @@ export default function Jobs() {
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               prtMap={prtMap}
               today={today}
-              onJobUpdate={loadData}
+              onJobUpdate={() => loadData({ background: true })}
               emptyText="No active jobs in this date range"
             />
           )}
@@ -505,7 +508,7 @@ export default function Jobs() {
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               prtMap={prtMap}
-              onJobUpdate={loadData}
+              onJobUpdate={() => loadData({ background: true })}
             />
           )}
           {activeTab === 'complete' && (
@@ -518,7 +521,7 @@ export default function Jobs() {
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
               today={today}
-              onJobUpdate={loadData}
+              onJobUpdate={() => loadData({ background: true })}
               emptyText="No production-complete jobs in this date range"
             />
           )}
