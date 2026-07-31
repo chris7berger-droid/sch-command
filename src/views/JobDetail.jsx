@@ -7,6 +7,7 @@ import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
 import { FieldSowView } from '../components/FieldSowModal'
 import LogisticsMaterials from '../components/LogisticsMaterials'
+import LogisticsAssets from '../components/LogisticsAssets'
 
 /* ── helpers ─────────────────────────────────────────────────────── */
 
@@ -419,6 +420,7 @@ export default function JobDetail() {
         {tab === 'logistics' && (
           <div className="jd-section">
             <LogisticsMaterials job={job} changedBy={changedBy} onUpdated={fetchData} />
+            <LogisticsAssets job={job} changedBy={changedBy} />
           </div>
         )}
 

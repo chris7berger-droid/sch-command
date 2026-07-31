@@ -818,6 +818,64 @@ export async function updateJobMaterialLineField(jobId, materialKey, updates, ch
   return { error: null }
 }
 
+// ── job_assets: assign tenant vehicles/equipment/power to a job (Step 5) ────
+// The per-JOB link (job ↔ tenant asset, per-job Available/Unavailable). The
+// tenant_* lists stay the source of truth for the asset itself; job_assets is
+// only the assignment. All writes audit-logged to job_changes.
+
+export async function loadTenantAssets() {
+  const [v, e, p] = await Promise.all([
+    supabase.from('tenant_vehicles').select('id, name').eq('active', true).order('name'),
+    supabase.from('tenant_equipment').select('id, name').eq('active', true).order('name'),
+    supabase.from('tenant_power').select('id, name').eq('active', true).order('name'),
+  ])
+  return { vehicles: v.data || [], equipment: e.data || [], power: p.data || [], error: v.error || e.error || p.error || null }
+}
+
+export async function loadJobAssets(jobId) {
+  const { data, error } = await supabase
+    .from('job_assets')
+    .select('id, job_id, asset_type, asset_id, available')
+    .eq('job_id', parseInt(jobId))
+  return { data: data || [], error: error || null }
+}
+
+async function logJobChange(jid, field, oldV, newV, changedBy, source) {
+  const { data: job } = await supabase.from('jobs').select('call_log_id').eq('job_id', jid).single()
+  await supabase.from('job_changes').insert({
+    job_id: jid, call_log_id: job?.call_log_id ?? null, field,
+    old_value: oldV == null ? null : String(oldV), new_value: newV == null ? null : String(newV),
+    changed_by: changedBy, source,
+  })
+}
+
+export async function addJobAsset(jobId, assetType, assetId, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const { data, error } = await supabase
+    .from('job_assets')
+    .insert({ job_id: jid, asset_type: assetType, asset_id: assetId, available: true })
+    .select('id').single()
+  if (error) return { error }
+  await logJobChange(jid, `job_asset[${assetType}].added`, null, assetId, changedBy, source)
+  return { error: null, id: data?.id }
+}
+
+export async function setJobAssetAvailable(jobId, id, available, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const { error } = await supabase.from('job_assets').update({ available }).eq('id', id).eq('job_id', jid)
+  if (error) return { error }
+  await logJobChange(jid, `job_asset[${id}].available`, null, available, changedBy, source)
+  return { error: null }
+}
+
+export async function removeJobAsset(jobId, id, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const { error } = await supabase.from('job_assets').delete().eq('id', id).eq('job_id', jid)
+  if (error) return { error }
+  await logJobChange(jid, `job_asset[${id}].removed`, id, null, changedBy, source)
+  return { error: null }
+}
+
 // ── Billing forecast + worklist (billing-forecast feature) ──────────────────
 // Reads canonical Sales-owned invoices read-only (no writes to Sales tables).
 // The only Schedule-owned write target is billing_worklist (manual overrides).
