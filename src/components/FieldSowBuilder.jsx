@@ -15,8 +15,12 @@ const nowIso = () => new Date().toISOString()
 // A catalog/source row "carries specs" if any spec field is a non-empty value.
 // Drives the tri-state confirm init (§2 F1): stamp specs_confirmed=false only when
 // there's actually a spec to confirm — blank-spec rows stay absent (no click ritual).
+// NOTE: keys mirror the confirmable SPEC_KEYS (+ 'coverage', which both material
+// constructors map onto coverage_rate). 'unit' is EXCLUDED — it's never a SPEC_KEY
+// and never renders a confirmable field, so a unit-only material must not trip the
+// confirm affordance (T4 buildvsplan Tier-2).
 const hasAnySpec = (o = {}) =>
-  ['mils', 'coverage_rate', 'coverage', 'mix_time', 'mix_speed', 'cure_time', 'unit']
+  ['mils', 'coverage_rate', 'coverage', 'mix_time', 'mix_speed', 'cure_time']
     .some(k => o[k] != null && String(o[k]).trim() !== '')
 
 // DMS-1 Phase 3 Step 7 — the locked application specs. `unit` is EXCLUDED (audit
