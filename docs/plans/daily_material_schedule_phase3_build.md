@@ -15,6 +15,14 @@ executes. Audit terminal (T2) runs `/runaudit`.
 > Both corrected here. **Coverage source ratified (2026-07-30): the SOW line's own `coverage_rate`** (the WTC
 > Materials "Coverage Rate" field, estimator-entered per job) — parse the number+area-unit from that text;
 > the catalog-coverage join is DELETED. Pass 2 corrects premises + tightens; it adds no new surface.
+>
+> **Revision pass 3 (round-3 response — CONVERGED, 2026-07-30).** Round 3 = 0 regressions, 0 High, 4 Med + 2
+> Low (`converged-parse-hardening`); plateau broken. Pass 3 folds the 6 refinements: denominator-required
+> coverage parse + comma-strip (§2); `{SQFT,LF}` normalize + `UNIT_UNSUPPORTED` (§2); stable logical-task
+> grouping + build-verify for the 3× overcount (§2, item 6); realtime publication for `job_material_lines`
+> (§4); cross-tenant `asset_id` trigger (§4); bespoke writer logs to `job_changes` with a line-identifying
+> field (Step 3); task coercion keeps a `parseFloat` fallthrough for `pct_complete` (Step 0). **BUILD-READY —
+> no round 4 for architecture.**
 
 ---
 
@@ -95,23 +103,31 @@ first WRITES it. Not "reuse populated data" — a new write path onto the canoni
 
 **Coverage source + parse spec (ratified option i, from the SOW line — audit item 0):**
 - Coverage = the SOW material's own **`coverage_rate` TEXT** (estimator-entered per job). **No catalog join.**
-- **Parse:** leading numeric token = the coverage number; the area-unit in the string (`sqft`/`sf`/`lf`/
-  `ft`) = the coverage numerator area-unit (e.g. `"200 sqft/gal"` → number 200, area-unit SQFT, per gal).
-  Unparseable / empty → `coverage_reason = NO_COVERAGE`.
-- **Unit check (audit item 2):** compare `task.unit` to the parsed **coverage numerator area-unit** (NOT
-  `catalog.unit`, which is a free-text spec field). Mismatch → `UNIT_MISMATCH`.
+- **Parse (round-3 hardened, item 1):** strip commas first, then `parseFloat` the leading numeric token =
+  the coverage number. **A rate REQUIRES a denominator token** — `per` or a dispense unit
+  (`gal|kit|unit|pail|can|box`); e.g. `"200 sqft/gal"` → 200, area-unit SQFT, per gal. A **range**
+  (`"130 to 154"`) or a **missing denominator** → `coverage_reason = NO_COVERAGE` (don't treat a bare
+  number or a range as a rate).
+- **Unit check (round-3 hardened, item 2):** normalize to exactly **{SQFT, LF}** (`sf`→SQFT, `ft`→LF); compare
+  `task.unit` to the parsed **coverage numerator area-unit** (NOT `catalog.unit`, a free-text spec field).
+  - area-unit ≠ task.unit → `UNIT_MISMATCH`; **task.unit ∉ {SQFT, LF} → `UNIT_UNSUPPORTED`** (distinct reason).
 
 **Needed (audit item 2 — per line, SET, never additive):**
 - `qty_needed` for a line = `task.size ÷ parsed_coverage_number` (task the line is tagged to). Writer **SETs
   (replaces)** `qty_needed`; **drop "ON CONFLICT sums across WTCs/days"** — one row = one line = its own quotient.
 - **No round-up** (struck round 1): store the exact quotient; display may round.
-- **Display grouping is display-only AND must NOT sum quotients across lines sharing a `task_ref`** (the
-  multi-day overcount trap — 3 day-lines on one task each hold the task's full need; summing = 3×). Show a
-  task's material need ONCE per `(task_ref, product)`. `[known weak point — see manifest]`
+- **Display grouping must NOT sum quotients — and `task_ref` is NOT a safe grouping key (round-3 item 6).**
+  `task_ref` is a **fresh uid minted per day** (`newTask()` runs per day), so the "same" logical task on 3
+  days has 3 different `task_ref`s — grouping on `(task_ref, product)` would NOT dedupe and the 3× overcount
+  survives. **Group on a STABLE logical-task identity** = `(normalized task.description, catalog_id ??
+  product)`, read the task's total size once, show a task's material need ONCE. **BUILD-VERIFY (item 6):**
+  test the same-material-across-3-days case and confirm no 3×; if `task.description` proves unreliable as
+  identity, escalate before shipping — do not silently ship the per-day key.
 
 **`coverage_status` + CAN'T-TELL reason (audit item 7 — persisted home):**
 - `qty_ordered ≥ qty_needed` → `OK` (green); `< qty_needed` → `SHORT` (red); cannot compute → `VERIFY`
-  (amber ? CAN'T-TELL) with `coverage_reason` ∈ **{NO_TASK_TAG, NO_TASK_SIZE, NO_COVERAGE, UNIT_MISMATCH}**.
+  (amber ? CAN'T-TELL) with `coverage_reason` ∈ **{NO_TASK_TAG, NO_TASK_SIZE, NO_COVERAGE, UNIT_MISMATCH,
+  UNIT_UNSUPPORTED}**.
 - `coverage_status` + `coverage_reason` are **stored columns** (persisted with the row), re-SET every writer
   run — so the gate/print read a durable verdict without recomputing. (Chosen over recompute-live so the
   promotion gate and Phase-4 print have a stable read.)
@@ -125,8 +141,9 @@ Sequencing: **Sales (Step 0) → prod FIRST, then the migration, then Schedule**
 ### Step 0 — Sales: size + unit per task `[LOCKED intent]`
 **Repo:** `sales-command` · `WTCCalculator.jsx` (`newTask :944`, task row `:1183-1198`).
 - `newTask()` gains `size: null, unit: 'SQFT'`. Old tasks seed `size: null` (NOT 0 → CAN'T-TELL, not false-0).
-- **Keyed task coercion** `{ size: v => v===''?null:(parseFloat(v)||null), unit: v => v }` — unit passthrough,
-  no blanket `parseFloat`.
+- **Keyed task coercion (round-3 item 7):** `{ size: v => v===''?null:(parseFloat(v)||null), unit: v => v,
+  description: v => v }` with a **`parseFloat` fallthrough for all OTHER keys** — so `pct_complete` (and any
+  future numeric task key) stays coerced. Only `size`/`unit`/`description` opt out of `parseFloat`.
 - UI: size number + SQFT/LF toggle beside `pct_complete`. jsonb-additive, no migration.
 - **Acceptance:** author 5100 LF + 10%/day, Send → task carries size+unit; old task reads size:null.
 
@@ -159,8 +176,10 @@ Sequencing: **Sales (Step 0) → prod FIRST, then the migration, then Schedule**
     across `src/` and repoint every hit — no silent cap. Enumerate the full list in the revision.
 - **Modal disposition (REG-3):** `MaterialsModal.jsx` becomes the Logistics materials view (repointed to
   `job_material_lines`), NOT deleted; `Materials.jsx` `/materials` view likewise repointed. State both.
-- **All writes audit-logged:** a new `queries.js` writer with `job_changes` logging — do NOT copy the raw
-  `.update()` from `MaterialsModal.jsx:40-49`.
+- **All writes audit-logged (round-3 item 5):** the new `job_material_lines` writer is **bespoke** (not
+  `updateJobField`) — it must still log to `job_changes` with a **line-identifying field name**, e.g.
+  `material_line[<wtc_material_id>].status` / `.qty_ordered`, so the audit trail names which line changed.
+  Do NOT copy the raw un-logged `.update()` from `MaterialsModal.jsx:40-49`.
 - **Acceptance:** correct Needed per material; short=red, missing=amber+reason; status/arrival/notes persist
   to `job_material_lines`; **promotion gate + realtime channel read `job_material_lines`, not the dead
   `materials` table**; every write hits `job_changes`.
@@ -213,10 +232,18 @@ label). `[DESIGN-OPEN — verify board first (R7).]`
      available boolean NOT NULL DEFAULT true, tenant_id …, created/updated_at)`.
      - **RLS (audit item 4): `ENABLE ROW LEVEL SECURITY` + the 4-policy `jobs.call_log_id → call_log.tenant_id`
        chain copied VERBATIM from `job_material_lines.sql:103-168`.** `job_id` FK `ON DELETE CASCADE`.
-     - **Documented cross-table `asset_id` tenant check:** `asset_id` references a `tenant_*` row — a policy
-       (or trigger) must verify the referenced asset's `tenant_id` matches the job's tenant, so a job can't
-       point at another tenant's truck. State the check explicitly.
-  - Both additive; rehearse from a prod-shaped throwaway before push; ledger-aligned.
+     - **Cross-tenant `asset_id` guard = a `BEFORE INSERT OR UPDATE` trigger (round-3 item 4):** branch on
+       `asset_type` (`vehicle`→`tenant_vehicles` / `equipment`→`tenant_equipment` / `power`→`tenant_power`),
+       look up the referenced row, and assert its `tenant_id` = the job's tenant (via the
+       `jobs → call_log.tenant_id` join). Raise if mismatched — so a job can't point at another tenant's
+       truck. (A trigger, not RLS prose — RLS can't enforce a conditional cross-table FK.)
+  3. **Realtime (round-3 item 3):** `ALTER PUBLICATION supabase_realtime ADD TABLE public.job_material_lines`
+     — **guarded**, mirroring the `jobs` block in `20260715120000`. Set `REPLICA IDENTITY FULL` on
+     `job_material_lines` IF the repointed channel callback needs old-row data. **First verify whether
+     `materials` is in `supabase_realtime` today** — if it is NOT, the board never live-refreshed on material
+     changes and the "board freeze" risk is **pre-existing, not caused by this change** (adjust Step 3
+     accordingly).
+  - All additive; rehearse from a prod-shaped throwaway before push; ledger-aligned.
 - **Reused live, NO schema work:** `job_material_lines` core cols; `tenant_vehicles/equipment/power`.
 - **Legacy `materials` table:** Phase 3 STOPS reading it (all readers+channel repointed); Phase 5 drops it.
 
@@ -269,14 +296,15 @@ truck-assignment table is locked down the same way the others are.
 
 ### Round
 - Plan type: feature
-- Current round: 3
-- Plan revision under audit: revision pass 2 (sha stamped at this commit)
-- Findings trend: round 1 (5H/2M) → round 2 (1C/4H/4M, plateau fired) → round 3 (?) — expect DOWN (pass 2
-  corrected premises + tightened; added no new surface).
+- Status: **CONVERGED at round 3** — 0 regressions, 0 High. Pass 3 (this commit) folds the 6 Med/Low
+  refinements. **BUILD-READY; no round 4 for architecture.**
+- Findings trend: round 1 (5H/2M) → round 2 (1C/4H/4M, plateau fired) → **round 3 (0C/0H/4M/2L, 0
+  regressions — DOWN, plateau broken)**.
 
 ### Prior rounds
 - Round 1: `f23de81` · 5H/2M + 4 adjacent · pattern: `shared-carrier-blindspot`
 - Round 2: `9fddc00` · 1C/4H/4M + 3 adjacent · pattern: `reuse-rests-on-false-premise`
+- Round 3: `329de17` · 0C/0H/4M/2L + 0 regressions · pattern: `converged-parse-hardening` → folded in pass 3
 
 **Briefing for agents**: do NOT re-find round-1/2 issues (twin table, mat_uid, numeric-coverage premise,
 empty-table premise, reader-repoint list, deploy order, coverage source — all addressed). Attack ONLY the
