@@ -127,6 +127,7 @@ export default function CardSowModal({
                   availableMaterials={matsFor(activeWtc)}
                   catalog={catalog}
                   focusDayIndex={String(activeWtc.id) === String(initialWtcId) ? initialDayIndex : null}
+                  changedBy={changedBy}
                   onSave={(next) => saveWtc(activeWtc, next)}
                 />
               )}
@@ -139,6 +140,7 @@ export default function CardSowModal({
               saving={saving}
               availableMaterials={proposalMaterials}
               catalog={catalog}
+              changedBy={changedBy}
               onSave={saveLegacy}
             />
           )}

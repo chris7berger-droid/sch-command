@@ -19,6 +19,14 @@ const hasAnySpec = (o = {}) =>
   ['mils', 'coverage_rate', 'coverage', 'mix_time', 'mix_speed', 'cure_time', 'unit']
     .some(k => o[k] != null && String(o[k]).trim() !== '')
 
+// DMS-1 Phase 3 Step 7 — the locked application specs. `unit` is EXCLUDED (audit
+// item 5): it's a task-level SQFT/LF concept, not a per-material application spec.
+export const SPEC_KEYS = ['mils', 'coverage_rate', 'mix_time', 'mix_speed', 'cure_time']
+
+// Print-gate predicate (defined now, ENFORCED in Phase 4): a material blocks the
+// crew ticket iff it carries specs that were never confirmed.
+export const materialBlocksPrint = (m = {}) => m.specs_confirmed !== true && hasAnySpec(m)
+
 // DMS-1 Phase 3 Step 1: mirror Sales' task shape — size (null when blank) + unit.
 // Read-only in Schedule (scope is frozen from the sale); feeds the §2 Needed rollup.
 const newTask = () => ({ id: uid(), description: '', pct_complete: 0, size: null, unit: 'SQFT' })
@@ -43,7 +51,7 @@ const withIds = (val) => (Array.isArray(val) ? val : []).map(d => ({
   tasks: (Array.isArray(d.tasks) ? d.tasks : []).map(t => ({ ...t, id: t.id ?? uid() })),
 }))
 
-export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], catalog = [], focusDayIndex = null }) {
+export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], catalog = [], focusDayIndex = null, changedBy = 'unknown' }) {
   const [days, setDays] = useState(() => withIds(value))
   const [dirty, setDirty] = useState(false)
   const wrapRef = useRef(null)
@@ -173,9 +181,51 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     const next = numericKeys.includes(key) ? (parseFloat(val) || 0) : val
     return {
       ...d,
+      materials: (d.materials || []).map(m => {
+        if (String(m.wtc_material_id) !== String(wtcId)) return m
+        // Step 7 lock: a confirmed material's specs are read-only here — edits must
+        // go through overrideSpec (typed reason). Reject the write (belt to the
+        // read-only UI). Non-spec fields (qty_planned/name/kit_size) stay editable.
+        if (SPEC_KEYS.includes(key) && m.specs_confirmed === true) return m
+        return { ...m, [key]: next }
+      }),
+    }
+  }))
+
+  // Step 7 — confirm/lock a material's specs (new/swapped confirm in Schedule).
+  const confirmMaterialSpecs = (dayId, wtcId) => update(days.map(d =>
+    d.id === dayId ? {
+      ...d,
       materials: (d.materials || []).map(m =>
-        String(m.wtc_material_id) === String(wtcId) ? { ...m, [key]: next } : m
+        String(m.wtc_material_id) === String(wtcId) ? { ...m, specs_confirmed: true } : m
       ),
+    } : d
+  ))
+
+  // Step 7 — override escape hatch: change LOCKED spec value(s) with a typed reason.
+  // Multi-field (its OWN handler, not updateMaterialField): writes the value(s),
+  // appends a {by,at,old,new,reason} record to spec_overrides[], and re-confirms as
+  // warehouse-confirmed so it stays locked + prints, but the change is on the record.
+  const overrideMaterialSpec = (dayId, wtcId, changes, reason) => update(days.map(d => {
+    if (d.id !== dayId) return d
+    return {
+      ...d,
+      materials: (d.materials || []).map(m => {
+        if (String(m.wtc_material_id) !== String(wtcId)) return m
+        const overrides = Array.isArray(m.spec_overrides) ? m.spec_overrides : []
+        const diff = {}
+        for (const [k, v] of Object.entries(changes)) {
+          if (SPEC_KEYS.includes(k) && String(m[k] ?? '') !== String(v ?? '')) diff[k] = { old: m[k] ?? null, new: v }
+        }
+        if (Object.keys(diff).length === 0) return m
+        const applied = {}
+        for (const k of Object.keys(diff)) applied[k] = changes[k]
+        return {
+          ...m, ...applied,
+          specs_confirmed: true,
+          spec_overrides: [...overrides, { by: changedBy, at: nowIso(), reason, changes: diff }],
+        }
+      }),
     }
   }))
 
@@ -365,6 +415,8 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
             onAddCustom={() => addCustomMaterialToDay(day.id)}
             onRemove={(wtcId) => removeMaterialFromDay(day.id, wtcId)}
             onUpdate={(wtcId, key, val) => updateMaterialField(day.id, wtcId, key, val)}
+            onConfirmSpecs={(wtcId) => confirmMaterialSpecs(day.id, wtcId)}
+            onOverrideSpec={(wtcId, changes, reason) => overrideMaterialSpec(day.id, wtcId, changes, reason)}
           />
         </div>
       ))}
@@ -372,7 +424,24 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   )
 }
 
-function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, onAddCustom, onRemove, onUpdate }) {
+function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, onAddCustom, onRemove, onUpdate, onConfirmSpecs, onOverrideSpec }) {
+  const [overrideId, setOverrideId] = useState(null)     // wtc_material_id being overridden
+  const [overrideDraft, setOverrideDraft] = useState({}) // staged SPEC_KEYS edits
+  const [overrideReason, setOverrideReason] = useState('')
+
+  const startOverride = (m) => {
+    const draft = {}
+    for (const k of SPEC_KEYS) draft[k] = m[k] ?? ''
+    setOverrideDraft(draft)
+    setOverrideReason('')
+    setOverrideId(m.wtc_material_id)
+  }
+  const cancelOverride = () => { setOverrideId(null); setOverrideDraft({}); setOverrideReason('') }
+  const saveOverride = (m) => {
+    if (!overrideReason.trim()) return   // reason is non-skippable
+    onOverrideSpec(m.wtc_material_id, overrideDraft, overrideReason.trim())
+    cancelOverride()
+  }
   const [open, setOpen] = useState(false)
   const [dropUp, setDropUp] = useState(false)
   const [q, setQ] = useState('')
@@ -414,15 +483,29 @@ function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, on
     })
     .slice(0, 12)
 
-  const specInput = (m, key, placeholder, type = 'text') => (
-    <input
-      type={type}
-      className="fsb-input"
-      value={m[key] ?? ''}
-      placeholder={placeholder}
-      onChange={e => onUpdate(m.wtc_material_id, key, e.target.value)}
-    />
-  )
+  const specInput = (m, key, placeholder, type = 'text') => {
+    const isSpec = SPEC_KEYS.includes(key)
+    const locked = isSpec && m.specs_confirmed === true
+    const overriding = isSpec && overrideId === m.wtc_material_id
+    const readOnly = locked && !overriding
+    const value = overriding ? (overrideDraft[key] ?? '') : (m[key] ?? '')
+    return (
+      <input
+        type={type}
+        className={`fsb-input${readOnly ? ' fsb-input-locked' : ''}`}
+        value={value}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        title={readOnly ? 'Confirmed spec — use Override to change (needs a reason)' : undefined}
+        style={readOnly ? { opacity: 0.7, cursor: 'not-allowed' } : undefined}
+        onChange={e => {
+          if (readOnly) return
+          if (overriding) setOverrideDraft(prev => ({ ...prev, [key]: e.target.value }))
+          else onUpdate(m.wtc_material_id, key, e.target.value)
+        }}
+      />
+    )
+  }
 
   const btnRect = btnRef.current?.getBoundingClientRect()
   const pickerStyle = btnRect ? {
@@ -509,6 +592,35 @@ function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, on
                   {specInput(m, 'cure_time', 'e.g. 24 hrs')}
                 </div>
               </div>
+              {hasAnySpec(m) && (
+                <div className="fsb-mat-confirm" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {m.specs_confirmed === true ? (
+                    overrideId === m.wtc_material_id ? (
+                      <>
+                        <input
+                          className="fsb-input"
+                          style={{ flex: 1, minWidth: 160 }}
+                          placeholder="Reason for override (required)…"
+                          value={overrideReason}
+                          onChange={e => setOverrideReason(e.target.value)}
+                        />
+                        <button className="fsb-add-task" disabled={!overrideReason.trim()} onClick={() => saveOverride(m)}>Save override</button>
+                        <button className="fsb-remove-task" onClick={cancelOverride} title="Cancel override">Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#5BBD3F' }}>✓ Specs confirmed</span>
+                        <button className="fsb-add-task" onClick={() => startOverride(m)}>Override</button>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 12, color: 'var(--sand-dark)' }}>Specs not confirmed</span>
+                      <button className="fsb-add-task" onClick={() => onConfirmSpecs(m.wtc_material_id)}>Confirm specs</button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )})}
         </div>
