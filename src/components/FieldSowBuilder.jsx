@@ -19,7 +19,9 @@ const hasAnySpec = (o = {}) =>
   ['mils', 'coverage_rate', 'coverage', 'mix_time', 'mix_speed', 'cure_time', 'unit']
     .some(k => o[k] != null && String(o[k]).trim() !== '')
 
-const newTask = () => ({ id: uid(), description: '', pct_complete: 0 })
+// DMS-1 Phase 3 Step 1: mirror Sales' task shape — size (null when blank) + unit.
+// Read-only in Schedule (scope is frozen from the sale); feeds the §2 Needed rollup.
+const newTask = () => ({ id: uid(), description: '', pct_complete: 0, size: null, unit: 'SQFT' })
 const newDay = (idx) => ({
   id: uid(),
   day_label: `Day ${idx + 1}`,
@@ -73,11 +75,18 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
   const removeTask = (dayId, taskId) => update(days.map(d =>
     d.id === dayId ? { ...d, tasks: (d.tasks || []).filter(t => t.id !== taskId) } : d
   ))
+  // Keyed task coercion (Step 1) mirrors Sales: description/unit raw, size blank→null
+  // (never 0/""), all OTHER keys keep the parseFloat fallthrough (pct_complete).
+  const TASK_COERCE = {
+    description: v => v,
+    unit:        v => v,
+    size:        v => v === '' ? null : (parseFloat(v) || null),
+  }
   const updateTask = (dayId, taskId, key, val) => update(days.map(d =>
     d.id === dayId ? {
       ...d,
       tasks: (d.tasks || []).map(t =>
-        t.id === taskId ? { ...t, [key]: key === 'description' ? val : (parseFloat(val) || 0) } : t
+        t.id === taskId ? { ...t, [key]: (TASK_COERCE[key] || (v => parseFloat(v) || 0))(val) } : t
       ),
     } : d
   ))
@@ -308,6 +317,14 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
                       .filter(n => n !== task.description)
                       .map(n => <option key={n} value={n} />)}
                   </datalist>
+                  {/* Step 1: read-only task size + unit (frozen from the sale) — feeds §2 Needed */}
+                  <span
+                    className="fsb-task-size"
+                    title="Task size (set in Sales; drives material Needed = size ÷ coverage)"
+                    style={{ fontSize: 12, fontWeight: 600, color: 'var(--sand-dark)', whiteSpace: 'nowrap', flexShrink: 0, minWidth: 64, textAlign: 'right' }}
+                  >
+                    {task.size != null ? `${task.size} ${task.unit || 'SQFT'}` : '— size'}
+                  </span>
                   <div className="fsb-pct-wrap">
                     <input
                       type="number"
