@@ -4,6 +4,9 @@ Record of audit-terminal reviews. One row per audit pass.
 
 | Date | Subject | Findings | Severity | Outcome | Pattern |
 |---|---|---|---|---|---|
+| 2026-08-02 | feat/dms1-phase4 @ 6ba68b3 · daily_material_schedule_phase4_build.md (round 3) | 11 (3 reg + 6 new + 2 quar) | 3H/3M/2L | accepted-pending-changes (rev pass 3; REG-A showQty prop; multi-WTC filter+sum; re-audit round 4) | foldin-contradictions / multi-wtc-merge |
+| 2026-08-02 | feat/dms1-phase4 @ ad70cec · daily_material_schedule_phase4_build.md (round 2) | 7 groups (+1 adj) | 2H/3M/2L | accepted-pending-changes (rev pass 2; totals re-sourced to proposal_wtc.materials per Chris; re-audit round 3) | totals-source-dead-field / scope-cut |
+| 2026-08-02 | feat/dms1-phase4 @ 2b38376 · daily_material_schedule_phase4_build.md (round 1) | 9 (7 groups) | 2H/4M/1L + 2 adj | accepted-pending-changes (revision pass 1; re-audit round 2 on §A+§B) | wrong-baseline-premise |
 | 2026-05-28 | f8ddcaf (feat/staged-ready-cards) — jobs readiness migration pre-push | 1 | 1 Crit | accepted; procedure corrected (3-timestamp repair), SQL unchanged | ledger-incomplete-repair |
 | 2026-06-11 | feat/sow-vertical @ 963ba50 · docs/plans/sow_vertical.md (round 1) | 6 | 1H/5M | accepted-pending-changes (revision pass 1 = 1a7f2d0; overage cut to Build 2) | writer-coverage |
 | 2026-06-12 | feat/sow-vertical @ 9c4e23b · docs/plans/sow_vertical.md (round 2) | 13 (deduped) | 1H/8M/4L | accepted-pending-changes (revision pass 2 = ed03f5f) | stage-map-completeness |

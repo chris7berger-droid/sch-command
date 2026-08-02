@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { loadJobMaterialLines, syncJobMaterialLines, updateJobMaterialLineField, addWarehouseMaterialLine, loadMaterialsCatalog } from '../lib/queries'
+import CrewTicket from './CrewTicket'
 
 // DMS-1 Phase 3 Step 3 — the warehouse Logistics materials view. Reused by both
 // the card's modal (MaterialsModal) and the JobDetail "Logistics" tab (one source
@@ -49,6 +50,7 @@ export default function LogisticsMaterials({ job, changedBy, onUpdated }) {
   const [catalog, setCatalog] = useState([])
   const [addOpen, setAddOpen] = useState(false)
   const [addQuery, setAddQuery] = useState('')
+  const [ticketOpen, setTicketOpen] = useState(false)
 
   const reload = useCallback(async () => {
     const { data, error } = await loadJobMaterialLines(job.job_id)
@@ -110,6 +112,10 @@ export default function LogisticsMaterials({ job, changedBy, onUpdated }) {
 
   return (
     <div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <button className="app-act-btn app-act-primary" onClick={() => setTicketOpen(true)}>Print Ticket</button>
+      </div>
+      {ticketOpen && <CrewTicket jobId={job.job_id} onClose={() => setTicketOpen(false)} />}
       {rows.length === 0 ? (
         <div style={{ fontSize: 13, color: '#5a5249', padding: '12px 0' }}>
           No materials on this job's SOW yet. Add them in the Field SOW, or use “Add material” below.
