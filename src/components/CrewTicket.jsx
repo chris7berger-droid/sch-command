@@ -198,11 +198,16 @@ export default function CrewTicket({ jobId, onClose }) {
   const summary = (() => {
     const map = new Map()
     for (const m of bidMaterials) {
-      const key = uname(m)
+      const name = uname(m)
+      const kit = m.kit_size || ''
+      // Group by name AND kit_size: the same product in two kit sizes is two
+      // distinct order lines (summing them would order the wrong kit). Same
+      // name + same kit sums across WTCs.
+      const key = `${name}|${kit}`
       const qty = Number(m.qty) || 0
       const prev = map.get(key)
-      if (prev) { prev.qty += qty; if (!prev.kit_size && m.kit_size) prev.kit_size = m.kit_size }
-      else map.set(key, { name: key, qty, kit_size: m.kit_size || '' })
+      if (prev) { prev.qty += qty }
+      else map.set(key, { name, qty, kit_size: kit })
     }
     return [...map.values()]
   })()
