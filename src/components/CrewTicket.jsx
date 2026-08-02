@@ -65,7 +65,6 @@ const ticketCss = `
   .ct-mats { margin-top: 12px; }
   .ct-mat { padding: 6px 0; border-bottom: 1px solid rgba(28,24,20,0.08); font-size: 12px; }
   .ct-mat:last-child { border-bottom: none; }
-  .ct-mat-name { font-weight: 600; }
   .ct-mat-kit { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6b6358; margin-left: 8px; }
   .ct-mat-specs { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6b6358; margin-top: 2px; }
   .ct-unconfirmed { display: inline-block; background: #e67e22; color: #fff; font-family: 'Barlow Condensed', sans-serif; font-size: 8px; font-weight: 700; letter-spacing: 0.5px; padding: 1px 5px; border-radius: 3px; margin-left: 6px; text-transform: uppercase; }
