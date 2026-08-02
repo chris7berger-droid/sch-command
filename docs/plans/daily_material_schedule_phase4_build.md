@@ -63,11 +63,10 @@ per-day quantities added up.
 - LogisticsMaterials has **no header row today** — add a deliberate header with a **Print Ticket**
   button, styled `app-act-btn app-act-primary` (the app's real button classes, matching
   FieldSowModal's Print PDF button — NOT a hand-rolled "green accent").
-- **[DESIGN-OPEN] Mount scope.** The button appears in all 3 mount points (material modal,
-  JobDetail Logistics tab, Materials view) because the component is shared. Chris's decision #1
-  named "the material modal" as the home. **Default: leave it in the shared component (Print
-  available wherever you see the material list) — it's the same materials view in all three.**
-  Confirm this is wanted, or gate it to the modal mount only. (Ratify in round 2.)
+- **[LOCKED 2026-08-02, Chris] Mount scope = all 3.** Leave the button in the shared component so
+  Print appears in all 3 mount points (material modal, JobDetail Logistics tab, Materials view) —
+  it's the same materials view everywhere, so Print is available wherever you see the material list.
+  Not gated to the modal.
 - On click → call the new ticket builder with the loaded job.
 
 ### 2.2 Ticket builder — reuse `FieldSowModal.jsx`'s print pattern (round-1 audit A)
