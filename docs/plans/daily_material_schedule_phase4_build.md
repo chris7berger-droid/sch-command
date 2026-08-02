@@ -11,9 +11,12 @@
 
 Verified by reading the code, not by running the app (read-verified, NOT run-verified).
 
-- **No crew-ticket / material-summary print code exists.** `grep -rl "window.print|@media print|ticket|material.*summary" src/` → only `FieldSowModal.jsx`, `exports.js`, `FieldSowBuilder.jsx` (none render a crew ticket). This feature is net-new.
-- **A print harness already exists** to build on: `src/lib/exports.js:43` `printWin(title, bodyHtml)` opens a window, injects a Print/Save-as-PDF button + `@media print{button{display:none}}`. Existing users: `printWeekSchedule` (55), `printJobList` (93), `printMaterialsList` (110). The crew ticket follows the same pattern.
-- **The materials view (Print's home) is** `src/components/LogisticsMaterials.jsx` (254 lines) — renamed from Materials in Phase 3.
+- **No crew-ticket / material-summary print code exists.** This feature is net-new.
+- **The RIGHT print harness to reuse is `FieldSowModal.jsx`** (round-1 audit A — corrects the earlier `printWin` premise). It already renders a print-quality SOW: `PRINT_CSS` (`:31-56`) carries the full design system (linen/dark/teal, Barlow/JetBrains fonts), `break-inside: avoid` on `.sow-day`, and `print-color-adjust: exact`. The render is a React ref (`printRef`), and `handlePrint` (`:227-233`) does `window.open('', '_blank')` → `document.write(<style>${PRINT_CSS}</style> + el.innerHTML)` → `setTimeout(() => win.print(), 400)`. It escapes free text via React (no manual HTML concatenation). `printWin` in exports.js is a bare string-writer with none of this — do NOT use it.
+- **The materials view (Print's home) is** `src/components/LogisticsMaterials.jsx` (254 lines, renamed from Materials in Phase 3). It has **NO header row** — the first control is `+ Add material` (`:145`). It is a **shared component with 3 mount points**: `MaterialsModal.jsx` (the material modal, opened from `StageJobCard`), the `JobDetail` "Logistics" tab (`JobDetail.jsx:422`), and `Materials.jsx` view. Any button added here appears in all three.
+- **Grouping key for totals** (round-1 audit B): `sowMaterials.js:97` keys material identity as `m.catalog_id != null ? cat:${catalog_id} : name:${norm(m.name || m.product)}`. Use this exact identity for the page-1 sum.
+- **Legacy WTC fallback** (round-1 audit C3): `queries.js:714` — `sows = (wtcs && wtcs.length) ? wtcs.map(w => w.field_sow) : [job?.field_sow]`, then `Array.isArray(fs) ? fs : []` per day array. Mirror this so a legacy (non-WTC) job still renders.
+- **Logo** (round-1 audit F): there is no "HDSP logo" asset — the brand mark is `ScheduleCommandMark` in `src/components/Logo.jsx`. Inline its static SVG as a literal string, or omit the logo. Drop the HDSP premise.
 - **Day data is reachable** at `job._wtcs[].field_sow` (array of days). Day shape (from `FieldSowBuilder.jsx:38-44`): `{ day_label ("Day 1"), date, tasks[], crew_count, hours_planned, materials[] }`. Task shape (`:36`): `{ id, description, pct_complete, size, unit }`. Material carries `kit_size, coverage_rate, mils, mix_time, mix_speed, cure_time, qty_planned, specs_confirmed`.
 - **`day_label` already reads "Day 1"** (`FieldSowBuilder.jsx:39` ``day_label: `Day ${idx + 1}` ``) — no "of N" to strip; the PDF's "of 7" was mockup-only.
 - **The unconfirmed predicate already exists:** `FieldSowBuilder.jsx:32` `materialBlocksPrint(m) = m.specs_confirmed !== true && hasAnySpec(m)`. We reuse it to render the tag (per decision #2 we tag, not block).
@@ -56,41 +59,69 @@ per-day quantities added up.
 
 ## 2. The pieces to build
 
-### 2.1 Print button — `src/components/LogisticsMaterials.jsx`
-- Add a **Print Ticket** button to the materials view header.
+### 2.1 Print button — `src/components/LogisticsMaterials.jsx` (round-1 audit G)
+- LogisticsMaterials has **no header row today** — add a deliberate header with a **Print Ticket**
+  button, styled `app-act-btn app-act-primary` (the app's real button classes, matching
+  FieldSowModal's Print PDF button — NOT a hand-rolled "green accent").
+- **[DESIGN-OPEN] Mount scope.** The button appears in all 3 mount points (material modal,
+  JobDetail Logistics tab, Materials view) because the component is shared. Chris's decision #1
+  named "the material modal" as the home. **Default: leave it in the shared component (Print
+  available wherever you see the material list) — it's the same materials view in all three.**
+  Confirm this is wanted, or gate it to the modal mount only. (Ratify in round 2.)
 - On click → call the new ticket builder with the loaded job.
-- Button style = existing content buttons (green accent).
 
-### 2.2 Ticket builder — `src/lib/exports.js` (reuse existing print harness)
-- **Reuse `printWin(title, bodyHtml)`** (already in exports.js — opens a window, injects a
-  Print/Save-as-PDF button + `@media print` CSS). Same pattern as `printMaterialsList()`.
-- New `printCrewTicket(job)` (or a small `src/lib/crewTicket.js` if the HTML grows) that builds:
-  - **Page 1 — Material Order Summary:** logo + `JOB / JOB # / CUSTOMER / PREPARED BY` header;
-    checklist of each material with a **TOTAL NEEDED** number; `LEAD / SALES SIGNATURE` lines.
-    Totals = per-day quantities rolled up across all days.
-  - **Per-day cards:** `day_label` ("Day 1") + item count; subline `Crew · Hours · Sq ft ·
-    Linear ft · WTC`; **Work to Complete** (tasks + %, with task tags); **Scope Notes** callout;
-    **Materials Needed** table (material, qty `N (kit: …)`, specs as text in Notes).
+### 2.2 Ticket builder — reuse `FieldSowModal.jsx`'s print pattern (round-1 audit A)
+- **Do NOT use `printWin`.** Build on FieldSowModal's harness instead:
+  - **Extract/share `PRINT_CSS`** (`FieldSowModal.jsx:31-56`) and the **DayCard render** so the
+    crew ticket reuses them verbatim — this inherits page-breaks (`break-inside: avoid`),
+    `print-color-adjust: exact`, the design system, and React free-text escaping for free.
+    (Extract to a shared module, e.g. `src/components/sowPrint.js[x]`, imported by both
+    FieldSowModal and the new ticket — don't fork/copy the CSS.)
+  - **New crew-ticket component** renders into a `printRef`, then prints via the same
+    `window.open` → `document.write(<style>${PRINT_CSS}</style> + el.innerHTML)` →
+    `setTimeout(() => win.print(), 400)` sequence as `handlePrint` (`:227-233`).
+    (ADJ-2 backlog: `window.open` can return null under popup-block — guard it; filed, not this loop.)
+- **New markup on top of the shared DayCard render:**
+  - **Page 1 — Material Order Summary:** brand mark (inline `ScheduleCommandMark` SVG or omit,
+    per §0 / audit F) + `JOB / JOB # / CUSTOMER / PREPARED BY` header; checklist of each material
+    with a **TOTAL NEEDED** number (see §2.3 for the sum); `LEAD / SALES SIGNATURE` lines.
+  - **Per-day cards:** reuse the DayCard render — `day_label` ("Day 1") + item count; subline
+    `Crew · Hours · Sq ft · Linear ft · WTC`; **Work to Complete** (tasks + %, task tags);
+    **Scope Notes** callout; **Materials Needed** table (material, qty `N (kit: …)`, specs as text).
   - **Footer:** `N DAYS SCHEDULED · GENERATED <date>`.
+  - (ADJ-1 backlog: 0%-complete task framing on the ticket — filed, not this loop.)
 
-### 2.3 Data sources (all already exist)
-- **Days:** `job._wtcs[].field_sow` (array of days). Day shape:
+### 2.3 Data sources + mapping (round-1 audit B, C1/C2/C3)
+- **Days:** mirror the `queries.js:714` legacy fallback —
+  `sows = (wtcs?.length ? wtcs.map(w => w.field_sow) : [job.field_sow])`, then
+  `Array.isArray(day array)`-guard each before mapping (C3). Day shape:
   `{ day_label, date, tasks[], crew_count, hours_planned, materials[], scope_notes, sq_ft, linear_ft }`.
-  (Confirm `scope_notes` / `sq_ft` / `linear_ft` exact keys at build — visible in FieldSowView render.)
+  **[BUILD-CONFIRM C1]** verify `sq_ft` / `linear_ft` / `scope_notes` **literal keys against a live
+  `field_sow` row** before wiring, and **truthy-guard each subline segment** (a missing linear_ft
+  drops that segment, doesn't print "Linear ft: undefined").
 - **Task shape:** `{ id, description, pct_complete, size, unit }`.
-- **Material shape:** `{ product/name, kit_size, coverage_rate, mils, mix_time, mix_speed,
-  cure_time, qty_planned, specs_confirmed }`.
-- **Page-1 totals:** roll up per-day quantities. Prefer reusing `src/lib/sowMaterials.js` grouping
-  (stable logical-material key, REG-4 grain — same-material-across-days counts once) so the summary
-  matches the Logistics view. Confirm at build whether we sum `qty_planned` or the rollup's count.
-- **Un-confirmed tag:** `materialBlocksPrint(m)` from FieldSowBuilder.jsx already = the exact
-  predicate (`specs_confirmed !== true && hasAnySpec(m)`). Use it to render the tag — but per
-  decision #2 we render, not block.
+- **Material shape:** `{ name/product, kit_size, coverage_rate, mils, mix_time, mix_speed,
+  cure_time, qty_planned, specs_confirmed }`. **[C2]** read the display name as
+  `m.name || m.product || 'Unnamed material'`.
+- **Page-1 "TOTAL NEEDED" = SUM of per-day `m.qty_planned`**, grouped by material identity
+  `m.catalog_id ?? name:${norm(m.name || m.product)}` (matching `sowMaterials.js:97`).
+  **Do NOT call `rollupSowMaterials` for the total** — its `qty_needed` is the deferred §4B
+  coverage math (size ÷ coverage), a different number. Print `kit_size` as the unit label next to
+  the summed qty.
+  **[VERIFY]** on a 2-day job, printed page-1 total for a repeated material == hand-sum of its
+  `qty_planned` across both days.
+- **Un-confirmed tag (round-1 audit D — semantics decided):** tag = `materialBlocksPrint(m)`
+  = `specs_confirmed !== true && hasAnySpec(m)`. A **spec-less** material (no specs at all) is
+  deliberately **NOT tagged** — there's nothing to confirm, so it's not a data gap worth flagging
+  on a crew sheet. We only surface materials that HAVE specs but haven't been confirmed. Render the
+  tag, never block (decision #2).
 
-### 2.4 Print styling
-- Page 1 as its own print page; day cards flow after. Use `@media print` page-break rules so a
-  card doesn't split awkwardly.
-- Logo asset: reuse whatever the app already ships (check `src/` for the HDSP logo used in nav).
+### 2.4 Print styling (inherited from FieldSowModal)
+- Page-breaks, `print-color-adjust: exact`, and the design system come free from the shared
+  `PRINT_CSS` (§2.2) — `.sow-day` already carries `break-inside: avoid`. Add a page-break so page 1
+  (material summary) sits on its own sheet before the day cards.
+- **Logo:** inline `ScheduleCommandMark`'s SVG (from `Logo.jsx`) as a literal string, or omit — no
+  external asset (audit F).
 
 ## 3. Out of scope (do NOT build)
 - Shortage / "do we have enough" status (OK / SHORT / verify) — deferred §4B, own loop.
@@ -102,10 +133,14 @@ per-day quantities added up.
 - Build green (`npx vite build`).
 - Open a real job with a SOW → Print → ticket matches the PDF (page 1 totals, one card per day,
   scope notes, specs text, signatures, footer).
+- **Totals hand-sum:** on a 2-day job with a repeated material, page-1 TOTAL NEEDED ==
+  hand-sum of that material's `qty_planned` across both days (proves it's the sum, not §4B math).
 - Day headers read "Day 1/2/3", no "of N".
-- A material with unconfirmed specs shows the "unconfirmed" tag and still prints.
-- Old job with no SOW → sensible empty/absent state (no crash).
-- Save-as-PDF from the print dialog looks right.
+- A material with unconfirmed specs shows the "unconfirmed" tag and still prints; a spec-less
+  material shows no tag.
+- **Legacy (non-WTC) job** (`field_sow` on `jobs`, no `job_wtcs`) → renders via the fallback, no crash.
+- Old job with no SOW at all → sensible empty/absent state (no crash).
+- Save-as-PDF from the print dialog looks right; page 1 is its own sheet.
 
 ## 5. Deploy
 - Standard: preview deploy on `feat/dms1-phase4` → smoke → gate (buildvsplan / code-review /
