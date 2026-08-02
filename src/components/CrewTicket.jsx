@@ -188,7 +188,13 @@ export default function CrewTicket({ jobId, onClose }) {
     if (!el) return
     const win = window.open('', '_blank')
     if (!win) { toast('Allow pop-ups to print', 'err'); return }
-    win.document.write(`<!DOCTYPE html><html><head><title>Crew Ticket — ${job?.job_num || ''} ${job?.job_name || ''}</title><style>${PRINT_CSS}${ticketCss}</style></head><body>${el.innerHTML}</body></html>`)
+    // Escape the only raw string concatenated into document.write — the <title>
+    // (job name/num are Sales-entered). The body is React-rendered (already
+    // escaped) DOM via el.innerHTML; PRINT_CSS/ticketCss are static constants.
+    // (T6 security-review #2.)
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+    const title = `Crew Ticket — ${esc(job?.job_num)} ${esc(job?.job_name)}`.trim()
+    win.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>${PRINT_CSS}${ticketCss}</style></head><body>${el.innerHTML}</body></html>`)
     win.document.close()
     setTimeout(() => { win.print() }, 400)
   }
