@@ -76,13 +76,15 @@ not computed, just read. Day cards list which materials each day (no per-day qty
   Print appears in all 3 mount points (material modal, JobDetail Logistics tab, Materials view) —
   it's the same materials view everywhere, so Print is available wherever you see the material list.
   Not gated to the modal.
-- **[round-2 R2-B — real bug, fix regardless] `Materials.jsx` mount lacks the data to print.**
+- **[round-2 R2-B + round-3 REG-B — concrete loader spec] Hydrate on click, two awaits.**
   `Materials.jsx:35` calls plain `loadJobs()` (no `_wtcs`), so from that mount the ticket would
-  print blank/legacy for modern jobs. Fix: **hydrate on click** — when Print is pressed, load the
-  job's WTC days (`loadJob`/`withWTCs`) + `proposal_wtc.materials` before building the ticket, so the
-  builder always has both data sources regardless of which mount launched it. (Preferred over making
-  `Materials.jsx` always load WTCs — keeps the list view light.)
-- On click → hydrate (if needed) → call the ticket builder with the job + its proposal materials.
+  print blank/legacy for modern jobs. Fix — on Print press, do **two async fetches**:
+  1. `loadJobWithWTCs(jobId)` (`queries.js:285`) → the job's `_wtcs[]` (each with `field_sow` + `proposal_wtc_id`).
+  2. a **single-job `proposal_wtc` read** (the §2.3a query, scoped to this job's WTCs) → the bid materials.
+  **Ordering + state (REG-B):** keep a `printing`/`loading` state that **disables the Print button
+  until BOTH fetches resolve**; build + open the ticket **only after both settle**. Do not treat
+  "hydrate then build" as one sync step. On either fetch erroring → toast, re-enable, don't open a
+  blank window. (Preferred over making `Materials.jsx` always load WTCs — keeps the list view light.)
 
 ### 2.2 Ticket builder — reuse `FieldSowModal.jsx`'s print pattern (round-1 A, round-2 C/E/G)
 - **Do NOT use `printWin`.** Build on FieldSowModal's harness:
@@ -91,20 +93,32 @@ not computed, just read. Day cards list which materials each day (no per-day qty
     `export` to `PRINT_CSS` and `DayCard`** and `import { PRINT_CSS, DayCard }` in the new ticket.
     **No `sowPrint.jsx` extraction, no render untangling** (the round-1 "extract to a shared module"
     was over-described — it misread the file). Lowest regression surface on the live SOW print.
-  - **New crew-ticket component** renders into a `printRef`, then prints via the same
-    `window.open` → `document.write(<style>${PRINT_CSS}</style> + el.innerHTML)` →
-    `setTimeout(() => win.print(), 400)` sequence as `handlePrint` (`:227-233`).
-  - **[round-2 R2-G — in-loop, net-new code] Guard `window.open`:** `const win = window.open(...); if (!win) { toast('Allow pop-ups to print'); return }` before `win.document.write`. This is new code (one line), not the deferred pre-existing FieldSowModal guard.
+  - **The crew ticket is a React COMPONENT** (not a bare "builder" fn) — it renders into a `printRef`,
+    then prints via the same `window.open` → `document.write(<style>${TICKET_CSS}</style> + el.innerHTML)`
+    → `setTimeout(() => win.print(), 400)` sequence as `handlePrint` (`:227-233`). Being a component
+    is required for REG-C and the SVG (both need render context).
+  - **[round-3 REG-C — toast is a hook] Guard `window.open`:** at the top of the component,
+    `const toast = useToast()` (`toast.jsx:25` — hook, only callable inside render). Then
+    `const win = window.open('', '_blank'); if (!win) { toast('Allow pop-ups to print', 'err'); return }`
+    before `win.document.write`. (The round-2 note "call toast()" from a plain function was wrong — a
+    builder fn can't call the hook.)
+- **[round-3 REG-A — DECIDED: `showQty` prop] Reusing DayCard collides with decision A.** DayCard
+  renders a **Qty column** (`FieldSowModal.jsx:139/:150` = `qty_planned || '-'`) that decision A
+  forbids on the ticket. You can't drop a column by "extending." **Fix: add a `showQty` prop to
+  DayCard, default `true`** (so the live SOW print is unchanged); the **ticket passes `showQty={false}`**.
+  This **IS an edit to shared DayCard** — §4 must re-verify the live SOW modal still shows its Qty column.
+  (Chris's call: `showQty` prop over forking `TicketDayCard` — keeps one source of truth, matches the
+  codebase's prop-driven convention. Round-2's "no new module" stands.)
 - **New markup on top of the reused DayCard render:**
-  - **Page 1 — Material Order Summary:** brand mark (**[round-2 R2-G]** render `ScheduleCommandMark`
-    as a React element under `printRef` — do NOT paste JSX-cased SVG attrs into an HTML string, which
-    `innerHTML` mangles; or omit) + `JOB / JOB # / CUSTOMER / PREPARED BY` header; checklist of each
-    **proposal bid material** with its **bid qty** as TOTAL NEEDED (see §2.3); `LEAD / SALES SIGNATURE`.
-  - **Per-day cards:** **[round-2 R2-E — reuse DayCard as base, then EXTEND]** DayCard (`:100-163`)
-    renders day_label, crew/hours meta, scope_notes, tasks, materials — but **NOT** the
-    `Sq ft · Linear ft · WTC · item-count` subline the PDF shows. So reuse DayCard as the base and
-    **extend it** to add those (confirm `sq_ft`/`linear_ft` keys on a live row per §2.3). Materials
-    table shows material + specs-as-text; **no per-day qty column** (decision A). Task tags kept.
+  - **Page 1 — Material Order Summary:** brand mark (**[REG-G/N7]** render `ScheduleCommandMark`
+    as a React element under `printRef` — NOT JSX-cased SVG attrs in an HTML string, which `innerHTML`
+    strips/mangles; **if the SVG doesn't survive the `innerHTML` round-trip, omit the logo** — quarantined
+    N7) + `JOB / JOB # / CUSTOMER / PREPARED BY` header; checklist of each **proposal bid material**
+    with its **bid qty** as TOTAL NEEDED (see §2.3); `LEAD / SALES SIGNATURE`.
+  - **Per-day cards:** **[round-2 R2-E / round-3 N2]** reuse DayCard (`showQty={false}`) but keep the
+    `{wtcLabel, days}` grouping from `FieldSowView:175` (do NOT flatMap to bare days — §2.3b) so the
+    subline can show **WTC + item count**; extend DayCard to add the `Sq ft · Linear ft` subline
+    (renders only on nonzero entries — quarantined N8). Task tags kept.
   - **Footer:** `N DAYS SCHEDULED · GENERATED <date>`.
   - (ADJ-1 backlog: 0%-complete task framing on the ticket — filed, not this loop.)
 
@@ -113,26 +127,39 @@ not computed, just read. Day cards list which materials each day (no per-day qty
 **Two data sources, two purposes:**
 
 **(a) Page-1 "Material Order Summary" = proposal bid materials (`proposal_wtc.materials`).**
-- Read exactly like `Jobs.jsx:205-207`:
-  `supabase.from('proposal_wtc').select('id, materials, proposals!inner(call_log_id)').eq(... this job's call_log_id/proposal_wtc_id)`.
-  From the hydrate-on-click path (§2.1), scope it to the one job.
-- One checklist row **per bid material**: `product` (name) + **`qty` as TOTAL NEEDED** + `kit_size`
-  as the unit label. The bid qty is already a per-material total — **no summing across days, no
-  grouping/dedupe** needed (it's not the per-day list).
-- **[C2]** display name = `m.product || m.name || 'Unnamed material'`. **[C2-guard]** a bid material
-  with blank/0 qty prints "—", not a crash.
+- **[round-3 N1 — scope to SCHEDULED WTCs, then sum by identity]** Read `proposal_wtc` filtered to
+  **only this job's scheduled WTCs** — `WHERE proposal_wtc.id IN (job._wtcs[].proposal_wtc_id)`
+  (mirror `CardSowModal.jsx:76`). Do **NOT** group by `call_log_id` — that would pull in every WTC of
+  the proposal, including ones never sent to schedule (over-scope), and print each WTC's copy of a
+  shared product as a separate row (double-count). Then **group/sum `qty` by material identity across
+  the scheduled WTCs** so the same product bid on two WTCs shows one row with the combined total.
+- **[N5]** identity + display name = `m.product || m.name || 'Unnamed material'` (SAME accessor on
+  page-1 AND day cards — no `product‖name` vs `name‖product` split). Row = name + summed `qty` as
+  TOTAL NEEDED + `kit_size` unit label. **[C2-guard]** blank/0 qty prints "—", not a crash.
+- **[round-3 N3 — empty-state is a spec, not an aspiration]** A job with no `proposal_wtc` row
+  (archive / no-proposal job) → page 1 still renders **header + signatures + a "No bid materials on
+  file" row**. Guard `materials` null/`[]`.
+- **[round-3 N4 — distinguish error from empty]** The single-job read can return `[]` on an RLS/query
+  error, which looks identical to "no materials." **Check the query error separately:** on error →
+  toast + treat as a failure (don't silently print blank); on genuine empty → the N3 empty-state.
+  (Security floor is clean — the inner-join scopes by `call_log.tenant_id`, no cross-tenant leak — so
+  this is a UX/correctness guard, not a leak fix.)
 
 **(b) Day cards = per-day SOW (`field_sow`).**
-- Mirror the `queries.js:714` legacy fallback —
-  `sows = (wtcs?.length ? wtcs.map(w => w.field_sow) : [job.field_sow])`, then
-  `Array.isArray(day array)`-guard each before mapping (C3). Day shape:
+- **[round-3 N2 — keep the WTC grouping, don't flatten]** Preserve the `{wtcLabel, days}` structure
+  from `FieldSowView:175` (`wtcLabel` = `work_type_name` on the `_wtcs[]` row). Do **NOT**
+  `flatMap(w => w.field_sow)` to bare days — that drops the WTC label the day subline needs.
+- Legacy fallback (C3): a non-WTC job has no `_wtcs` → fall back to
+  `[{ wtcLabel: null, days: Array.isArray(job.field_sow) ? job.field_sow : [] }]`. Day shape:
   `{ day_label, date, tasks[], crew_count, hours_planned, materials[], scope_notes, sq_ft, linear_ft }`.
-- **[BUILD-CONFIRM C1]** verify `sq_ft` / `linear_ft` literal keys against a live `field_sow` row
-  (`scope_notes` confirmed at `FieldSowModal.jsx:111`); **truthy-guard each subline segment** (a
-  missing linear_ft drops that segment, never prints "Linear ft: undefined").
+- **[BUILD-CONFIRM C1 / N8]** verify `sq_ft` / `linear_ft` literal keys against a live `field_sow` row
+  (`scope_notes` confirmed at `FieldSowModal.jsx:111`); **truthy-guard each subline segment** — note
+  N8: `sq_ft`/`linear_ft` default to `0` (`WTCCalculator.jsx:948`), so the guarded segment is blank on
+  most days. That's expected, not a bug — don't oversell the subline.
 - Task shape: `{ id, description, pct_complete, size, unit }`. Day-material shape:
   `{ name/product, kit_size, coverage_rate, mils, mix_time, mix_speed, cure_time, specs_confirmed }`.
-- **No per-day qty column** (decision A) — list material + specs-as-text only.
+  **[N5]** day-card material name uses the SAME accessor as page 1: `m.product || m.name || 'Unnamed material'`.
+- **No per-day qty column** (decision A) — DayCard gets `showQty={false}` (REG-A); list material + specs-as-text only.
 - **Un-confirmed tag (round-1 audit D — semantics decided):** tag = `materialBlocksPrint(m)`
   = `specs_confirmed !== true && hasAnySpec(m)`. A **spec-less** material (no specs at all) is
   deliberately **NOT tagged** — nothing to confirm. Render the tag, never block (decision #2).
@@ -140,12 +167,17 @@ not computed, just read. Day cards list which materials each day (no per-day qty
 **[VERIFY]** page-1 TOTAL NEEDED for each material == the QTY shown on that job's WTC Materials tab
 in Sales (proves it's the bid qty read straight through, not a computed/dead-field number).
 
-### 2.4 Print styling (inherited from FieldSowModal)
-- Page-breaks, `print-color-adjust: exact`, and the design system come free from the shared
-  `PRINT_CSS` (§2.2) — `.sow-day` already carries `break-inside: avoid`. Add a page-break so page 1
-  (material summary) sits on its own sheet before the day cards.
-- **Logo:** inline `ScheduleCommandMark`'s SVG (from `Logo.jsx`) as a literal string, or omit — no
-  external asset (audit F).
+### 2.4 Print styling
+- `print-color-adjust: exact`, fonts, and `.sow-day break-inside: avoid` come free from the imported
+  `PRINT_CSS` (§2.2) — the day cards inherit them.
+- **[round-3 N6 — ticket-only page-break, NOT in shared PRINT_CSS]** The "page 1 on its own sheet"
+  rule must live in the **ticket's OWN `<style>` block under a ticket-only selector** (e.g.
+  `.crew-ticket-page1 { break-after: page }`). Do **NOT** add it to shared `PRINT_CSS` — the live SOW
+  print consumes that CSS and would get a stray blank page. So the ticket ships two style sources:
+  imported `PRINT_CSS` (shared, untouched) + a small ticket-local block for page-1 break + any
+  page-1-summary styling.
+- **Logo:** render `ScheduleCommandMark` as a React element (§2.2); if it doesn't survive the
+  `innerHTML` round-trip, omit it (N7).
 
 ## 3. Out of scope (do NOT build)
 - Shortage / "do we have enough" status (OK / SHORT / verify) — deferred §4B, own loop.
@@ -160,14 +192,21 @@ in Sales (proves it's the bid qty read straight through, not a computed/dead-fie
 - **Page-1 numbers = bid qty:** page-1 TOTAL NEEDED for each material == the QTY on that job's WTC
   Materials tab in Sales (proves it's the proposal bid qty read through, not the dead field_sow box).
 - **Print from all 3 mounts** (material modal, JobDetail Logistics tab, **and the Materials list
-  view**) on a modern WTC job → full ticket every time, not blank (round-2 R2-B).
-- Day headers read "Day 1/2/3", no "of N". Day cards show materials + specs, **no per-day qty**.
+  view**) on a modern WTC job → full ticket every time, not blank (REG-B). Print button is disabled
+  until both fetches resolve.
+- **[REG-A] Live SOW print still shows its Qty column** — open FieldSowModal → Print PDF, confirm the
+  `showQty` default didn't regress it.
+- **[N1] Multi-WTC job** (2+ scheduled WTCs sharing a product) → page 1 shows ONE row with the summed
+  qty, and NO materials from unscheduled WTCs.
+- Day headers read "Day 1/2/3", no "of N". Day cards show materials + specs, **no per-day qty**; WTC
+  label + item count present on the subline (N2).
 - A material with unconfirmed specs shows the "unconfirmed" tag and still prints; a spec-less
   material shows no tag.
 - **Legacy (non-WTC) job** (`field_sow` on `jobs`, no `job_wtcs`) → renders via the fallback, no crash.
-- Job with no SOW / no proposal materials → sensible empty/absent state (no crash).
-- Pop-up blocked → friendly toast, no thrown error (R2-G guard).
-- Save-as-PDF from the print dialog looks right; page 1 is its own sheet.
+- **[N3] Archive / no-proposal job** → page 1 = header + signatures + "No bid materials on file", no crash.
+- **[N4] Read error vs empty** → a failed proposal read toasts an error, does not print a silent blank page.
+- Pop-up blocked → friendly toast, no thrown error (REG-C).
+- Save-as-PDF from the print dialog looks right; page 1 is its own sheet (N6 ticket-only break).
 
 ## 5. Deploy
 - Standard: preview deploy on `feat/dms1-phase4` → smoke → gate (buildvsplan / code-review /
