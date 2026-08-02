@@ -13,7 +13,9 @@ function flipName(n) {
 }
 
 // CSS for the print popup window. Mirrors the on-screen .sow-* styles.
-const PRINT_CSS = `
+// Exported (zero behavior) so the self-contained CrewTicket print reuses these
+// .sow-* class styles without re-coupling to this modal (DMS-1 Phase 4).
+export const PRINT_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'Barlow', sans-serif; color: #1c1814; background: #fff; }
