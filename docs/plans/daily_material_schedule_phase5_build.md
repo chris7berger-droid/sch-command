@@ -39,8 +39,8 @@ rows — that is the smoke/verify step at build time (step 5), explicitly called
   default `status='Not Ordered'`). **No app readers remain** — all moved to `job_material_lines`
   (sch `Materials.jsx`, `queries.js:85` `materialsDecided`). Sole remaining **reader** = the SQL
   `job_base_checklist_passes()` materials check. 3 recheck triggers + `materials_recheck_parents()`
-  + 4 RLS policies attached.
-- **`jobs.field_sow` column** — written by Sales `ProposalDetail.jsx:703` (flat mirror at Send) and
+  + 5 RLS policies attached (4 named + a legacy `"Authenticated users can do everything"` catch-all).
+- **`jobs.field_sow` column** — written by Sales `ProposalDetail.jsx:686` (flat mirror at Send) and
   by sch `CardSowModal.saveLegacy` (zero-WTC jobs). Read as a **primary** source in exactly one
   place: field `ReportTab.js:36`. Everywhere else it is **fallback-only** (gated on "no `job_wtcs`
   rows"): field `TasksTab.js:96`, sch `queries.js:69` (`hasFieldSow`), `FieldSowModal.jsx:179`,
@@ -70,9 +70,9 @@ field-command release.
 | # | Repo | What | Deploy gate |
 |---|---|---|---|
 | 1 | field-command | Point the **report screen** at the new SOW store (`job_wtcs` primary, `jobs.field_sow` fallback for zero-WTC). Resolve the `daily_production_reports.wtc_id` write. | none (no live users) |
-| 2 | sales-command | **Stop writing** both old stores at Send-to-Schedule: drop the `materials` insert (`ProposalDetail.jsx:788`) and the flat `field_sow` mirror write (`ProposalDetail.jsx:703`). Keep the `job_wtcs` write. | must deploy **before** step 4 (else the insert errors on a dropped table) |
+| 2 | sales-command | **Stop writing** both old stores at Send-to-Schedule: drop the `materials` insert (`ProposalDetail.jsx:788`) and the flat `field_sow` mirror write (`ProposalDetail.jsx:686`). Keep the `job_wtcs` write. | deploy **before** step 4 — but a slip only fires a swallowed "Materials sync warning" (`:789`), not a blocked send (A3) |
 | 3 | command-suite-db | **Rewrite the ready-gate** `job_base_checklist_passes()` so its materials check mirrors the live JS `materialsDecided` (read `job_material_lines`, fail-closed on empty). Mechanical mirror, not a behavior change — see below. | — |
-| 4 | command-suite-db | **Drop** the `materials` table + its 3 recheck triggers + `materials_recheck_parents()` + 4 RLS policies. | after steps 2 & 3 |
+| 4 | command-suite-db | **Drop** the `materials` table + its 3 recheck triggers + `materials_recheck_parents()` + **5** RLS policies (incl. legacy catch-all). | after steps 2 & 3 |
 | 5 | all | **Verify vs job 6618**, then a **zero-hit re-grep** for `from('materials')` / stale `jobs.field_sow` primary reads across all 4 repos. | — |
 | 6 | command-suite-db | **Amend `MASTER_SCHEDULE.md` §4B step 9** wording to include the `jobs.field_sow` mirror (currently names only `materials`). | — |
 
@@ -116,31 +116,74 @@ Fix — mirror the sibling `TasksTab.js:88-120`, which already does this correct
 - **Primary:** `job_wtcs` for this job, ordered by `position`, merge each row's `field_sow`.
 - **Fallback (zero-WTC/archive jobs only):** `SELECT field_sow FROM jobs WHERE call_log_id = ?`.
 - **Delete** the `proposal_wtc` unjoined fallback.
-- **`daily_production_reports.wtc_id` write (`:141`,`:169`):** currently sourced from the deleted
-  `proposal_wtc` fallback. Decide which WTC id to stamp per report (track which WTC each task came
-  from, or stamp per-report). No schema/sync-rule change — `job_wtcs` already syncs to the device
-  (`powersync-sync-rules.yaml`), so this is app-code only.
+- **`daily_production_reports.wtc_id` write (`:141`,`:169`) [B3/C1 — resolved]:** currently sourced
+  from the deleted `proposal_wtc` fallback. **Stamp `wtc_id = job_wtcs.proposal_wtc_id`** — add
+  `proposal_wtc_id` to the `job_wtcs` SELECT and carry it through. For a **zero-WTC / merged report**
+  (no WTC resolvable) stamp **`null`**, never `''`. **Never** stamp `job_wtcs.id` (that's the
+  job_wtcs PK, not the proposal WTC the column expects). No schema/sync-rule change — `job_wtcs`
+  already syncs to the device (`powersync-sync-rules.yaml`), so this is app-code only.
+- **Loading guard [C2]:** add an `isLoading` guard before seeding `taskEntries` from the SOW — the
+  PowerSync `useQuery` hooks return `undefined` on first render, so seeding before data arrives
+  writes an empty form. Gate the seed on the queries having resolved.
 
 ### Step 2 — sales-command stop-writes (`src/components/ProposalDetail.jsx`, Send-to-Schedule)
 
-- `:788` — remove the `materials` table insert (`matRows`). App readers already use `job_material_lines`.
-- `:703` — remove the flat `field_sow: mergedSow` mirror write on the `jobs` insert. Keep the
-  canonical `job_wtcs` write (`:744`). The column stays populated for zero-WTC jobs via
-  `CardSowModal.saveLegacy` (`sch-command`), which is untouched.
+- `:788` — remove the `materials` table insert (`matRows`) and its `:789` `alert("Materials sync
+  warning: …")` handler. App readers already use `job_material_lines`.
+- `:686` — remove the flat `field_sow: fieldSow.length > 0 ? fieldSow : null` mirror write on the
+  `jobs` insert. Keep the canonical `job_wtcs` write (`:728`+). The column stays populated for
+  zero-WTC jobs via `CardSowModal.saveLegacy` (`sch-command`), which is untouched.
 
 ### Steps 3+4 — command-suite-db migration (one file, + rollback pair)
 
+**Forward migration:**
 1. Rewrite `job_base_checklist_passes()` materials check to mirror JS `materialsDecided` verbatim
    (read `job_material_lines`, fail-closed on empty). Confirm the `job_material_lines.status`
    values at build so the SQL keys off the same signal the JS does.
-2. `DROP` trigger ×3 (`materials_recheck_ready_{insert,update,delete}_trg`), then
-   `DROP FUNCTION materials_recheck_parents()`, then `DROP` the 4 `materials_*` RLS policies, then
-   `DROP TABLE public.materials`.
-3. Author + rollback pair per repo convention (`supabase/rollbacks/<ts>_revert_<name>.sql`).
-4. **Rehearse before push** (standing rule): `./scripts/rehearse.sh <migration>` against a
-   prod-shaped throwaway — seed job 6618 + a zero-WTC job + a WTC-backed job so the gate rewrite is
-   exercised on real shapes (baseline is schema-only/empty tables). Then `npm run db:push` (runs
-   safety + collision + anon-lock + from-scratch gates).
+   - **[Point 8] Keep the tenant scoping the old function had.** The old materials check joined
+     `materials → jobs → call_log` and filtered `cl.tenant_id = v_tenant_id`. **`job_material_lines`
+     has NO `tenant_id` column** (baseline `:2880`) — it's tenant-scoped only through
+     `job_id → jobs → call_log`. So the rewritten check must join
+     `job_material_lines jml JOIN jobs j ON j.job_id = jml.job_id JOIN call_log cl ON cl.id =
+     j.call_log_id WHERE cl.tenant_id = v_tenant_id`. Do NOT drop tenant scoping just because the
+     table lacks the column.
+2. `DROP` trigger ×3 (`materials_recheck_ready_{insert,update,delete}_trg`, baseline
+   `:4327/:4331/:4335`), then `DROP FUNCTION materials_recheck_parents()` (`:1279`), then
+   `DROP` **all 5** `materials` RLS policies, then `DROP TABLE public.materials`.
+   - **[B1] All 5 policies** (a legacy catch-all sits alongside the 4 named — miss it and the DROP
+     TABLE still works but the rollback would restore an incomplete policy set):
+     `"Authenticated users can do everything"` (catch-all, baseline `:5120`), `materials_delete`
+     (`:5791`), `materials_insert` (`:5795`), `materials_select` (`:5799`), `materials_update`
+     (`:5803`).
+
+**Rollback (`supabase/rollbacks/<ts>_revert_<name>.sql`) — [A1] full literal inverse, one unit.**
+Not "recreate an empty table." The rollback must restore the exact prior state:
+- `CREATE TABLE public.materials` with the exact columns (`id`, `job_id`, `ordinal`, `name`,
+  `status` DEFAULT `'Not Ordered'`, `arrival_date`, `notes`, `tenant_id` DEFAULT
+  `get_user_tenant_id()` NOT NULL) + PK + the `materials_id_seq` **and its `OWNED BY` ownership** +
+  the FKs (`materials_job_id_fkey → jobs(job_id)`, tenant FK) + `idx_materials_tenant` (`:4123`).
+- Recreate `materials_recheck_parents()` + all **3** recheck triggers.
+- Recreate all **5** RLS policies (the 4 named + the catch-all) and `ALTER TABLE … ENABLE ROW LEVEL
+  SECURITY`.
+- **Revert the `job_base_checklist_passes()` body** to the materials-table version (the gate revert
+  ships in the SAME rollback file — the forward migration changed it, so the inverse must undo it).
+- Copy the exact DDL from the committed baseline (`prod_public_schema.sql`) so the recreate is
+  byte-faithful, not reconstructed from memory.
+
+**Rehearse before push (standing rule), with an explicit SEED — [A2]:**
+`rehearse.sh` loads the baseline schema into a throwaway but has **no built-in data seeding** — an
+empty DB never exercises the gate. Add a seed step (inline SQL before applying the candidate, e.g. a
+`scripts/rehearse/seed_phase5.sql` the rehearsal sources) creating three shapes:
+1. **job 6618** (the reference job) with its real WTC + material rows,
+2. a **zero-WTC / archive job** (has `jobs.field_sow`, no `job_wtcs` rows),
+3. a **SOW-bearing job with ZERO `job_material_lines` rows** (has `job_wtcs.field_sow`, empty tracker).
+
+Then **assert the fail-closed path**: `SELECT job_base_checklist_passes(j.*) FROM jobs j WHERE …`
+returns **`false`** on shape (3) — proving the rewrite blocks an unseeded-tracker SOW job (the exact
+behavior the JS gate ships). Also assert (2) still resolves SOW via the flat column and (1) passes
+once its tracker is satisfied. Then `npm run db:push` (runs safety + collision + anon-lock +
+from-scratch gates). **Deploy of this migration waits for the deploy gate — the build terminal does
+not push it.**
 
 ### Step 5 — verify + re-grep
 
@@ -181,6 +224,15 @@ Current text names only the `materials` table. Add the `jobs.field_sow` mirror r
 ## Deploy
 
 - Order: **Sales stop-writes (step 2) → DB migration (steps 3+4)**. field-command (step 1) any time.
+- **[A3] Manual verify gate before `db:push`:** confirm the Sales **prod bundle actually dropped the
+  `materials` insert** (check the live salescommand.app build, not just that step 2 is merged) BEFORE
+  running the migration. A merged-but-not-deployed Sales change still runs the old insert against a
+  dropped table.
+- **[A3] Corrected hazard (it was over-stated):** a mis-ordered push does **not** block a job or error
+  the Send. The insert is wrapped — on failure it just fires the swallowed `alert("Materials sync
+  warning: …")` at `ProposalDetail.jsx:789`; the job still sends and `job_wtcs` still writes. So the
+  ordering is a **cosmetic-warning** risk, not a data-loss or blocked-send risk. Still order it
+  correctly, but don't treat a slip as an outage.
 - Closes the SOW/Material-Flow master schedule Tier 4.
 
 ---
@@ -247,7 +299,7 @@ Synthesis surfaces the top 9; remainder go to "Quarantined findings (not actiona
 - New columns: none
 - New tables: none
 - New helpers/hooks: none (the SQL gate rewrite MIRRORS existing JS `materialsDecided` — not novel)
-- New triggers / RLS: none (dropping 3 triggers + 4 policies)
+- New triggers / RLS: none (dropping 3 triggers + 5 policies)
 - New routes / jobs / cron: none
 
 **Net novelty: zero.** This is pure retirement — the audit's risk is in deletions + coordination,
@@ -274,7 +326,7 @@ not new surface.
 - **Invisible gate drift (MIG-1 class)** — the rewritten SQL gate must mirror JS `materialsDecided`
   EXACTLY, including fail-closed-on-empty and status handling; a subtle mismatch silently changes
   which jobs can go Ready.
-- **Stop-writes completeness** — plan assumes `ProposalDetail.jsx:788/:703` are the ONLY remaining
+- **Stop-writes completeness** — plan assumes `ProposalDetail.jsx:788/:686` are the ONLY remaining
   writers of `materials` / `jobs.field_sow` mirror. A missed writer (edge fn, cron, other repo) →
   orphaned rows or a post-drop error.
 - **All call sites of the rewritten function** — `job_base_checklist_passes()` is called from a jobs
@@ -300,7 +352,7 @@ not new surface.
    the rehearsal seed exercise the fresh-job path?
 2. **Stop-writes completeness + cross-repo deploy ordering** — covers Data layer, Cross-repo.
    Required reading: full grep census of `from('materials')` / `field_sow` writes across all 4 repos,
-   `sales-command/src/components/ProposalDetail.jsx` Send-to-Schedule flow. Pressure: are `:788`/`:703`
+   `sales-command/src/components/ProposalDetail.jsx` Send-to-Schedule flow. Pressure: are `:788`/`:686`
    truly the ONLY remaining writers? Any edge fn / cron / other-repo writer missed? Is the
    Sales-stop-before-drop ordering enforceable, and what breaks if it's violated? Is dropping
    historical `materials` rows for archive jobs acceptable (any reporting/QB dependency)?
