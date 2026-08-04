@@ -2,7 +2,8 @@
 
 **Branch:** `feat/dms1-phase5` (plan doc lives in sch-command; work spans sales-command + command-suite-db)
 **Wall-chart step:** 9 (Tier 4 — retire legacy)
-**Status:** PLAN — revision pass 2 (2026-08-03). Scope collapsed after round-2 plateau. Re-audit pending (round 3).
+**Status:** PLAN — revision pass 3 (2026-08-03). **Round 3 CLEARED** (0H/0C; gate SQL verified
+correct + fail-closed + JS-faithful; trend 8→8→5). Ship-ready after these mechanical fixes → rehearse next. No round 4.
 
 ---
 
@@ -76,10 +77,14 @@ already names only the `materials` table — no wording amendment needed now; ma
 
 ## Step 1 — sales-command stop-write (`ProposalDetail.jsx`, Send-to-Schedule)
 
-- `:788` — remove the `materials` table insert (`matRows`) and its `:789` `alert("Materials sync
-  warning: …")` handler. App readers already use `job_material_lines`.
-- **Do NOT touch** `:686` (the `field_sow` mirror) or the `job_wtcs` write (`:743`). Those stay —
-  `field_sow` retirement is out of scope this loop (see Deferred).
+- **Remove the whole `:773–790` block [C1]** — the 15-line `matRows` build + the
+  `if (matRows.length > 0) { … }` guard + the `materials` insert (`:788`) + its `:789`
+  `alert("Materials sync warning: …")`. Removing only `:788/:789` would leave an empty `if` and a
+  dead `matRows` build (block-local, no downstream refs, but dead code). App readers already use
+  `job_material_lines`.
+- **Leave intact:** the `job_wtcs` write (`:743`) and the `call_log` stage update (`:793`).
+- **Do NOT touch** `:686` (the `field_sow` mirror). `field_sow` retirement is out of scope this loop
+  (see Deferred).
 
 ## Steps 2+3 — command-suite-db migration (one file + full-inverse rollback)
 
@@ -137,12 +142,24 @@ Restore the exact prior state, copied **verbatim from the committed baseline** (
 not reconstructed from memory:
 - `CREATE TABLE public.materials` — exact columns: `id integer NOT NULL` with
   **`DEFAULT nextval('materials_id_seq')`**, `job_id`, `ordinal`, `name`,
-  `status text DEFAULT 'Not Ordered'` **+ its `materials_status_check` CHECK constraint**,
-  `arrival_date`, `notes`, `tenant_id uuid DEFAULT get_user_tenant_id() NOT NULL`.
+  `status text DEFAULT 'Not Ordered'`, `arrival_date`, `notes`,
+  `tenant_id uuid DEFAULT get_user_tenant_id() NOT NULL`.
+- **[A3] `materials_status_check` CHECK — recreate verbatim incl. `NOT VALID`** (baseline `:3744`):
+  `CHECK (status = ANY (ARRAY['Not Ordered','Ordered','In Stock','Delayed'])) NOT VALID`. A
+  *validating* recreate would scan/reject historical rows and diverge from prior state — the baseline
+  constraint is `NOT VALID`, so the inverse must be too.
 - `materials_id_seq` **+ its `OWNED BY public.materials.id`** ownership **+ the 3 sequence GRANTs**
   (`anon`/`authenticated`/`service_role`).
-- PK, FKs (`materials_job_id_fkey → jobs(job_id)`, tenant FK), `idx_materials_tenant`.
-- `materials_recheck_parents()` + all **3** recheck triggers.
+- PK, FKs: `materials_job_id_fkey → jobs(job_id)` and
+  **`materials_tenant_id_fkey → tenant_config(id)`** (baseline `:4852` — name the target, don't guess
+  `tenants`/`tenant_configs`), plus `idx_materials_tenant`.
+- **[A1] The 3 TABLE-level GRANTs** — `GRANT ALL ON TABLE public.materials TO anon, authenticated,
+  service_role;` (baseline `:7098-7100`). **This is the one omission that actually breaks the
+  rollback:** a recreated table with RLS enabled but no role GRANT is unreachable by PostgREST
+  (permission denied *before* RLS evaluates) — the rollback "succeeds" but leaves the table dead.
+- `materials_recheck_parents()` + **[A2] its 3 EXECUTE GRANTs**
+  (`GRANT ALL ON FUNCTION public.materials_recheck_parents() TO anon, authenticated, service_role;`,
+  baseline `:6629-31`) + all **3** recheck triggers.
 - All **5** RLS policies + `ALTER TABLE … ENABLE ROW LEVEL SECURITY`.
 - **Revert `job_base_checklist_passes()` body** to the materials-table version (the forward migration
   changed it; the inverse ships in the SAME rollback file and must undo it).
@@ -169,7 +186,24 @@ is satisfied. Then `npm run db:push` (runs safety + collision + anon-lock + from
 
 ## Step 4 — verify + re-grep
 
-- Job **6618**: still passes Ready via the rewritten gate; no `materials` rows needed.
+- **[B1] Pre-drop cutover census (read-only, run before the drop).** The old gate reads `materials`
+  (written at Send); the new gate reads `job_material_lines` (lazily populated → may be empty). Count
+  the jobs the cutover could flip:
+  ```sql
+  -- stored-ready, SOW-present, but empty tracker → the new gate would compute not-ready
+  SELECT count(*) FROM public.jobs j
+    JOIN public.call_log cl ON cl.id = j.call_log_id
+  WHERE j.ready_confirmed_at IS NOT NULL
+    AND (EXISTS (SELECT 1 FROM public.job_wtcs w WHERE w.job_id = j.job_id
+                   AND jsonb_typeof(w.field_sow)='array' AND jsonb_array_length(w.field_sow)>0)
+         OR j.field_sow IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM public.job_material_lines jml WHERE jml.job_id = j.job_id);
+  ```
+  **Zero → note and proceed.** **Non-zero → still safe** (the live app already recomputes fail-closed
+  in JS at `queries.js:88/:103`, so those jobs already display not-ready *today* — no new app-visible
+  disruption, no raw stored-flag consumer) **but state the count explicitly** rather than lean on the
+  wrong reassurance. (This replaces the old "6618 needs no materials rows" line, which missed the point.)
+- Job **6618**: passes Ready via the rewritten gate post-cutover.
 - **Zero-hit re-grep** across all repos: no `from('materials')` remains (the `materials_catalog` /
   `job_material_lines` tables are fine — exact-word `materials` table only).
 
@@ -207,7 +241,8 @@ in service. Filed as one user-triggered line in `docs/BACKLOG.md`, not a 5b plan
 - Order: **Sales stop-insert (step 1) → DB migration (steps 2+3)**.
 - **[B1] Verify gate before `db:push`:** confirm the Sales stop-insert is **actually live in prod** —
   verify via the **Vercel deploy-complete for the step-1 merge SHA** (host `www.scmybiz.com`,
-  `ProposalDetail.jsx:228/:266`), **not** by inspecting a minified bundle. A merged-but-not-deployed
+  auto-deploys on push to main — `sales-command/CLAUDE.md:331-332`), **not** by inspecting a minified
+  bundle. A merged-but-not-deployed
   Sales change still runs the old insert against a dropped table.
 - **Corrected hazard:** a mis-ordered push does **not** block a job. The insert is wrapped — on
   failure it fires the swallowed `alert("Materials sync warning: …")` (`:789`); the send still
