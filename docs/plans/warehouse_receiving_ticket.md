@@ -1,6 +1,6 @@
 # Warehouse Receiving Ticket (D2) — Build Plan
 
-**Status:** PLAN — drafted 2026-08-06, not yet audited. No code ships from this doc.
+**Status:** PLAN — revision pass 1 (round-1 audit response: 0C/0H/3M/2L, pattern reuse-fidelity). **Option B locked** 2026-08-06. Ready for build. No code ships from this doc.
 **Loop:** opens at build (`/erd-start` in the build terminal) — not yet locked.
 **Branch:** `sch-command feat/dms2-receiving-ticket` (this plan doc lives here).
 **Repo:** sch-command ONLY. No `command-suite-db`, no migration, no `sales-command` — cannot collide with the in-flight sales-command bug fix.
@@ -29,40 +29,35 @@ A printable **warehouse receiving ticket**: a whole-job list of every material o
 
 ---
 
-## 2. THE one architecture decision — reuse strategy `[DECISION — for /runaudit + build terminal to ratify]`
+## 2. THE architecture decision — reuse strategy `[LOCKED — Option B, ratified 2026-08-06 after round-1 audit]`
 
-The receiving ticket needs the SAME two things the crew ticket already does: (a) load bid materials for the job, (b) group+sum them (`summarizeBidMaterials`). It differs only in render: page-1 only (no per-day cards), a RECEIVED column, warehouse title, "Received by / Date" frame.
+Both round-1 reviewers independently recommended B over the draft's A; **ratified by Chris 2026-08-06.** **Extract the shared load + summary into one canonical module; both tickets consume it.** Rationale: the receiving ticket exists to show the SAME material totals as the crew ticket — two copies of that logic (A) can drift; one shared function (B) cannot. Honors [[feedback_extend_canonical_not_twin]]; the draft's A traded that away for "don't touch shipped code," which the audit correctly reversed. Cost of B (re-smoke that the crew ticket still prints identical page-1 numbers + order) is trivial.
 
-**Option A — self-contained `ReceivingTicket.jsx`, CrewTicket untouched (RECOMMENDED).**
-- New component mirrors CrewTicket's self-contained pattern: its own data load + its own `summarizeBidMaterials` copy (~20 stable lines) + its own trimmed markup.
-- **Pro:** zero risk to the shipped, gate-passed crew ticket (no re-smoke of Phase 4 owed); consistent with the Phase-4 reset philosophy that self-containment "held up through every gate."
-- **Con:** the group-by-name+kit rule now lives in two places — a twin that could drift ([[feedback_extend_canonical_not_twin]]).
+**Shared module `src/lib/ticketMaterials.js` exports:**
+- `loadBidMaterialsForJob(jobId)` — the EXACT two-hop from `CrewTicket.jsx:159-181` (`loadJobWithWTCs` → map `_wtcs.proposal_wtc_id` → `.filter(Boolean)` → `.in('id', pwIds)` on `proposal_wtc` → `flatMap` materials). Copy verbatim; do NOT swap for an embed.
+- `summarizeBidMaterials(bidMaterials)` — the `:203-218` IIFE, carrying its `uname` dependency (`:23`) into the module, PLUS a deterministic `.sort()` by `uname` so both tickets list rows in identical order (round-1 finding — without it the two sheets could order the same materials differently).
 
-**Option B — extract shared helpers, both tickets consume them.**
-- Pull `loadBidMaterialsForJob(jobId)` (the `:160-181` useEffect body) + `summarizeBidMaterials()` + `uname` into `src/lib/ticketMaterials.js`; refactor CrewTicket to import them; ReceivingTicket imports the same.
-- **Pro:** one canonical grouping rule, no drift — honors [[feedback_extend_canonical_not_twin]].
-- **Con:** touches shipped/verified code ([[feedback_minimal_fix_first]]) → the crew ticket must be re-smoked to prove no regression.
+`CrewTicket.jsx` refactors to import both (behavior-identical); `ReceivingTicket.jsx` imports the same.
 
-**My recommendation: A for this build.** The shared logic is ~20 stable lines, "get through this build" is the stated goal, and not re-opening the shipped crew ticket is the lower-risk path. If the grouping rule ever actually changes, extract then. The build terminal can upgrade to B cheaply if the audit prefers it.
+**Known assumption [D1, round-1 over-cap, Low]:** `summarizeBidMaterials` groups by `name + kit_size` (`:211`) and discards `unit`/`supplier` — two same-name lines in different units sum into one "Total Needed". Benign on the crew checklist; newly load-bearing when a warehouse counts physical delivery against it. **Accepted for this build** (test-only surface, no live warehouse users); documented here as the **"one name+kit = one unit" assumption**. Revisit if a real warehouse hits mixed-unit materials.
 
 ---
 
-## 3. Build steps (Option A)
+## 3. Build steps (Option B — locked)
 
-1. **NEW `src/components/ReceivingTicket.jsx`** — modeled on `CrewTicket.jsx`, trimmed:
-   - Same data load (`loadJobWithWTCs` + scoped `proposal_wtc.materials` read) and same `summarizeBidMaterials` grouping.
-   - **Render page 1 ONLY** — drop the per-day `DayCard` section entirely (`CrewTicket.jsx:337-349`) and the `.ct-cover` page-break.
-   - **Header:** title "WAREHOUSE RECEIVING" + subtitle (e.g. "MATERIAL RECEIVING TICKET") in place of "Daily Material Schedule / JOB TICKET · PRINT ONE PER CREW" (`:286-287`).
-   - **Add RECEIVED column:** grid goes from `28px 34px 1fr 96px` to `28px 34px 1fr 96px 96px` (col header + row cell in `.ct-cols`/`.ct-row`, `:47-49`); the new cell is a blank underline/box for handwriting the received qty.
-   - **Signature frame:** "Received by · Date" (single or double line) in place of Lead/Sales signatures (`:330-333`).
-   - Keep the modal shell + on-screen preview + `handlePrint` popup pattern verbatim (incl. the `<title>` escaping from T6 security-review, `:195-197`) — proven, and keeps print behavior identical.
-2. **`LogisticsMaterials.jsx`** — add a second button + mount:
-   - New state `receivingOpen` (beside `ticketOpen`, `:53`).
-   - Second button **"Print Receiving List"** next to Print Ticket (`:116`).
-   - Mount `{receivingOpen && <ReceivingTicket jobId={job.job_id} onClose={() => setReceivingOpen(false)} />}` (beside `:118`).
-3. `vite build` green; no lint/TDZ issues (new component, no new useEffect ordering traps).
+1. **NEW `src/lib/ticketMaterials.js`** — extract `loadBidMaterialsForJob`, `summarizeBidMaterials` (+ `uname`, + deterministic `.sort()` by `uname`) per §2. Copy the two-hop verbatim; no embed swap.
+2. **Refactor `CrewTicket.jsx`** — import `loadBidMaterialsForJob` + `summarizeBidMaterials` from the module; delete the now-duplicated inline load body (`:159-181`), summary IIFE (`:203-218`), and local `uname` (`:23`). **No behavior change intended** — page-1 numbers + order identical. **Re-smoke owed** (§5).
+3. **NEW `src/components/ReceivingTicket.jsx`** — imports the shared module; renders page-1 ONLY:
+   - Drop the per-day `DayCard` section (`CrewTicket.jsx:337-349`), the `.ct-cover` page-break, the `.sow-footer` (`:351-354`), AND the dead `sections`/`totalDays`/`wtcs` derivations (`:220-225`) — no "0 DAYS SCHEDULED" on a warehouse sheet [C1].
+   - **Header:** "WAREHOUSE RECEIVING" + subtitle in place of "Daily Material Schedule / JOB TICKET · PRINT ONE PER CREW" (`:286-287`).
+   - **RECEIVED column on ALL FOUR sites** [B1]: print col-header (`:313-318`), print row (`:319-326`), preview grid (`:261`, currently `28px 1fr auto`), preview row (`:262-264`) — give the preview an explicit RECEIVED cell so the on-screen preview shows the column. Print grid `28px 34px 1fr 96px` → `28px 34px 1fr 96px 72px`; RECEIVED is a ~72px write-in box [C2].
+   - **`.ct-mat-name` in the new component gets `white-space:nowrap; overflow:hidden; text-overflow:ellipsis`** [C2] so a long material name can't blow out the tighter grid. Verify against a real long-name job, not a toy.
+   - **Signature frame:** "Received by · Date" in place of Lead/Sales (`:330-333`).
+   - Keep `handlePrint` verbatim incl. `esc()` (`:195`) — do NOT re-concatenate material names into the popup HTML [round-1].
+4. **`LogisticsMaterials.jsx`** — `receivingOpen` state (beside `:53`), second **"Print Receiving List"** button (`:116`), mount `{receivingOpen && <ReceivingTicket jobId={job.job_id} onClose={() => setReceivingOpen(false)} />}` (beside `:118`).
+5. `vite build` green.
 
-**Files touched:** `src/components/ReceivingTicket.jsx` (new), `src/components/LogisticsMaterials.jsx` (2-line add). Nothing else. (Option B would additionally add `src/lib/ticketMaterials.js` and edit `CrewTicket.jsx`.)
+**Files touched:** `src/lib/ticketMaterials.js` (new), `src/components/ReceivingTicket.jsx` (new), `src/components/CrewTicket.jsx` (refactor to import shared), `src/components/LogisticsMaterials.jsx` (button + mount).
 
 ---
 
@@ -70,15 +65,16 @@ The receiving ticket needs the SAME two things the crew ticket already does: (a)
 
 - No per-day breakdown, no grouping selector, no pull ticket, no pallet ticket (scope-locked §0).
 - No data capture of received quantities (paper write-in only) → **no migration, no `command-suite-db`, no RLS.**
-- No change to the crew ticket's output (Option A). No `sales-command` change.
+- No change to the crew ticket's OUTPUT — its printed page-1 numbers + row order stay identical after the Option-B refactor (re-smoke confirms, §5). No `sales-command` change.
 
 ---
 
 ## 5. Verify (build terminal, before /buildvsplan)
 
-- Open a real multi-WTC job's Logistics tab → **Print Receiving List** → preview shows every job material grouped+summed, matching the crew ticket's page-1 numbers exactly (same source, same grouping).
-- Print output: WAREHOUSE RECEIVING title, RECEIVED blank column present, Received-by frame, **no** per-day cards.
-- Confirm the existing **Print Ticket** still prints the full crew sheet unchanged (Option A: it wasn't touched — a glance, not a full re-smoke).
+- Real multi-WTC job's Logistics tab → **Print Receiving List** → preview AND print show every job material grouped+summed, matching the crew ticket's page-1 numbers + order exactly (same shared module). **Preview must visibly show the RECEIVED column** [B1] — the verifier only looks at the preview.
+- Print output: WAREHOUSE RECEIVING title, RECEIVED write-in column, Received-by frame, **no** per-day cards, **no** "DAYS SCHEDULED" footer.
+- **Crew-ticket re-smoke** (B refactored its load+summary): Print Ticket page-1 numbers AND row order identical to before; per-day cards unchanged.
+- **Long-material-name job** [C2]: name ellipsizes, RECEIVED box not crushed, no grid overflow — test on a real long-name job, not a toy.
 - Zero-bid-material job → "No bid materials on file" (inherited empty state), no crash.
 
 ---
@@ -88,8 +84,8 @@ The receiving ticket needs the SAME two things the crew ticket already does: (a)
 | # | Item | Status |
 |---|---|---|
 | 1 | Button label — "Print Receiving List" vs "Receiving Ticket" | trivial, decide at build |
-| 2 | RECEIVED column: blank line vs boxed cell; single "Received by/Date" line vs two | cosmetic, decide against the printed proof |
-| 3 | Reuse strategy A vs B (§2) | ratify in /runaudit + build terminal |
+| 2 | RECEIVED cell + "Received by/Date" line form | cosmetic; RECEIVED = ~72px write-in box [C2], decide line style against the printed proof |
+| 3 | Reuse strategy A vs B (§2) | **RESOLVED — Option B locked, ratified 2026-08-06 (round-1 audit)** |
 
 ---
 
