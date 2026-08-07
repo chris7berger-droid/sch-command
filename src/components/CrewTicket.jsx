@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase } from '../lib/supabase'
-import { loadJobWithWTCs } from '../lib/queries'
 import { materialBlocksPrint } from './FieldSowBuilder'
 import { PRINT_CSS } from './FieldSowModal'
 import { ScheduleCommandMark } from './Logo'
 import { useToast } from '../lib/toast'
+import { loadBidMaterialsForJob, summarizeBidMaterials, uname } from '../lib/ticketMaterials'
 
 // DMS-1 Phase 4 — the crew ticket (print). SELF-CONTAINED by design (2026-08-02
 // reset): it loads its OWN data and renders its OWN markup, so it shares NOTHING
@@ -19,8 +18,6 @@ import { useToast } from '../lib/toast'
 //   2. Per-day cards — grouped by WTC: work-to-complete (tasks + %), scope notes,
 //      and the day's materials as text (specs, NO per-day qty — totals live on
 //      page 1 per locked decision A).
-
-const uname = (m = {}) => m.product || m.name || 'Unnamed material'
 
 // Build the material spec line ("Mils: 3/16" · Coverage: 45 Sqft per kit · …").
 // Truthy-guarded per segment so a blank spec never prints an empty "Key: ".
@@ -157,25 +154,9 @@ export default function CrewTicket({ jobId, onClose }) {
     let active = true
     setLoading(true)
     ;(async () => {
-      const { data: jobData, error: jobErr } = await loadJobWithWTCs(jobId)
+      const { job: jobData, bidMaterials: mats, error: loadErr } = await loadBidMaterialsForJob(jobId)
       if (!active) return
-      if (jobErr) { setError(jobErr.message); setLoading(false); return }
-
-      // Bid quantities live on proposal_wtc.materials (Sales-owned). Read ONLY the
-      // proposal_wtc rows tied to this job's scheduled WTCs — inherently scoped, so
-      // nothing from unscheduled WTCs leaks onto page 1.
-      const wtcs = Array.isArray(jobData?._wtcs) ? jobData._wtcs : []
-      const pwIds = wtcs.map(w => w.proposal_wtc_id).filter(Boolean)
-      let mats = []
-      if (pwIds.length > 0) {
-        const { data: pwData, error: pwErr } = await supabase
-          .from('proposal_wtc')
-          .select('id, materials')
-          .in('id', pwIds)
-        if (!active) return
-        if (pwErr) { setError(pwErr.message); setLoading(false); return }
-        mats = (pwData || []).flatMap(w => Array.isArray(w.materials) ? w.materials : [])
-      }
+      if (loadErr) { setError(loadErr.message); setLoading(false); return }
       setJob(jobData)
       setBidMaterials(mats)
       setLoading(false)
@@ -199,23 +180,9 @@ export default function CrewTicket({ jobId, onClose }) {
     setTimeout(() => { win.print() }, 400)
   }
 
-  // Page-1 summary: group identical bid materials across WTCs, sum qty.
-  const summary = (() => {
-    const map = new Map()
-    for (const m of bidMaterials) {
-      const name = uname(m)
-      const kit = m.kit_size || ''
-      // Group by name AND kit_size: the same product in two kit sizes is two
-      // distinct order lines (summing them would order the wrong kit). Same
-      // name + same kit sums across WTCs.
-      const key = `${name}|${kit}`
-      const qty = Number(m.qty) || 0
-      const prev = map.get(key)
-      if (prev) { prev.qty += qty }
-      else map.set(key, { name, qty, kit_size: kit })
-    }
-    return [...map.values()]
-  })()
+  // Page-1 summary: group identical bid materials across WTCs, sum qty (shared
+  // with the warehouse receiving ticket — see src/lib/ticketMaterials.js).
+  const summary = summarizeBidMaterials(bidMaterials)
 
   // Per-day cards grouped by WTC; legacy zero-WTC job → flat jobs.field_sow.
   const wtcs = Array.isArray(job?._wtcs) ? job._wtcs : []
