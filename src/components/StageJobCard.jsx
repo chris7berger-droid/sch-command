@@ -256,14 +256,10 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
           <span className="sjc-score-label">CREW</span>
           <span className="sjc-score-val">{crewRows.length} / {job.crew_needed || '?'}</span>
         </div>
-        <div className={`sjc-score sjc-score-click sjc-score-wide ${hasDate ? 'sjc-score-neutral' : 'sjc-score-bad'}`} onClick={onDateClick}>
+        <div className={`sjc-score sjc-score-click ${hasDate ? 'sjc-score-neutral' : 'sjc-score-bad'}`} onClick={onDateClick} title="View schedule calendar">
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">DAYS</span>
-          <span className="sjc-score-val">
-            {hasDate
-              ? <>{workDays || '?'}d <span className="sjc-score-dates">{start} — {end || '?'}</span></>
-              : '✗'}
-          </span>
+          <span className="sjc-score-val">{hasDate ? <>{workDays || '?'}d</> : '✗'}</span>
         </div>
         <div className="sjc-score sjc-score-stub" title="Coming soon — mobilizations">
           <span className="sjc-score-icon">{'🚚'}</span>
@@ -762,13 +758,6 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           job={job}
           assignmentDates={assignmentDates}
           onClose={() => setShowDaysModal(false)}
-          onDayClick={(wtcId, dayIndex) => {
-            // Option-3 handoff: close DAYS, open the canonical SOW modal focused on
-            // that WTC + day. DAYS modal writes nothing — it only navigates.
-            setShowDaysModal(false)
-            setSowFocus({ wtcId, dayIndex })
-            setShowSowModal(true)
-          }}
         />
       )}
     </div>

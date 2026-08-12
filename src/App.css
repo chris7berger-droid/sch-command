@@ -5827,6 +5827,77 @@
   margin-left: auto;
 }
 
+/* DAYS at-a-glance calendar (DaysModal) */
+.days-cal-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.days-cal-count {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.days-cal-range {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-light);
+}
+.days-cal-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.days-cal {
+  min-width: 220px;
+}
+.days-cal-month {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.days-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.days-cal-dow {
+  font-family: var(--font-heading);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  text-align: center;
+  padding-bottom: 2px;
+}
+.days-cal-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-light);
+  border-radius: 5px;
+}
+.days-cal-blank {
+  visibility: hidden;
+}
+.days-cal-on {
+  background: var(--command-green, #5BBD3F);
+  color: #fff;
+  font-weight: 700;
+}
+.days-cal-today {
+  box-shadow: inset 0 0 0 2px #30cfac;
+}
+
 /* Scorecard color states */
 .sjc-score-ok   { border-color: rgba(46, 125, 50, 0.3); background: rgba(46, 125, 50, 0.08); }
 .sjc-score-ok   .sjc-score-val { color: var(--grn); }
