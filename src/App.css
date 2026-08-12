@@ -2339,6 +2339,13 @@
 .jh-search::placeholder { color: var(--text-light); }
 .jh-search:focus { outline: none; border-color: var(--command-green); }
 
+.jh-bin-sub {
+  font-size: 12px;
+  color: var(--text-light);
+  margin: -4px 0 14px;
+  line-height: 1.4;
+}
+
 .jh-search-clear {
   flex-shrink: 0;
   width: 36px;
