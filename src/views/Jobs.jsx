@@ -605,7 +605,7 @@ export default function Jobs() {
       {showBin && (
         <div className="mbg" onClick={e => { if (e.target === e.currentTarget) setShowBin(false) }}>
           <div className="mdl">
-            <h3>Recovery Bin</h3>
+            <h3>Recovery Bin — Good for 24 Hours</h3>
             <div className="jh-bin-sub">Jobs you delete land here and can be restored for 24 hours. After that they're gone for good.</div>
             {deletedJobs.length === 0 ? (
               <div className="jh-empty">No jobs deleted in the last 24 hours</div>
