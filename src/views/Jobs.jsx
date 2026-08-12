@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist } from '../lib/queries'
+import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist, loadMobilizationsByCallLog } from '../lib/queries'
 import JobsPicker from '../components/JobsPicker'
 import StagedCardList from '../components/StagedCardList'
 import AllJobsList from '../components/AllJobsList'
@@ -175,9 +175,13 @@ export default function Jobs() {
   const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
   const [proposalMaterialsByCallLog, setProposalMaterialsByCallLog] = useState({})
+  const [mobsByCallLog, setMobsByCallLog] = useState({})
   const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Picker-landing job search — find a job across ALL stages without drilling in.
+  const [pickerSearch, setPickerSearch] = useState('')
 
   // shell-level filters drive both scoreboard and tab content
   const [search, setSearch] = useState('')
@@ -277,6 +281,17 @@ export default function Jobs() {
       setProposalMaterialsByCallLog(pmMap)
     } else {
       setProposalMaterialsByCallLog({})
+    }
+
+    // Batched proposal-authored mobilization labels/dates, keyed by call_log_id.
+    // Feeds the MOBS card, which reads mobilization_seq off the SOW days and
+    // hydrates label/dates from here (read-only; Sales owns the write).
+    if (pmCallLogIds.length > 0) {
+      const mobs = await loadMobilizationsByCallLog(pmCallLogIds)
+      if (thisLoad !== loadIdRef.current) return
+      setMobsByCallLog(mobs)
+    } else {
+      setMobsByCallLog({})
     }
 
     const activeCallLogIds = loadedJobs
@@ -439,7 +454,38 @@ export default function Jobs() {
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} onOpenBin={openBin} />
+        <>
+          <div className="jh-toolbar">
+            <input
+              className="jh-search"
+              type="text"
+              placeholder="Find a job by number, name, or work type — across all stages…"
+              value={pickerSearch}
+              onChange={e => setPickerSearch(e.target.value)}
+            />
+            {pickerSearch && (
+              <button className="jh-search-clear" onClick={() => setPickerSearch('')} title="Clear search">✕</button>
+            )}
+          </div>
+
+          {pickerSearch.trim() ? (
+            <AllJobsList
+              jobs={jobs.filter(j => matchesSearch(j, pickerSearch.toLowerCase().trim()))}
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
+              prtMap={prtMap}
+              today={today}
+              onJobUpdate={() => loadData({ background: true })}
+              emptyText={`No jobs match “${pickerSearch.trim()}”`}
+            />
+          ) : (
+            <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} onOpenBin={openBin} />
+          )}
+        </>
       )}
 
       {!showPicker && (
@@ -466,6 +512,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No staged jobs in this date range"
@@ -480,6 +527,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No ready jobs in this date range"
@@ -497,6 +545,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
@@ -514,6 +563,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               onJobUpdate={() => loadData({ background: true })}
             />
@@ -527,6 +577,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No production-complete jobs in this date range"
@@ -540,6 +591,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}

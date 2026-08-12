@@ -2,12 +2,13 @@ import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { updateJobField, updateJobStatus } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
-import { baseChecklistPasses, hasFieldSow, materialsDecided } from '../lib/queries'
+import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
 import { useUser } from '../lib/user'
 import FieldSowModal from './FieldSowModal'
 import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
+import MobsModal from './MobsModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -226,7 +227,7 @@ function IdentityRow({ job }) {
   )
 }
 
-function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, onCrewClick, onMtrlClick, onDateClick }) {
+function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, onCrewClick, onMtrlClick, onDateClick, mobs = [], onMobsClick }) {
   const hasSOW = hasFieldSow(job)
   const hasCrew = crewRows.length >= 1
   // Mirror the fail-closed gate (baseChecklistPasses): SOW + 0 tracker rows = not OK.
@@ -261,10 +262,14 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
           <span className="sjc-score-label">DAYS</span>
           <span className="sjc-score-val">{hasDate ? <>{workDays || '?'}d</> : '✗'}</span>
         </div>
-        <div className="sjc-score sjc-score-stub" title="Coming soon — mobilizations">
+        <div
+          className={`sjc-score${mobs.length ? ' sjc-score-click sjc-score-neutral' : ' sjc-score-stub'}`}
+          onClick={mobs.length ? onMobsClick : undefined}
+          title={mobs.length ? 'View mobilizations' : 'No mobilizations set on the Sales proposal'}
+        >
           <span className="sjc-score-icon">{'🚚'}</span>
           <span className="sjc-score-label">MOBS</span>
-          <span className="sjc-score-val">—</span>
+          <span className="sjc-score-val">{mobs.length || '—'}</span>
         </div>
       </div>
     </div>
@@ -560,7 +565,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByCallLog = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -572,6 +577,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const [showPrintModal, setShowPrintModal] = useState(false)
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
+  const [showMobsModal, setShowMobsModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -579,6 +585,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const proposalMaterials = proposalMaterialsByCallLog[job.call_log_id] || []
   const logsCount = logsByCallLog[job.call_log_id] || 0
   const assignmentDates = assignmentsByJobId[job.job_id] || null
+  const mobs = getJobMobilizations(job, mobsByCallLog[job.call_log_id])
 
   const togglePanel = useCallback((key) => {
     setPanels(prev => ({ ...prev, [key]: !prev[key] }))
@@ -673,6 +680,8 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           onMtrlClick={() => setShowMtrlModal(true)}
           onCrewClick={goCrewSchedule}
           onDateClick={() => setShowDaysModal(true)}
+          mobs={mobs}
+          onMobsClick={() => setShowMobsModal(true)}
         />
       )}
       {panels.management && (
@@ -758,6 +767,14 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           job={job}
           assignmentDates={assignmentDates}
           onClose={() => setShowDaysModal(false)}
+        />
+      )}
+
+      {showMobsModal && (
+        <MobsModal
+          job={job}
+          mobs={mobs}
+          onClose={() => setShowMobsModal(false)}
         />
       )}
     </div>
