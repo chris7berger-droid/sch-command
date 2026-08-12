@@ -89,6 +89,59 @@ function urgencyScore(job, today) {
   return score
 }
 
+// Date-filter widening order for the drill-down auto-fit (custom is excluded —
+// it's only ever set by an explicit user pick).
+const DATE_FILTER_ORDER = ['week', 'month', 'quarter', 'all']
+
+function rangeForKey(key, now) {
+  switch (key) {
+    case 'week': {
+      const mon = getMonday(now)
+      const fri = new Date(mon)
+      fri.setDate(fri.getDate() + 4)
+      return { from: fmtD(mon), to: fmtD(fri) }
+    }
+    case 'month': {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1)
+      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+      return { from: fmtD(first), to: fmtD(last) }
+    }
+    case 'quarter':
+      return { from: fmtD(getQuarterStart(now)), to: fmtD(getQuarterEnd(now)) }
+    default: // 'all' and anything unknown → no bound
+      return null
+  }
+}
+
+function jobInRange(j, range) {
+  if (!range) return true
+  const start = effectiveStart(j)
+  const end = effectiveEnd(j)
+  if (!start && !end) return true
+  return (start || '1900-01-01') <= range.to && (end || '2999-12-31') >= range.from
+}
+
+function matchesSearch(j, q) {
+  if (!q) return true
+  const num = (j.job_num || '').toLowerCase()
+  const name = (j.job_name || '').toLowerCase()
+  const wt = (j.work_type || '').toLowerCase()
+  return num.includes(q) || name.includes(q) || wt.includes(q)
+}
+
+// The status filter each drill-down tab applies on top of the shell filters —
+// mirrors the inline filters in the render so the auto-fit sees the same jobs.
+function stagePredicate(tab, crewByCallLog, matsByJobId) {
+  switch (tab) {
+    case 'staged':    return j => getJobStatus(j) === 'Scheduled' && !isReady(j, crewByCallLog, matsByJobId)
+    case 'scheduled': return j => getJobStatus(j) === 'Scheduled' && isReady(j, crewByCallLog, matsByJobId)
+    case 'active':    return j => { const s = getJobStatus(j); return s === 'In Progress' || s === 'Ongoing' }
+    case 'on-hold':   return j => getJobStatus(j) === 'On Hold'
+    case 'complete':  return j => getJobStatus(j) === 'Complete'
+    default:          return () => true // 'all'
+  }
+}
+
 /* ── shell ───────────────────────────────────────────────────────── */
 
 export default function Jobs() {
@@ -138,6 +191,13 @@ export default function Jobs() {
 
   const today = useMemo(() => new Date(), [])
   const loadIdRef = useRef(0)
+  // Tab for which the user manually chose a date range — auto-fit skips it.
+  const manualFilterTabRef = useRef(null)
+
+  const pickFilter = useCallback((key) => {
+    manualFilterTabRef.current = activeTab
+    setDateFilter(key)
+  }, [activeTab])
 
   // "Crew assigned" = office assignments (the pre-kickoff signal). job_crew is
   // Field Command clock-ins, which only exist post-kickoff, so it can't gate
@@ -262,57 +322,35 @@ export default function Jobs() {
   }, [loadData])
 
   const dateRange = useMemo(() => {
-    const now = new Date()
-    switch (dateFilter) {
-      case 'week': {
-        const mon = getMonday(now)
-        const fri = new Date(mon)
-        fri.setDate(fri.getDate() + 4)
-        return { from: fmtD(mon), to: fmtD(fri) }
-      }
-      case 'month': {
-        const first = new Date(now.getFullYear(), now.getMonth(), 1)
-        const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-        return { from: fmtD(first), to: fmtD(last) }
-      }
-      case 'quarter':
-        return { from: fmtD(getQuarterStart(now)), to: fmtD(getQuarterEnd(now)) }
-      case 'all':
-        return null
-      case 'custom':
-        if (customFrom && customTo) return { from: customFrom, to: customTo }
-        return null
-      default:
-        return null
+    if (dateFilter === 'custom') {
+      return customFrom && customTo ? { from: customFrom, to: customTo } : null
     }
+    return rangeForKey(dateFilter, new Date())
   }, [dateFilter, customFrom, customTo])
 
   // shell-filtered jobs (date + search) — tabs apply status filter on top
   const filteredJobs = useMemo(() => {
-    let list = jobs
-
-    if (dateRange) {
-      list = list.filter(j => {
-        const start = effectiveStart(j)
-        const end = effectiveEnd(j)
-        if (!start && !end) return true
-        return (start || '1900-01-01') <= dateRange.to && (end || '2999-12-31') >= dateRange.from
-      })
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase().trim()
-      list = list.filter(j => {
-        const num = (j.job_num || '').toLowerCase()
-        const name = (j.job_name || '').toLowerCase()
-        const wt = (j.work_type || '').toLowerCase()
-        return num.includes(q) || name.includes(q) || wt.includes(q)
-      })
-    }
-
-    list = [...list].sort((a, b) => urgencyScore(a, today) - urgencyScore(b, today))
-    return list
+    const q = search.toLowerCase().trim()
+    const list = jobs.filter(j => jobInRange(j, dateRange) && matchesSearch(j, q))
+    return [...list].sort((a, b) => urgencyScore(a, today) - urgencyScore(b, today))
   }, [jobs, search, dateRange, today])
+
+  // Drill-down auto-fit: on entering a stage, widen the date window to the
+  // narrowest range (week → month → quarter → all) that actually has jobs for
+  // that stage, so you never land on a blank screen just because nothing falls
+  // in "this week." Setting dateFilter highlights the matching pill. A manual
+  // pill pick on a tab is remembered (manualFilterTabRef) and left alone.
+  useEffect(() => {
+    if (!activeTab) return
+    if (manualFilterTabRef.current === activeTab) return
+    const pred = stagePredicate(activeTab, crewByCallLog, matsByJobId)
+    const q = search.toLowerCase().trim()
+    const stageJobs = jobs.filter(j => pred(j) && matchesSearch(j, q))
+    if (stageJobs.length === 0) return // stage is genuinely empty — nothing to widen to
+    const now = new Date()
+    const best = DATE_FILTER_ORDER.find(key => stageJobs.some(j => jobInRange(j, rangeForKey(key, now)))) || 'all'
+    setDateFilter(best)
+  }, [activeTab, jobs, search, crewByCallLog, matsByJobId])
 
   /* ── restore bin ────────────────────────────────────────────── */
 
@@ -373,7 +411,7 @@ export default function Jobs() {
                 <button
                   key={f.key}
                   className={`jh-filter-pill${dateFilter === f.key ? ' active' : ''}`}
-                  onClick={() => setDateFilter(f.key)}
+                  onClick={() => pickFilter(f.key)}
                 >
                   {f.label}
                 </button>
