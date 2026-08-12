@@ -110,35 +110,43 @@ export function isReady(job, crewByCallLog, matsByJobId) {
 // job_wtcs.field_sow days (date range + day count come from the ACTUAL tagged
 // days) and hydrate the human label + planned dates from proposals.mobilizations
 // by seq (mobsBySeq). Read-only — Schedule writes nothing here.
-function collectSeqDates(sowArray, bySeq) {
+// Fold one field_sow array into the per-seq accumulator. A day counts toward its
+// mob whether or not it has a concrete date yet (dates can be TBD post-send).
+function collectSeq(sowArray, workTypeName, bySeq) {
   if (!Array.isArray(sowArray)) return
   for (const d of sowArray) {
     const seq = d?.mobilization_seq
     if (seq == null) continue
-    const entry = bySeq.get(seq) || { dates: new Set() }
+    const entry = bySeq.get(seq) || { dates: new Set(), count: 0, workTypes: new Set() }
+    entry.count += 1
+    if (workTypeName) entry.workTypes.add(workTypeName)
     if (typeof d.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d.date)) entry.dates.add(d.date.slice(0, 10))
     bySeq.set(seq, entry)
   }
 }
 
 export function getJobMobilizations(job, mobsBySeq = {}) {
-  const bySeq = new Map() // seq → { dates:Set }
+  const bySeq = new Map() // seq → { dates:Set, count, workTypes:Set }
   const wtcs = Array.isArray(job?._wtcs) ? job._wtcs : []
-  for (const w of wtcs) collectSeqDates(w.field_sow, bySeq)
+  for (const w of wtcs) collectSeq(w.field_sow, w.work_type_name, bySeq)
   // Legacy zero-WTC jobs: seq tags live on the flat jobs.field_sow instead.
-  if (bySeq.size === 0) collectSeqDates(job?.field_sow, bySeq)
+  if (bySeq.size === 0) collectSeq(job?.field_sow, null, bySeq)
 
   return [...bySeq.entries()]
-    .map(([seq, { dates }]) => {
+    .map(([seq, e]) => {
       const meta = mobsBySeq[seq] || {}
-      const sorted = [...dates].sort()
+      const sorted = [...e.dates].sort()
+      const hasConcrete = sorted.length > 0
       return {
         seq,
         label: meta.label || `Mob ${seq}`,
-        dayCount: sorted.length,
-        // Prefer the actual tagged-day span; fall back to the proposal's planned dates.
-        start_date: sorted[0] || meta.start_date || null,
-        end_date: sorted[sorted.length - 1] || meta.end_date || null,
+        dayCount: e.count,                 // # of SOW days tagged to this mob (dated or TBD)
+        workTypes: [...e.workTypes],
+        // Prefer the actual tagged-day span; else the proposal's planned dates.
+        start_date: hasConcrete ? sorted[0] : (meta.start_date || null),
+        end_date: hasConcrete ? sorted[sorted.length - 1] : (meta.end_date || null),
+        // True when the range comes from the proposal plan, not yet-scheduled days.
+        datesPlanned: !hasConcrete && (meta.start_date != null || meta.end_date != null),
         days: sorted,
       }
     })

@@ -3,24 +3,28 @@
 // mobilization_seq tags on its SOW days and hydrated with labels/dates from
 // the originating proposal. Authoring lives on the Sales side, not here.
 
-const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-// ISO "2026-06-16" → "Mon Jun 16" (local-parse, no TZ shift). null on empty/invalid.
-function fmtDate(iso) {
-  if (!iso) return null
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso)
+// ISO "2026-07-28" → "Jul 28" (local-parse, no TZ shift). null on empty/invalid.
+function fmtShort(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '')
   if (!m) return null
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  return `${DOW[d.getDay()]} ${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}`
+  return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}`
 }
 
 function rangeLabel(mob) {
-  const a = fmtDate(mob.start_date)
-  const b = fmtDate(mob.end_date)
+  const a = fmtShort(mob.start_date)
+  const b = fmtShort(mob.end_date)
   if (!a && !b) return 'Dates TBD'
-  if (a && b && mob.start_date === mob.end_date) return a
-  return `${a || 'TBD'} – ${b || 'TBD'}`
+  const base = a && b && mob.start_date === mob.end_date ? a : `${a || 'TBD'} – ${b || 'TBD'}`
+  return mob.datesPlanned ? `${base} (planned)` : base
+}
+
+function metaLabel(mob) {
+  const parts = []
+  if (mob.workTypes?.length) parts.push(mob.workTypes.join(', '))
+  parts.push(`${mob.dayCount} day${mob.dayCount === 1 ? '' : 's'}`)
+  return parts.join(' · ')
 }
 
 export default function MobsModal({ job, mobs = [], onClose }) {
@@ -43,9 +47,9 @@ export default function MobsModal({ job, mobs = [], onClose }) {
                 <div className="mobs-seq">Mob {mob.seq}</div>
                 <div className="mobs-body">
                   <div className="mobs-label">{mob.label}</div>
+                  <div className="mobs-meta">{metaLabel(mob)}</div>
                   <div className="mobs-dates">{rangeLabel(mob)}</div>
                 </div>
-                <div className="mobs-count">{mob.dayCount}d</div>
               </div>
             ))}
           </div>
