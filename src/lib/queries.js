@@ -103,6 +103,77 @@ export function isReady(job, crewByCallLog, matsByJobId) {
   return baseChecklistPasses(job, crew, mats) && job.ready_confirmed_at != null
 }
 
+// ── Mobilizations (read-only wiring, Master Schedule Phase C) ────────────────
+// A mobilization = one trip to site (Mob 1, Mob 2…). Sales authors them on the
+// proposal; at send, each SOW day is stamped with a stable `mobilization_seq`.
+// We derive the job's mob list from those seq tags on the already-loaded
+// job_wtcs.field_sow days (date range + day count come from the ACTUAL tagged
+// days) and hydrate the human label + planned dates from proposals.mobilizations
+// by seq (mobsBySeq). Read-only — Schedule writes nothing here.
+function collectSeqDates(sowArray, bySeq) {
+  if (!Array.isArray(sowArray)) return
+  for (const d of sowArray) {
+    const seq = d?.mobilization_seq
+    if (seq == null) continue
+    const entry = bySeq.get(seq) || { dates: new Set() }
+    if (typeof d.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d.date)) entry.dates.add(d.date.slice(0, 10))
+    bySeq.set(seq, entry)
+  }
+}
+
+export function getJobMobilizations(job, mobsBySeq = {}) {
+  const bySeq = new Map() // seq → { dates:Set }
+  const wtcs = Array.isArray(job?._wtcs) ? job._wtcs : []
+  for (const w of wtcs) collectSeqDates(w.field_sow, bySeq)
+  // Legacy zero-WTC jobs: seq tags live on the flat jobs.field_sow instead.
+  if (bySeq.size === 0) collectSeqDates(job?.field_sow, bySeq)
+
+  return [...bySeq.entries()]
+    .map(([seq, { dates }]) => {
+      const meta = mobsBySeq[seq] || {}
+      const sorted = [...dates].sort()
+      return {
+        seq,
+        label: meta.label || `Mob ${seq}`,
+        dayCount: sorted.length,
+        // Prefer the actual tagged-day span; fall back to the proposal's planned dates.
+        start_date: sorted[0] || meta.start_date || null,
+        end_date: sorted[sorted.length - 1] || meta.end_date || null,
+        days: sorted,
+      }
+    })
+    .sort((a, b) => a.seq - b.seq)
+}
+
+// Batched read of proposal-authored mobilization metadata (label + planned
+// dates) keyed by call_log_id → { [seq]: {label, start_date, end_date} }.
+// proposals is Sales-owned/canonical; read-only. Live (non-archive) proposals
+// win when a call_log has both an archive and a live proposal.
+export async function loadMobilizationsByCallLog(callLogIds) {
+  const out = {}
+  const ids = [...new Set((callLogIds || []).filter(Boolean))]
+  if (!ids.length) return out
+  const { data, error } = await supabase
+    .from('proposals')
+    .select('call_log_id, mobilizations, is_archive_proposal')
+    .in('call_log_id', ids)
+    .not('mobilizations', 'is', null)
+  if (error) { console.warn('[mobs] could not load proposal mobilizations:', error.message); return out }
+  // Non-archive first so it wins the `!(seq in map)` first-writer check below.
+  const rows = [...(data || [])].sort((a, b) => Number(!!a.is_archive_proposal) - Number(!!b.is_archive_proposal))
+  for (const row of rows) {
+    const clId = row.call_log_id
+    if (clId == null || !Array.isArray(row.mobilizations)) continue
+    const map = out[clId] || (out[clId] = {})
+    for (const m of row.mobilizations) {
+      if (m && m.seq != null && !(m.seq in map)) {
+        map[m.seq] = { label: m.label || null, start_date: m.start_date || null, end_date: m.end_date || null }
+      }
+    }
+  }
+  return out
+}
+
 // ── Call_log fields pulled via join ─────────────────────────────────────────
 const CALL_LOG_SELECT = `
   call_log (

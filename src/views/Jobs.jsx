@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist } from '../lib/queries'
+import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist, loadMobilizationsByCallLog } from '../lib/queries'
 import JobsPicker from '../components/JobsPicker'
 import StagedCardList from '../components/StagedCardList'
 import AllJobsList from '../components/AllJobsList'
@@ -175,6 +175,7 @@ export default function Jobs() {
   const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
   const [proposalMaterialsByCallLog, setProposalMaterialsByCallLog] = useState({})
+  const [mobsByCallLog, setMobsByCallLog] = useState({})
   const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -277,6 +278,17 @@ export default function Jobs() {
       setProposalMaterialsByCallLog(pmMap)
     } else {
       setProposalMaterialsByCallLog({})
+    }
+
+    // Batched proposal-authored mobilization labels/dates, keyed by call_log_id.
+    // Feeds the MOBS card, which reads mobilization_seq off the SOW days and
+    // hydrates label/dates from here (read-only; Sales owns the write).
+    if (pmCallLogIds.length > 0) {
+      const mobs = await loadMobilizationsByCallLog(pmCallLogIds)
+      if (thisLoad !== loadIdRef.current) return
+      setMobsByCallLog(mobs)
+    } else {
+      setMobsByCallLog({})
     }
 
     const activeCallLogIds = loadedJobs
@@ -466,6 +478,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No staged jobs in this date range"
@@ -480,6 +493,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No ready jobs in this date range"
@@ -497,6 +511,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
@@ -514,6 +529,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               onJobUpdate={() => loadData({ background: true })}
             />
@@ -527,6 +543,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No production-complete jobs in this date range"
@@ -540,6 +557,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}

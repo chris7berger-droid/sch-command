@@ -30,6 +30,7 @@ export default function AllJobsList({
   logsByCallLog = {},
   assignmentsByJobId = {},
   proposalMaterialsByCallLog = {},
+  mobsByCallLog = {},
   prtMap = new Map(),
   today = new Date(),
   onJobUpdate,
@@ -61,6 +62,7 @@ export default function AllJobsList({
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
               prtMap={prtMap}
               today={today}
               onJobUpdate={onJobUpdate}
