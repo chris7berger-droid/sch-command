@@ -13,7 +13,7 @@ function isThisWeek(dateStr, today) {
   return d >= mon && d <= sun
 }
 
-export default function JobsPicker({ jobs = [], assignments = [], billingWorklist = [], crewByCallLog = {}, matsByJobId = {}, syncWarning, today = new Date(), onPick }) {
+export default function JobsPicker({ jobs = [], assignments = [], billingWorklist = [], crewByCallLog = {}, matsByJobId = {}, syncWarning, today = new Date(), onPick, onOpenBin }) {
   const counts = useMemo(() => {
     const buckets = { Scheduled: 0, 'In Progress': 0, Complete: 0, 'On Hold': 0, Ongoing: 0 }
     jobs.forEach(j => { buckets[getJobStatus(j)] = (buckets[getJobStatus(j)] || 0) + 1 })
@@ -80,6 +80,9 @@ export default function JobsPicker({ jobs = [], assignments = [], billingWorklis
       <div className="jh-picker-intro">
         <h2 className="jh-picker-title">What do you want to look at?</h2>
         <div className="jh-picker-sub">Pick a stage to focus on, or view everything at once.</div>
+        {onOpenBin && (
+          <button className="jh-bin-btn" onClick={onOpenBin} title="View deleted jobs">{'🗑'} Bin</button>
+        )}
       </div>
 
       {syncWarning && (

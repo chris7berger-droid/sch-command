@@ -314,15 +314,6 @@ export default function Jobs() {
     return list
   }, [jobs, search, dateRange, today])
 
-  // scoreboard buckets (Parked is gone — legacy Parked rows normalize to Scheduled)
-  const scheduledCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Scheduled').length, [filteredJobs])
-  const activeCount = useMemo(() => filteredJobs.filter(j => {
-    const s = getJobStatus(j)
-    return s === 'Ongoing' || s === 'In Progress'
-  }).length, [filteredJobs])
-  const onHoldCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'On Hold').length, [filteredJobs])
-  const completeCount = useMemo(() => filteredJobs.filter(j => getJobStatus(j) === 'Complete').length, [filteredJobs])
-
   /* ── restore bin ────────────────────────────────────────────── */
 
   const openBin = useCallback(async () => {
@@ -406,33 +397,11 @@ export default function Jobs() {
               </div>
             )}
           </div>
-
-          <div className="jh-scores-row">
-            <div className="jh-scores">
-              <div className="jh-score og">
-                <div className="jh-score-num">{scheduledCount}</div>
-                <div className="jh-score-lbl">Scheduled</div>
-              </div>
-              <div className="jh-score og">
-                <div className="jh-score-num">{activeCount}</div>
-                <div className="jh-score-lbl">Active</div>
-              </div>
-              <div className="jh-score oh">
-                <div className="jh-score-num">{onHoldCount}</div>
-                <div className="jh-score-lbl">On Hold</div>
-              </div>
-              <div className="jh-score cp">
-                <div className="jh-score-num">{completeCount}</div>
-                <div className="jh-score-lbl">Complete</div>
-              </div>
-            </div>
-            <button className="jh-bin-btn" onClick={openBin} title="View deleted jobs">{'🗑'} Bin</button>
-          </div>
         </>
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} />
+        <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} onOpenBin={openBin} />
       )}
 
       {!showPicker && (
