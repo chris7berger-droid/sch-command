@@ -3,8 +3,8 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist } from '../lib/queries'
 import JobsPicker from '../components/JobsPicker'
-import JobCardList from '../components/JobCardList'
 import StagedCardList from '../components/StagedCardList'
+import AllJobsList from '../components/AllJobsList'
 import OnHoldCardList from '../components/OnHoldCardList'
 import { getJobStatus } from '../lib/jobStatus'
 
@@ -533,11 +533,16 @@ export default function Jobs() {
             />
           )}
           {activeTab === 'all' && (
-            <JobCardList
+            <AllJobsList
               jobs={filteredJobs}
-              allJobs={jobs}
-              setJobs={setJobs}
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              prtMap={prtMap}
               today={today}
+              onJobUpdate={() => loadData({ background: true })}
               emptyText="No jobs match the current filters"
             />
           )}
