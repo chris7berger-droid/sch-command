@@ -636,14 +636,17 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   // CREW → existing Crew Schedule, deep-linked to this job's week (Schedule.jsx
   // reads ?job=&week= and highlights). The crew-build tool lives there.
   const goCrewSchedule = useCallback(() => {
+    // fromCard lets the Schedule back button return to this exact list spot
+    // (browser back) instead of the generic /jobs landing.
+    const opts = { state: { fromCard: true } }
     const s = effectiveStart(job)
     if (s) {
       const d = new Date(s + 'T00:00:00')
       const day = d.getDay()
       d.setDate(d.getDate() - (day === 0 ? 6 : day - 1)) // Monday of that week
-      navigate(`/schedule?job=${job.job_id}&week=${ymd(d)}`)
+      navigate(`/schedule?job=${job.job_id}&week=${ymd(d)}`, opts)
     } else {
-      navigate(`/schedule?job=${job.job_id}`)
+      navigate(`/schedule?job=${job.job_id}`, opts)
     }
   }, [navigate, job])
 
