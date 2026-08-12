@@ -180,6 +180,9 @@ export default function Jobs() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
+  // Picker-landing job search — find a job across ALL stages without drilling in.
+  const [pickerSearch, setPickerSearch] = useState('')
+
   // shell-level filters drive both scoreboard and tab content
   const [search, setSearch] = useState('')
   const [dateFilter, setDateFilter] = useState('week')
@@ -451,7 +454,38 @@ export default function Jobs() {
       )}
 
       {showPicker && (
-        <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} onOpenBin={openBin} />
+        <>
+          <div className="jh-toolbar">
+            <input
+              className="jh-search"
+              type="text"
+              placeholder="Find a job by number, name, or work type — across all stages…"
+              value={pickerSearch}
+              onChange={e => setPickerSearch(e.target.value)}
+            />
+            {pickerSearch && (
+              <button className="jh-search-clear" onClick={() => setPickerSearch('')} title="Clear search">✕</button>
+            )}
+          </div>
+
+          {pickerSearch.trim() ? (
+            <AllJobsList
+              jobs={jobs.filter(j => matchesSearch(j, pickerSearch.toLowerCase().trim()))}
+              crewByCallLog={crewByCallLog}
+              matsByJobId={matsByJobId}
+              logsByCallLog={logsByCallLog}
+              assignmentsByJobId={assignmentsByJobId}
+              proposalMaterialsByCallLog={proposalMaterialsByCallLog}
+              mobsByCallLog={mobsByCallLog}
+              prtMap={prtMap}
+              today={today}
+              onJobUpdate={() => loadData({ background: true })}
+              emptyText={`No jobs match “${pickerSearch.trim()}”`}
+            />
+          ) : (
+            <JobsPicker jobs={jobs} assignments={assignments} billingWorklist={billingWorklist} crewByCallLog={crewByCallLog} matsByJobId={matsByJobId} syncWarning={syncWarning} today={today} onPick={setActiveTab} onOpenBin={openBin} />
+          )}
+        </>
       )}
 
       {!showPicker && (
