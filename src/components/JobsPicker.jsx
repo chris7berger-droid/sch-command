@@ -81,7 +81,7 @@ export default function JobsPicker({ jobs = [], assignments = [], billingWorklis
         <h2 className="jh-picker-title">What do you want to look at?</h2>
         <div className="jh-picker-sub">Pick a stage to focus on, or view everything at once.</div>
         {onOpenBin && (
-          <button className="jh-bin-btn" onClick={onOpenBin} title="View deleted jobs">{'🗑'} Bin</button>
+          <button className="jh-bin-btn" onClick={onOpenBin} title="Recover jobs deleted in the last 24 hours">{'🗑'} Recovery Bin</button>
         )}
       </div>
 
