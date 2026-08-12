@@ -5121,6 +5121,33 @@
   border-bottom: 1px solid rgba(28, 24, 20, 0.12);
 }
 
+/* All Jobs — stage group headers (reuses StageJobCard lists per section) */
+.jh-all-group + .jh-all-group {
+  margin-top: 22px;
+}
+
+.jh-all-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+}
+
+.jh-all-group-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
 .jh-picker-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
