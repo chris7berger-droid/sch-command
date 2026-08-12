@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { loadJobs, updateJobField } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -120,8 +120,18 @@ export default function Schedule({ embedded = false } = {}) {
 
   // URL-param deep-link from JobDetail: /schedule?job=<id>&week=<YYYY-MM-DD>
   const [searchParams] = useSearchParams()
+  const location = useLocation()
   const focusJobId = searchParams.get('job')
   const focusWeek = searchParams.get('week')
+
+  // Back button: when we arrived from a job card's CREW button (fromCard state),
+  // browser-back returns to that exact list spot. If deep-linked with ?job= but
+  // no history, fall back to that job. Otherwise the generic stages landing.
+  const goBack = useCallback(() => {
+    if (focusJobId && location.state?.fromCard) navigate(-1)
+    else if (focusJobId) navigate(`/jobs/${focusJobId}?mode=management`)
+    else navigate('/jobs')
+  }, [navigate, focusJobId, location.state])
   const focusedJobRowRef = useRef(null)
   const didHandleFocusRef = useRef(false)
 
@@ -977,7 +987,7 @@ export default function Schedule({ embedded = false } = {}) {
     <div className="sch-layout">
       {!embedded && (
         <div className="jh-back-bar">
-          <button className="jh-back-btn" onClick={() => navigate('/jobs')}>← All stages</button>
+          <button className="jh-back-btn" onClick={goBack}>← {focusJobId ? 'Back to job' : 'All stages'}</button>
         </div>
       )}
       <div className="sch-wrap">
