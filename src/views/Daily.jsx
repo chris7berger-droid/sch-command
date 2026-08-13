@@ -174,7 +174,7 @@ export default function Daily() {
   if (loading) {
     return (
       <div className="dly-v">
-        <div className="dly-loading">Loading daily view…</div>
+        <div className="dly-inner"><div className="dly-loading">Loading daily view…</div></div>
         <DailyStyle />
       </div>
     )
@@ -297,6 +297,7 @@ export default function Daily() {
 
   return (
     <div className="dly-v">
+     <div className="dly-inner">
       {/* Week nav */}
       <div className="dly-wknav">
         <button className="dly-btn" onClick={prevWeek}>Prev</button>
@@ -364,7 +365,7 @@ export default function Daily() {
         <div className="dly-leg"><div className="dly-d dly-empty dly-d-lg">—</div> Off</div>
         <div className="dly-leg"><span className="dly-gap-legend">⚠ 2/3</span> Gap</div>
       </div>
-
+     </div>
       <DailyStyle />
     </div>
   )
@@ -382,10 +383,11 @@ function DailyStyle() {
         --blu:#1565c0; --pop:#5BBD3F; --pop-dk:#3D8A2A;
         color:var(--txt);
         font-family:'Barlow',sans-serif;
-        max-width:1100px; margin:0 auto; padding:16px;
         position:relative;
+        min-height:100%;
         background-color:var(--bg);
       }
+      .dly-inner { position:relative; z-index:1; max-width:1100px; margin:0 auto; padding:16px; }
       /* Linen weave — same crosshatch as the original, but at half opacity with a
          warm radial wash, so it reads as woven linen rather than graph paper. */
       .dly-v::before {
@@ -396,7 +398,6 @@ function DailyStyle() {
           radial-gradient(ellipse at 20% 50%,rgba(255,250,240,0.08),transparent 60%),
           radial-gradient(ellipse at 80% 50%,rgba(255,250,240,0.05),transparent 60%);
       }
-      .dly-v > * { position:relative; z-index:1; }
       .dly-loading { text-align:center; padding:40px; color:var(--dim); font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:1px; font-size:14px; }
 
       .dly-wknav { display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:8px 12px; background:var(--surface); border-radius:4px; border:2px solid var(--brd); }

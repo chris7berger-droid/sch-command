@@ -423,6 +423,12 @@
   overflow: visible;
 }
 
+/* Daily view paints a full-bleed linen surface; content is centered inside it. */
+.app-main:has(.dly-v) {
+  padding: 0;
+  overflow: visible;
+}
+
 /* Jobs View */
 .jobs-scoreboard {
   display: flex;
