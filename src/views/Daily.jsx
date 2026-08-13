@@ -383,9 +383,20 @@ function DailyStyle() {
         color:var(--txt);
         font-family:'Barlow',sans-serif;
         max-width:1100px; margin:0 auto; padding:16px;
+        position:relative;
         background-color:var(--bg);
-        background-image:repeating-linear-gradient(0deg,rgba(60,50,35,0.04) 0px,rgba(60,50,35,0.04) 1px,transparent 1px,transparent 4px),repeating-linear-gradient(90deg,rgba(60,50,35,0.04) 0px,rgba(60,50,35,0.04) 1px,transparent 1px,transparent 4px);
       }
+      /* Linen weave — same crosshatch as the original, but at half opacity with a
+         warm radial wash, so it reads as woven linen rather than graph paper. */
+      .dly-v::before {
+        content:''; position:absolute; inset:0; pointer-events:none; z-index:0; opacity:0.5;
+        background:
+          repeating-linear-gradient(0deg,rgba(60,50,35,0.04) 0px,rgba(60,50,35,0.04) 1px,transparent 1px,transparent 4px),
+          repeating-linear-gradient(90deg,rgba(60,50,35,0.04) 0px,rgba(60,50,35,0.04) 1px,transparent 1px,transparent 4px),
+          radial-gradient(ellipse at 20% 50%,rgba(255,250,240,0.08),transparent 60%),
+          radial-gradient(ellipse at 80% 50%,rgba(255,250,240,0.05),transparent 60%);
+      }
+      .dly-v > * { position:relative; z-index:1; }
       .dly-loading { text-align:center; padding:40px; color:var(--dim); font-family:'Barlow Condensed',sans-serif; text-transform:uppercase; letter-spacing:1px; font-size:14px; }
 
       .dly-wknav { display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:8px 12px; background:var(--surface); border-radius:4px; border:2px solid var(--brd); }
