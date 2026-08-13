@@ -62,6 +62,16 @@ function gTag(t) {
   return ''
 }
 
+function jobTitle(j) {
+  // display_job_number (→ job_num) is already "<number> - <job_name>", so rendering
+  // job_num + job_name would repeat the name. Use job_num when it already contains it.
+  const num = j.job_num || ''
+  const name = j.job_name || ''
+  if (!name) return num || '—'
+  if (num && num.indexOf(name) >= 0) return num
+  return num ? num + ' - ' + name : name
+}
+
 function WorkTags({ wt }) {
   if (!wt) return null
   const types = String(wt).split(',').map(t => t.trim()).filter(Boolean)
@@ -220,7 +230,7 @@ export default function Daily() {
       <div className={'dly-card' + (hasGap ? ' dly-card-gap' : '') + (pw ? ' dly-card-pw' : '')} key={j.job_id}>
         <div className="dly-card-hdr">
           <div className="dly-card-info">
-            <span className="dly-card-name">{j.job_num} - {j.job_name}</span>
+            <span className="dly-card-name">{jobTitle(j)}</span>
             <WorkTags wt={j.work_type} />
             {j.vehicle && <span className="dly-tg vh">{j.vehicle}</span>}
             {pw && <span className="dly-pw-tag">PW</span>}
@@ -314,7 +324,7 @@ export default function Daily() {
             <div className="dly-card dly-card-gap" key={j.job_id}>
               <div className="dly-card-hdr">
                 <div className="dly-card-info">
-                  <span className="dly-card-name">{j.job_num} - {j.job_name}</span>
+                  <span className="dly-card-name">{jobTitle(j)}</span>
                   <WorkTags wt={j.work_type} />
                   {isPW(j) && <span className="dly-pw-tag">PW</span>}
                 </div>
