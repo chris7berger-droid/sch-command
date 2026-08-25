@@ -7,9 +7,29 @@
 
 ---
 
-## 0. Why this exists (the motivation, in plain English)
+## Why this exists (the motivation, in plain English)
 
 After a proposal is sent, a job sometimes needs **another trip to site** — go-back/warranty work, an added mobilization. Today there is nowhere to add one: mobilization authoring lives in the Sales proposal, which is frozen after send. Forcing an edit there means pulling the proposal back to Draft — and if anything's been **invoiced**, that's dangerous. The fix is to let **Schedule** add/edit the live job's trips directly, never touching the proposal or its lock.
+
+---
+
+## §0 Baseline — verified current state
+
+**Verification mode:** the load-bearing DB facts are **run-verified** — queried live against prod (`pbgvgjjuhnpsumnowuym`) on 2026-08-25. The code facts are **read-verified** (three read-only agent sweeps + direct reads; file:line evidence in §1). Not app-run-verified (no UI walkthrough).
+
+**Prod DB, live query 2026-08-25:**
+- `job_mobilizations` = **0 rows** (`COUNT(*)` — observed empty, not inferred from "no writers").
+- `job_mobilizations` columns today: `id, job_id, seq, label, start_date, end_date, created_at, updated_at` — **no `is_go_back`** (F0 adds it; confirmed absent via `information_schema`).
+- `proposals` with a non-empty `mobilizations` jsonb: **4**.
+- **F1 backfill target (measured):** live jobs carrying `mobilization_seq` on `job_wtcs.field_sow` days with **0** `job_mobilizations` rows = **2 jobs / 2 distinct job:seq pairs** (4 `job_wtcs` total, all with days). Tiny dataset, 1 tenant (HDSP).
+
+**Code facts (read-verified — evidence in §1):**
+- **Zero writers** to `job_mobilizations` anywhere (grep, 4 repos). Absence of a seeder is confirmed, not assumed.
+- Field ignores mobilization entirely; `job_mobilizations` is not in its PowerSync bucket or `schema.js`.
+- Schedule's mobilization **display** is built read-only (`queries.js:106-188`, `MobsModal.jsx`, MOBS card).
+- Day→mob key = integer `mobilization_seq` inside `field_sow` jsonb ↔ `job_mobilizations.seq` (name mismatch: day key `mobilization_seq` vs column `seq`).
+
+**What this feature changes vs that baseline:** adds a writer (seed at send) + a one-time backfill so those 0 rows become real job-owned records; adds the `is_go_back` column; adds Schedule write UI. Nothing above is altered destructively.
 
 ---
 
