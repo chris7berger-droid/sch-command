@@ -6094,6 +6094,24 @@
   color: #fff;
   border-color: var(--cyan);
 }
+/* Secondary, understated destructive action — never full-width so it can't be
+   mistaken for the primary stage button. Muted outline until hover. */
+.sjc-delete {
+  display: block;
+  width: auto;
+  margin-left: auto;
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(192, 57, 43, 0.45);
+}
+.sjc-delete:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+  filter: none;
+}
 
 
 /* ═══ Billing forecast + worklist surface (billing-forecast feature) ═══ */
