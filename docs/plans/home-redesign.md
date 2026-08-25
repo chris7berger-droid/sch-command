@@ -102,14 +102,9 @@ app-access gate on `apps.includes('schedule')` (`App.jsx:90-107`); no per-action
   [DESIGN-OPEN, recommend] Keep real actions/behavior (functional truth); it's fine to *style*
   the header-nav as a "View Job" affordance and the CREW→/schedule path as "Build Schedule"
   where it reads naturally, but do not invent new actions. No new mutations.
-- **D3 — list navigation model. [DESIGN-OPEN — needs Chris].** Real screen = stage **picker
-  tiles → drilldown**. Mockup "Jobs to Prepare" = a **single list** with an `ALL STAGES ▾`
-  dropdown + time chips + "Viewing Staged". Two options:
-  - **(a) Keep picker tiles, reskin them** — least behavior change; but then the Home list
-    isn't the mockup's single-list look until you drill in.
-  - **(b) Replace picker with a single list + stage dropdown** (matches mockup literally) —
-    more work, changes the current navigation model. *Recommend (b)* since the mockup is the
-    visual target and Chris described clicking rows in one list; confirm before build.
+- **D3 — list navigation model. RESOLVED → single list + `ALL STAGES ▾` dropdown** (see
+  Decisions-Ratified). Real screen today = stage picker tiles → drilldown; Home replaces that
+  with one "Jobs to Prepare" list, stage as dropdown, keeping the underlying predicates.
 - **D4 — "Showing 1-25 of 68 / View All Jobs".** No pagination today. Either add a display
   cap + "View All" (new, small) or render all rows and treat the count as informational.
   [DESIGN-OPEN, recommend] Add a simple client-side cap with "View All Jobs" — cheap, matches
@@ -170,9 +165,10 @@ permissions verbatim (see §0 preserve list).
 
 ## §3 Files to touch (draft)
 - `src/index.css` — add Home-scoped token overrides (no global token changes).
-- `src/App.css` — new Home classes (`.home-*`), StatsBar Home variant, compact-row job card,
-  Next Up / Needs Attention / At a Glance cards.
-- `src/App.jsx` — add `/home` route; repoint `/`. (No sidebar unless D6 says so.)
+- `src/App.css` — new Home classes (`.home-*`), sidebar chrome (`.app-sidebar`), StatsBar Home
+  variant, compact-row job card, Next Up / Needs Attention / At a Glance cards.
+- `src/App.jsx` — **add left sidebar to `AppShell`** (nav from `NAV_ITEMS`), per-route
+  full-bleed flag so `/schedule` renders without it; add `/home` route; repoint `/`.
 - `src/views/Home.jsx` — NEW screen composition.
 - `src/components/StatsBar.jsx` — Home variant / extend for badges + per-day capacity.
 - `src/components/StageJobCard.jsx` — support a `variant="home-compact"` (collapsed-by-default
@@ -181,9 +177,9 @@ permissions verbatim (see §0 preserve list).
   aggregates (read-only selects; no schema change, no migration).
 
 ## §4 Out of scope / deferred
-- Left sidebar as app-wide chrome (D6) unless Chris opts in.
-- Global green→teal swap on other screens (this pass is Home-scoped; global swap stays the
-  deferred polish pass per standing direction).
+- Global green→teal swap on other screens (this pass keeps teal Home-scoped; global swap stays
+  the deferred polish pass per standing direction). NOTE: the app-wide **sidebar** IS in scope
+  per D6 — only the teal token swap stays Home-scoped.
 - Any change to job-card business logic, status model, or the `/jobs` picker behavior beyond
   what D3 decides.
 - No DB migrations (UI + read-only queries only) → no shared-Supabase collision with the live
@@ -194,12 +190,31 @@ Rough: theme layer (S) + Home composition & 3 panels (M) + StatsBar Home variant
 job-row variant wiring (M) + data aggregates for the panels (M) + in-browser visual verify vs
 mockup (S). Single focused build session. Firm up after D3/D6/teal decisions land.
 
-## Open decisions for ratification (blocking build)
-- **D3** — Jobs-to-Prepare: keep picker tiles, or single list + `ALL STAGES ▾` dropdown (mockup). *Rec: single list.*
-- **D6** — Left charcoal sidebar (mockup) vs keep current top-nav shell. *Rec: keep top-nav this pass; sidebar = separate app-wide task.*
-- **D-teal** — Promote teal to primary on Home (green→signal). *Rec: yes, Home-scoped.*
-- **D2** — Row actions: keep real actions (Promote/Kickoff/…) styled as View Job / Build Schedule where natural; invent none. *Rec: yes.*
-- **D4** — Add "Showing 1-25 of 68 / View All Jobs" client cap. *Rec: yes, simple cap.*
+## Decisions — RATIFIED [LOCKED — Chris, 2026-08-25]
+- **D3 = (a) single list + `ALL STAGES ▾` dropdown.** Replace the picker-tiles→drilldown flow
+  on Home with one "Jobs to Prepare" list; stage becomes a dropdown filter; keep time chips +
+  search + auto-fit. Preserve all underlying stage predicates/status derivation.
+- **D6 = (b) add the left charcoal sidebar APP-WIDE, EXCEPT the Crew Schedule view**
+  (`/schedule` stays full-width / no sidebar — it needs horizontal room for the grid).
+  → Now an app-shell change: sidebar lives in `AppShell`; every route except `/schedule`
+  renders inside it. Content width on all other screens shrinks to sit beside the sidebar —
+  expect light per-screen layout adjustments (intended, not scope creep). Mechanism: a
+  per-route "full-bleed / no-sidebar" flag for `/schedule`.
+- **D-teal = yes** — teal `#30cfac` promoted to primary accent on Home; green → "available/
+  ready" signal role. Home-scoped token layer (global swap on other screens stays deferred).
+- **D2 = yes** — keep real job-card actions (Promote/Kickoff/Resume/Send-to-Billing + scorecard
+  deep-links); style header-nav as "View Job" and CREW→/schedule as "Build Schedule" where it
+  reads naturally; invent no new actions/mutations.
+- **D4 = yes** — add a simple client-side "Showing 1-25 of 68 / View All Jobs" cap.
+
+## Scope delta from D6 (sidebar app-wide)
+This lifts the redesign from "Home screen only" to "**new app-shell (sidebar) + new Home
+screen**." Added surface:
+- `AppShell` (`App.jsx:112,277-306`) gains a left charcoal sidebar (nav moves/duplicates from
+  the top row); top header keeps greeting + `+ JOB` / `ACTIONS ▾`.
+- Per-route flag so `/schedule` renders full-bleed without the sidebar.
+- Each other screen's outer container adjusts to the narrower content column.
+- Still **no DB migrations** — chrome + read-only queries only.
 
 ## §6 Locked decisions [LOCKED — Chris, 2026-08-25]
 
