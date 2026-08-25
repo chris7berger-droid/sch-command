@@ -170,6 +170,16 @@
   min-width: 500px;
 }
 
+/* Large editor modal (Field SOW builder, stage-card print). Wide enough that the
+   day/crew/hours/mobilization row and material spec grid breathe instead of
+   squishing. padding:0 so the flush dark header meets the rounded top corners. */
+.mdl-lg {
+  max-width: 1040px;
+  min-width: 0;
+  width: 94vw;
+  padding: 0;
+}
+
 .mdl h3 {
   font-family: var(--font-heading);
   font-size: 18px;
