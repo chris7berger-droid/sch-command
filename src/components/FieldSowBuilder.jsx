@@ -55,7 +55,7 @@ const withIds = (val) => (Array.isArray(val) ? val : []).map(d => ({
   tasks: (Array.isArray(d.tasks) ? d.tasks : []).map(t => ({ ...t, id: t.id ?? uid() })),
 }))
 
-export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], catalog = [], focusDayIndex = null, changedBy = 'unknown' }) {
+export default function FieldSowBuilder({ value, onSave, saving, availableMaterials = [], catalog = [], focusDayIndex = null, changedBy = 'unknown', mobilizations = [] }) {
   const [days, setDays] = useState(() => withIds(value))
   const [dirty, setDirty] = useState(false)
   const wrapRef = useRef(null)
@@ -79,6 +79,13 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
     // 'date' is exempt from numeric coercion (it's an ISO string, not a number);
     // without this the per-day date would NaN→0 on any other day-field edit (SCH2).
     d.id === id ? { ...d, [key]: ['day_label', 'date'].includes(key) ? val : (parseFloat(val) || 0) } : d
+  ))
+  // Phase F (F2b) — tag a day to a mobilization by seq. Kept OUT of updateDayField
+  // (which coerces to parseFloat||0) so "— none —" persists as null, not 0, and a
+  // valid seq persists as an int. The value round-trips through the passthrough in
+  // handleSave and out to job_wtcs.field_sow → job_mobilizations.seq.
+  const setDayMob = (id, val) => update(days.map(d =>
+    d.id === id ? { ...d, mobilization_seq: (val === '' || val == null) ? null : parseInt(val, 10) } : d
   ))
 
   const addTask = (dayId) => update(days.map(d =>
@@ -300,6 +307,12 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
         <strong>Scope is frozen (from the sale).</strong> You're setting the calendar — per-day dates, crew, and hours. Editing here never changes the bid.
       </div>
 
+      {/* D6 clarifiers — entered values feed the go-back cost rollup, so what a
+          number MEANS has to be explicit (not left to convention). */}
+      <div className="fsb-scope-note" style={{ fontSize: 11.5, color: 'var(--text-light)', margin: '0 0 12px', lineHeight: 1.45, background: 'rgba(48,207,172,0.08)', border: '1px solid rgba(28,24,20,0.12)', borderRadius: 7, padding: '7px 10px' }}>
+        ⓘ <strong>Hours</strong> = total work hours for the day, all crew combined (e.g. 16 = two people × 8h, or four × 4h) — not hours per person. &nbsp;<strong>Qty Planned</strong> = number of priced units (kits/boxes), not gallons. &nbsp;Tag each day to a <strong>Mobilization</strong> so its work rolls up to the right trip (and go-back cost).
+      </div>
+
       {days.length === 0 && (
         <div className="fsb-empty">
           No day entries yet. Click <strong>+ Add Day</strong> to define the field plan.
@@ -342,8 +355,32 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
                 type="number"
                 className="fsb-input fsb-input-num"
                 value={day.hours_planned || ''}
+                title="Total work hours for the day, all crew combined (e.g. 16 = two people × 8h, or four × 4h) — not hours per person."
                 onChange={e => updateDayField(day.id, 'hours_planned', e.target.value)}
               />
+            </div>
+            {/* F2b — per-day mobilization picker. Options come from a FRESH
+                job_mobilizations load (passed from CardSowModal), so a just-added
+                dayless go-back is taggable in the same session (audit D2). A day
+                tagged to a seq no longer in the list keeps a synthetic option so
+                the controlled select still round-trips it. */}
+            <div className="fsb-field">
+              <label className="fsb-label">Mobilization</label>
+              <select
+                className="fsb-input fsb-input-sm"
+                value={day.mobilization_seq == null ? '' : String(day.mobilization_seq)}
+                onChange={e => setDayMob(day.id, e.target.value)}
+              >
+                <option value="">— none —</option>
+                {mobilizations.map(m => (
+                  <option key={m.seq} value={String(m.seq)}>
+                    Mob {m.seq}{m.label ? ` — ${m.label}` : ''}{m.is_go_back ? ' (go back)' : ''}
+                  </option>
+                ))}
+                {day.mobilization_seq != null && !mobilizations.some(m => m.seq === day.mobilization_seq) && (
+                  <option value={String(day.mobilization_seq)}>Mob {day.mobilization_seq}</option>
+                )}
+              </select>
             </div>
             <button className="fsb-remove-day" onClick={() => removeDay(day.id)} title="Remove day">×</button>
           </div>

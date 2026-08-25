@@ -147,10 +147,94 @@ export function getJobMobilizations(job, mobsBySeq = {}) {
         end_date: hasConcrete ? sorted[sorted.length - 1] : (meta.end_date || null),
         // True when the range comes from the proposal plan, not yet-scheduled days.
         datesPlanned: !hasConcrete && (meta.start_date != null || meta.end_date != null),
+        // Phase F: go-back flag from job_mobilizations (proposal fallback → false).
+        is_go_back: !!meta.is_go_back,
         days: sorted,
       }
     })
     .sort((a, b) => a.seq - b.seq)
+}
+
+// Phase F (F3) — per-mobilization cost rollup, derived on read (D6). For each
+// mobilization seq, sum the cost of every field-SOW day tagged to it, across all
+// the job's WTCs (whole tagged day counts toward its mob — audit O6). Returns
+// { [seq]: { materialCost, laborCost, total, dayCount, unpriced, needsRate } }.
+//
+//  • Material $ = Σ qty_planned × unit price. Price source (D6, audit A1): a
+//    stamped price_per_unit wins (original sold lines); else materials_catalog.price
+//    joined on catalog_id; else fall back to (name, kit_size) ONLY when catalog_id
+//    is null. Off-catalog (no id, no name match) → $0 with `unpriced` flagged —
+//    never a silent zero. qty_planned = number of priced units (kits/boxes), D6.
+//  • Labor $ = Σ hours_planned × rate (crew_count is NOT a multiplier — hours are
+//    already total man-hours, D6). Rate = the WTC's stamped bid_breakdown.burden_rate
+//    (PW-correct: calc stamps pw_rate on PW jobs). Unstamped WTC → tenant
+//    default_burden_rate ONLY on a non-PW job; a PW job with no stamped rate flags
+//    `needsRate` rather than undercosting with the standard default (D6/B1).
+export function computeMobCosts(job, catalog = []) {
+  const byId = new Map()
+  const byNameKit = new Map()
+  for (const c of (catalog || [])) {
+    if (c?.id != null) byId.set(String(c.id), c)
+    const key = `${(c?.name || '').toLowerCase()}|${(c?.kit_size || '').toLowerCase()}`
+    if (!byNameKit.has(key)) byNameKit.set(key, c)
+  }
+  // Unit price for a day-material line. Returns null when nothing prices it.
+  const priceOf = (m) => {
+    const stamped = parseFloat(m?.price_per_unit)
+    if (stamped > 0) return stamped
+    if (m?.catalog_id != null) {
+      const hit = byId.get(String(m.catalog_id))
+      if (hit && hit.price != null) return parseFloat(hit.price) || 0
+    } else {
+      const key = `${(m?.name || m?.product || '').toLowerCase()}|${(m?.kit_size || m?.kit || '').toLowerCase()}`
+      const hit = byNameKit.get(key)
+      if (hit && hit.price != null) return parseFloat(hit.price) || 0
+    }
+    return null // off-catalog / unpriced
+  }
+
+  const isPW = job?.prevailing_wage === 'Yes' || job?.prevailing_wage === true
+  const tenantRate = parseFloat(job?.default_burden_rate)
+  const out = {}
+  const ensure = seq => (out[seq] || (out[seq] = { materialCost: 0, laborCost: 0, total: 0, dayCount: 0, unpriced: false, needsRate: false }))
+
+  const wtcs = Array.isArray(job?._wtcs) && job._wtcs.length ? job._wtcs : null
+  // Each unit: { days, rate|null }. Legacy zero-WTC jobs have no bid_breakdown, so
+  // their rate resolves off the job (default / PW rule) exactly like an unstamped WTC.
+  const units = wtcs
+    ? wtcs.map(w => ({ days: Array.isArray(w.field_sow) ? w.field_sow : [], bid: w.bid_breakdown }))
+    : [{ days: Array.isArray(job?.field_sow) ? job.field_sow : [], bid: null }]
+
+  for (const u of units) {
+    const stampedRate = parseFloat(u.bid?.burden_rate)
+    let rate = null // null ⇒ unknown (needsRate)
+    if (stampedRate > 0) rate = stampedRate
+    else if (!isPW && tenantRate > 0) rate = tenantRate
+    // else: PW-unstamped, or no default → rate stays null (needsRate)
+
+    for (const d of u.days) {
+      const seq = d?.mobilization_seq
+      if (seq == null) continue
+      const e = ensure(seq)
+      e.dayCount += 1
+      // Labor
+      const hours = parseFloat(d.hours_planned) || 0
+      if (hours > 0) {
+        if (rate != null) e.laborCost += hours * rate
+        else e.needsRate = true
+      }
+      // Materials
+      for (const m of (d.materials || [])) {
+        const qty = parseFloat(m?.qty_planned) || 0
+        if (qty <= 0) continue
+        const price = priceOf(m)
+        if (price == null) e.unpriced = true
+        else e.materialCost += qty * price
+      }
+    }
+  }
+  for (const seq of Object.keys(out)) out[seq].total = out[seq].materialCost + out[seq].laborCost
+  return out
 }
 
 // Batched read of proposal-authored mobilization metadata (label + planned
@@ -182,6 +266,60 @@ export async function loadMobilizationsByCallLog(callLogIds) {
   return out
 }
 
+// Phase F (D1) — post-send source of truth. Batched read of the LIVE job's
+// mobilizations from job_mobilizations, keyed by job_id → { [seq]: {label,
+// start_date, end_date, is_go_back} }.
+//
+// Keyed by JOB_ID, NOT call_log_id (round-1 B1 / audit E1): a call_log can carry
+// multiple jobs (archive + live — the dedup in loadMobilizationsByCallLog proves
+// it happens), so a call_log-keyed read would hydrate the wrong job's mobs. This
+// is why loadMobilizationsByCallLog is NOT reused directly for the live read.
+//
+// PERMANENT fallback (audit E2, not gate-removable): the send-time seed is
+// non-fatal (F1), so a live job can legitimately have 0 job_mobilizations rows
+// while its days are tagged. Any such job falls back — WHOLESALE per job (never a
+// per-seq merge) — to the proposal-authored mobs by its call_log_id. A correct
+// standing fallback is fine to keep indefinitely.
+//
+// Takes the loaded job objects (needs job_id + call_log_id for the fallback).
+export async function loadMobilizationsByJobId(jobs) {
+  const out = {}
+  const list = (jobs || []).filter(j => j && j.job_id != null)
+  if (!list.length) return out
+  const jobIds = [...new Set(list.map(j => j.job_id))]
+
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .select('job_id, seq, label, start_date, end_date, is_go_back')
+    .in('job_id', jobIds)
+  if (error) {
+    console.warn('[mobs] could not load job_mobilizations:', error.message)
+  } else {
+    for (const row of (data || [])) {
+      if (row.job_id == null || row.seq == null) continue
+      const map = out[row.job_id] || (out[row.job_id] = {})
+      map[row.seq] = {
+        label: row.label || null,
+        start_date: row.start_date || null,
+        end_date: row.end_date || null,
+        is_go_back: !!row.is_go_back,
+      }
+    }
+  }
+
+  // Wholesale per-job fallback for jobs with 0 job_mobilizations rows.
+  const needFallback = list.filter(j => !out[j.job_id] || Object.keys(out[j.job_id]).length === 0)
+  const fbCallLogIds = [...new Set(needFallback.map(j => j.call_log_id).filter(Boolean))]
+  if (fbCallLogIds.length > 0) {
+    const byCallLog = await loadMobilizationsByCallLog(fbCallLogIds)
+    for (const j of needFallback) {
+      const meta = j.call_log_id != null ? byCallLog[j.call_log_id] : null
+      if (meta && Object.keys(meta).length > 0) out[j.job_id] = meta
+    }
+  }
+  return out
+}
+
 // ── Call_log fields pulled via join ─────────────────────────────────────────
 const CALL_LOG_SELECT = `
   call_log (
@@ -202,6 +340,9 @@ const CALL_LOG_SELECT = `
     show_cents,
     customers:customer_id (
       requires_pay_app
+    ),
+    tenant_config:tenant_id (
+      default_burden_rate
     )
   )
 `.replace(/\s+/g, ' ').trim()
@@ -230,6 +371,11 @@ function normalizeJob(row) {
     is_change_order:    cl.is_change_order     || false,
     co_number:          cl.co_number           || null,
     show_cents:         cl.show_cents          || false,
+    // Phase F (F3) — tenant fallback labor rate for the go-back cost rollup, used
+    // ONLY when a WTC has no stamped bid_breakdown.burden_rate AND the job is not
+    // prevailing-wage (a PW job with no stamped rate surfaces "needs rate" instead
+    // of ever applying the standard default — D6/B1).
+    default_burden_rate: cl.tenant_config?.default_burden_rate ?? null,
     // deposit tag — derived from the job's DEPOSIT INVOICES (Sales marks each one),
     // not from a job-level flag. _deposit is attached by loadJobs, not here.
     _deposit: null,
@@ -986,6 +1132,77 @@ export async function removeJobAsset(jobId, id, changedBy, source = 'schedule_co
   const { error } = await supabase.from('job_assets').delete().eq('id', id).eq('job_id', jid)
   if (error) return { error }
   await logJobChange(jid, `job_asset[${id}].removed`, id, null, changedBy, source)
+  return { error: null }
+}
+
+// ── Job mobilizations — write path (Phase F, F2a) ───────────────────────────
+// No job_mobilizations writer existed in Schedule before Phase F (reads only),
+// and updateJobField is jobs-table-only — so these named helpers do the table
+// write AND log a job_changes row via logJobChange (audit D1/H). D3 wants
+// go-back add/delete countable in the audit log, so every write logs.
+
+// Authoritative row list for the editor: read job_mobilizations rows DIRECTLY
+// (audit C1), not the day-derived getJobMobilizations array — a freshly-added
+// dayless go-back has no tagged days yet, so it only exists as a table row.
+export async function loadJobMobilizationRows(jobId) {
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back')
+    .eq('job_id', parseInt(jobId))
+    .order('seq', { ascending: true })
+  if (error) { console.warn('[mobs] could not load job_mobilizations rows:', error.message); return { data: [], error } }
+  return { data: data || [], error: null }
+}
+
+// Add a mobilization to a live job. `seq` is computed by the caller as max+1 over
+// BOTH existing rows AND every day's mobilization_seq (audit O2), so a new mob
+// can't collide with a seq that lives only on tagged days. is_go_back distinguishes
+// a tracked return trip (+ Add Go Back) from rescheduled sold work (+ Add trip).
+export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back }, changedBy, source = 'schedule_mobs') {
+  const jid = parseInt(jobId)
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .insert({ job_id: jid, seq, label: label || null, start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back })
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back').single()
+  if (error) return { data: null, error }
+  await logJobChange(jid, `mobilization[${seq}].added`, null, `${is_go_back ? 'go_back' : 'trip'}: ${label || `Mob ${seq}`}`, changedBy, source)
+  return { data, error: null }
+}
+
+// Edit an existing mobilization's label/dates (never seq or is_go_back — identity
+// and go-back classification are fixed at creation). Logs the label change.
+export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date }, changedBy, source = 'schedule_mobs') {
+  const jid = parseInt(jobId)
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .update({ label: label || null, start_date: start_date || null, end_date: end_date || null })
+    .eq('id', mobRow.id)
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back').single()
+  if (error) return { data: null, error }
+  await logJobChange(jid, `mobilization[${mobRow.seq}].edited`, mobRow.label || null, label || null, changedBy, source)
+  return { data, error: null }
+}
+
+// Delete a mobilization. Two-part in-use scan (audit C1), split by reversibility:
+//  (1) pull_tickets by job_mobilization_id = HARD BLOCK, no override — the FK is
+//      ON DELETE CASCADE, so deleting would silently destroy pull tickets + their
+//      lines + per-mob ticket numbering (irreversible). Returns {blocked:true}.
+//  (2) field_sow day-tags across the job's WTCs (by mobilization_seq) = recoverable
+//      (days can be re-tagged), so the CALLER warns + confirms BEFORE calling this.
+// Never collapse the two into one confirm→proceed (that would allow click-through
+// pull-ticket loss). The scan works because the editor reads rows directly, so
+// mobRow carries the job_mobilizations `id` the FK points at.
+export async function deleteJobMobilization(jobId, mobRow, changedBy, source = 'schedule_mobs') {
+  const jid = parseInt(jobId)
+  // (1) HARD BLOCK: any pull ticket on this mob makes delete a data-loss operation.
+  const { data: pts, error: ptErr } = await supabase
+    .from('pull_tickets').select('id').eq('job_mobilization_id', mobRow.id)
+  if (ptErr) return { error: ptErr }
+  if ((pts?.length || 0) > 0) return { blocked: true, pullTicketCount: pts.length }
+
+  const { error } = await supabase.from('job_mobilizations').delete().eq('id', mobRow.id)
+  if (error) return { error }
+  await logJobChange(jid, `mobilization[${mobRow.seq}].deleted`, mobRow.label || `Mob ${mobRow.seq}`, null, changedBy, source)
   return { error: null }
 }
 

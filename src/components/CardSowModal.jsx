@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import FieldSowBuilder from './FieldSowBuilder'
-import { updateJobWtcFieldSow, updateJobField, hasFieldSow, loadMaterialsCatalog, syncJobMaterialLines } from '../lib/queries'
+import { updateJobWtcFieldSow, updateJobField, hasFieldSow, loadMaterialsCatalog, syncJobMaterialLines, loadJobMobilizationRows } from '../lib/queries'
 
 // In-card Field SOW editor (remediation §6.1 step 1). The card path users
 // actually reach. Hosts ONE FieldSowBuilder per job_wtcs row (WTC tabs), each
@@ -33,6 +33,16 @@ export default function CardSowModal({
     loadMaterialsCatalog().then(({ data }) => { if (alive) setCatalog(data || []) })
     return () => { alive = false }
   }, [])
+
+  // Phase F (F2b) — this job's mobilizations for the per-day picker, loaded FRESH
+  // from job_mobilizations (loadJobMobilizationRows reads the rows directly by
+  // job_id, so a dayless go-back added in MobsModal is taggable here, audit D2).
+  const [mobilizations, setMobilizations] = useState([])
+  useEffect(() => {
+    let alive = true
+    loadJobMobilizationRows(job.job_id).then(({ data }) => { if (alive) setMobilizations(data || []) })
+    return () => { alive = false }
+  }, [job.job_id])
 
   // Finding F: a save that empties a Ready job's SOW also clears
   // ready_confirmed_at (handler-side, NOT a trigger) + toasts. "Empties" =
@@ -126,6 +136,7 @@ export default function CardSowModal({
                   saving={saving}
                   availableMaterials={matsFor(activeWtc)}
                   catalog={catalog}
+                  mobilizations={mobilizations}
                   focusDayIndex={String(activeWtc.id) === String(initialWtcId) ? initialDayIndex : null}
                   changedBy={changedBy}
                   onSave={(next) => saveWtc(activeWtc, next)}
@@ -140,6 +151,7 @@ export default function CardSowModal({
               saving={saving}
               availableMaterials={proposalMaterials}
               catalog={catalog}
+              mobilizations={mobilizations}
               changedBy={changedBy}
               onSave={saveLegacy}
             />

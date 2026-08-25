@@ -262,15 +262,26 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
           <span className="sjc-score-label">DAYS</span>
           <span className="sjc-score-val">{hasDate ? <>{workDays || '?'}d</> : '✗'}</span>
         </div>
-        <div
-          className={`sjc-score${mobs.length ? ' sjc-score-click sjc-score-neutral' : ' sjc-score-stub'}`}
-          onClick={mobs.length ? onMobsClick : undefined}
-          title={mobs.length ? 'View mobilizations' : 'No mobilizations set on the Sales proposal'}
-        >
-          <span className="sjc-score-icon">{'🚚'}</span>
-          <span className="sjc-score-label">MOBS</span>
-          <span className="sjc-score-val">{mobs.length || '—'}</span>
-        </div>
+        {/* Phase F: MOBS is now an editor entry — always clickable, even at 0 mobs,
+            so a go-back can be added. Go-back count = mobs flagged is_go_back with
+            ≥1 tagged day (audit O3 — a seeded-but-unscheduled mob isn't a real trip). */}
+        {(() => {
+          const goBacks = mobs.filter(m => m.is_go_back && m.dayCount > 0).length
+          return (
+            <div
+              className="sjc-score sjc-score-click sjc-score-neutral"
+              onClick={onMobsClick}
+              title={goBacks > 0 ? `${mobs.length} mobilization(s), ${goBacks} go-back(s) — add or edit` : 'Add or edit mobilizations'}
+            >
+              <span className="sjc-score-icon">{'🚚'}</span>
+              <span className="sjc-score-label">MOBS</span>
+              <span className="sjc-score-val">
+                {mobs.length || '—'}
+                {goBacks > 0 && <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--warning)' }} title={`${goBacks} go-back(s)`}>↩{goBacks}</span>}
+              </span>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
@@ -565,7 +576,7 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByCallLog = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
@@ -585,7 +596,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const proposalMaterials = proposalMaterialsByCallLog[job.call_log_id] || []
   const logsCount = logsByCallLog[job.call_log_id] || 0
   const assignmentDates = assignmentsByJobId[job.job_id] || null
-  const mobs = getJobMobilizations(job, mobsByCallLog[job.call_log_id])
+  const mobs = getJobMobilizations(job, mobsByJobId[job.job_id])
 
   const togglePanel = useCallback((key) => {
     setPanels(prev => ({ ...prev, [key]: !prev[key] }))
@@ -775,6 +786,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           job={job}
           mobs={mobs}
           onClose={() => setShowMobsModal(false)}
+          onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
         />
       )}
     </div>
