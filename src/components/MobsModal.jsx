@@ -11,7 +11,7 @@
 // to enrich each row with its tagged-day count.
 
 import { useEffect, useState, useCallback } from 'react'
-import { loadJobMobilizationRows, addJobMobilization, updateJobMobilization, deleteJobMobilization, loadMaterialsCatalog, computeMobCosts } from '../lib/queries'
+import { loadJobMobilizationRows, addJobMobilization, updateJobMobilization, deleteJobMobilization, countPullTicketsForMob, loadMaterialsCatalog, computeMobCosts } from '../lib/queries'
 import { useUser } from '../lib/user'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -92,6 +92,11 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
 
   async function saveDraft() {
     if (!draft || busy) return
+    // Validate the range (the <input min> is only a hint, T5 #3): a bad end can't persist.
+    if (draft.start_date && draft.end_date && draft.end_date < draft.start_date) {
+      setError('End date can’t be before the start date.')
+      return
+    }
     setBusy(true); setError(null)
     const payload = { label: draft.label, start_date: draft.start_date, end_date: draft.end_date }
     const res = draft.id == null
@@ -105,21 +110,32 @@ export default function MobsModal({ job, mobs = [], onClose, onUpdated }) {
 
   async function removeRow(row) {
     if (busy) return
-    // Part 2 (recoverable): warn + confirm on field-SOW day tags. Part 1 (pull_tickets,
-    // irreversible CASCADE) is a HARD BLOCK enforced in deleteJobMobilization.
+    setBusy(true); setError(null)
+    // Part 1 (irreversible pull_tickets CASCADE) is the HARD BLOCK — check it FIRST,
+    // before asking the user to confirm anything, so a blocked mob never shows a
+    // pointless "delete anyway?" prompt (T5 #1). deleteJobMobilization re-checks it
+    // as the authority regardless.
+    const { count: ptCount, error: ptErr } = await countPullTicketsForMob(row.id)
+    if (ptErr) { setError(ptErr.message); setBusy(false); return }
+    if (ptCount > 0) {
+      setBusy(false)
+      window.alert(
+        `Can't delete Mob ${row.seq} — it has ${ptCount} pull ticket${ptCount === 1 ? '' : 's'}. ` +
+        `Deleting it would destroy those pull tickets and their numbering. Remove the pull tickets first.`
+      )
+      return
+    }
+    // Part 2 (recoverable): warn + confirm on field-SOW day tags.
     const taggedDays = collectDaySeqs(job).filter(s => s === row.seq).length
     if (taggedDays > 0 && !window.confirm(
       `Mob ${row.seq} — ${row.label || '(no label)'} is tagged on ${taggedDays} field-SOW day${taggedDays === 1 ? '' : 's'}. ` +
       `Deleting it leaves those days without a mobilization (you can re-tag them). Delete anyway?`
-    )) return
-    setBusy(true); setError(null)
+    )) { setBusy(false); return }
     const res = await deleteJobMobilization(job.job_id, row, changedBy)
     if (res.blocked) {
+      // Race: a pull ticket appeared between the pre-check and here. Still honored.
       setBusy(false)
-      window.alert(
-        `Can't delete Mob ${row.seq} — it has ${res.pullTicketCount} pull ticket${res.pullTicketCount === 1 ? '' : 's'}. ` +
-        `Deleting it would destroy those pull tickets and their numbering. Remove the pull tickets first.`
-      )
+      window.alert(`Can't delete Mob ${row.seq} — it now has ${res.pullTicketCount} pull ticket(s). Remove them first.`)
       return
     }
     if (res.error) { setError(res.error.message); setBusy(false); return }

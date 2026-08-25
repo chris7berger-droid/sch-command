@@ -1192,13 +1192,22 @@ export async function updateJobMobilization(jobId, mobRow, { label, start_date, 
 // Never collapse the two into one confirm→proceed (that would allow click-through
 // pull-ticket loss). The scan works because the editor reads rows directly, so
 // mobRow carries the job_mobilizations `id` the FK points at.
+// Count pull tickets on a mobilization — the hard-block signal. Separable from
+// deleteJobMobilization so the UI can check the block BEFORE asking the user to
+// confirm the (recoverable) field_sow tag loss, instead of confirm-then-block.
+export async function countPullTicketsForMob(mobId) {
+  const { data, error } = await supabase.from('pull_tickets').select('id').eq('job_mobilization_id', mobId)
+  if (error) return { count: 0, error }
+  return { count: data?.length || 0, error: null }
+}
+
 export async function deleteJobMobilization(jobId, mobRow, changedBy, source = 'schedule_mobs') {
   const jid = parseInt(jobId)
   // (1) HARD BLOCK: any pull ticket on this mob makes delete a data-loss operation.
-  const { data: pts, error: ptErr } = await supabase
-    .from('pull_tickets').select('id').eq('job_mobilization_id', mobRow.id)
+  // Authoritative re-check even when the caller pre-checked (belt-and-suspenders).
+  const { count: ptCount, error: ptErr } = await countPullTicketsForMob(mobRow.id)
   if (ptErr) return { error: ptErr }
-  if ((pts?.length || 0) > 0) return { blocked: true, pullTicketCount: pts.length }
+  if (ptCount > 0) return { blocked: true, pullTicketCount: ptCount }
 
   const { error } = await supabase.from('job_mobilizations').delete().eq('id', mobRow.id)
   if (error) return { error }
