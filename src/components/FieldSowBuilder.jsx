@@ -197,7 +197,11 @@ export default function FieldSowBuilder({ value, onSave, saving, availableMateri
         // Step 7 lock: a confirmed material's specs are read-only here — edits must
         // go through overrideSpec (typed reason). Reject the write (belt to the
         // read-only UI). Non-spec fields (qty_planned/name/kit_size) stay editable.
-        if (SPEC_KEYS.includes(key) && m.specs_confirmed === true) return m
+        // Exception: a confirmed material can still be confirmed with SOME specs
+        // blank (confirm unlocks the moment any one spec is non-empty). A blank
+        // field has no confirmed value to protect, so leave it editable — else the
+        // only way to fill a missing mils/mix_time is the override-with-reason hatch.
+        if (SPEC_KEYS.includes(key) && m.specs_confirmed === true && String(m[key] ?? '') !== '') return m
         return { ...m, [key]: next }
       }),
     }
@@ -526,7 +530,10 @@ function DayMaterials({ day, wtcMaterials, catalog = [], onAdd, onAddCatalog, on
 
   const specInput = (m, key, placeholder, type = 'text') => {
     const isSpec = SPEC_KEYS.includes(key)
-    const locked = isSpec && m.specs_confirmed === true
+    // Only lock a confirmed spec that actually carries a value. Blank fields on a
+    // confirmed material stay editable so a missing mils/mix_time/mix_speed can be
+    // filled directly (mirrors updateMaterialField's blank exception).
+    const locked = isSpec && m.specs_confirmed === true && (m[key] ?? '') !== ''
     const overriding = isSpec && overrideId === m.wtc_material_id
     const readOnly = locked && !overriding
     const value = overriding ? (overrideDraft[key] ?? '') : (m[key] ?? '')
