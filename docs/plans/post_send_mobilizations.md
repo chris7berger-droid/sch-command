@@ -3,7 +3,7 @@
 **Spine:** `command-suite-db/docs/MASTER_SCHEDULE.md` → Phase F (+ decision #5).
 **Owner app:** Schedule Command (post-send). Touches sales-command (seed at send) + a one-time backfill.
 **Status:** PLAN — not built. Written 2026-08-25 from three read-only verification sweeps.
-**Big news vs the spine's assumption:** **no migration needed**, and Schedule's mobilization *display* is **already built**. Phase F is smaller than logged.
+**Big news vs the spine's assumption:** the `job_mobilizations` table is **already built** (no table creation) and Schedule's mobilization *display* is **already built** — Phase F is smaller than logged. One small additive migration remains (F0, `is_go_back`, for go-back tracking).
 
 ---
 
@@ -18,7 +18,7 @@ After a proposal is sent, a job sometimes needs **another trip to site** — go-
 All three confirmed by direct code/schema reads on 2026-08-25.
 
 - **`job_mobilizations` table already exists, fully built — 0 writers. [LOCKED]**
-  `command-suite-db/supabase/migrations/20260708120100_*.sql`. Columns: `id` (uuid PK), `job_id` (bigint, FK→`jobs.job_id` ON DELETE CASCADE), `seq` (int, CHECK >0, **UNIQUE(job_id, seq)**), `label` (text), `start_date`/`end_date` (date), `created_at`, `updated_at` (trigger). RLS enabled — 4 authenticated policies scoping via `jobs.call_log_id → call_log.tenant_id`. GRANTs present. `pull_tickets.job_mobilization_id` already FKs to it. **Nothing anywhere writes it** — the migration header says seeding is "app-side (send-to-schedule, sales-command) — NOT authored here," and it never was. **⇒ Phase F needs NO migration.**
+  `command-suite-db/supabase/migrations/20260708120100_*.sql`. Columns: `id` (uuid PK), `job_id` (bigint, FK→`jobs.job_id` ON DELETE CASCADE), `seq` (int, CHECK >0, **UNIQUE(job_id, seq)**), `label` (text), `start_date`/`end_date` (date), `created_at`, `updated_at` (trigger). RLS enabled — 4 authenticated policies scoping via `jobs.call_log_id → call_log.tenant_id`. GRANTs present. `pull_tickets.job_mobilization_id` already FKs to it. **Nothing anywhere writes it** — the migration header says seeding is "app-side (send-to-schedule, sales-command) — NOT authored here," and it never was. **⇒ the table needs no creation; Phase F adds only one additive column (F0 `is_go_back`) for go-back tracking.**
 
 - **Field Command is fully decoupled from mobilizations. [LOCKED]**
   `field-command` reads `job_wtcs.field_sow` (`TasksTab.js:88`) and groups days **by calendar date only**. Zero references to `mobilization_seq` or `job_mobilizations`; neither is in `schema.js` or the PowerSync bucket. **⇒ seeding the table + keeping `mobilization_seq` on days has zero Field impact.**
@@ -55,13 +55,21 @@ All three confirmed by direct code/schema reads on 2026-08-25.
 
 - **D1 — Post-send source of truth = `job_mobilizations`.** Seed it at send; repoint Schedule's read helpers to it. *Recommend: yes.* (Today Schedule reads labels off `proposals.mobilizations`; that can't hold a NEW go-back mob that never existed on the proposal.)
 - **D2 — Join key stays `mobilization_seq` (int, per job).** Do **not** switch days to an `id` FK. *Recommend: yes* — Field, the send stamp, and FieldSowBuilder's passthrough all already work on seq; changing it is a large, needless rewrite.
-- **D3 — "Go-back" is not a data-model concept.** It's simply *a new mobilization added post-send + new days tagged to it.* No flag. Billing treatment of a go-back (no-charge vs new billable) stays in the existing billing layer — out of scope here. *Recommend: yes.* (Connects to the standing "Go Backs" item: this is the scheduling mechanism that unblocks re-scheduling invoiced work.)
+- **D3 (REVISED per Chris 2026-08-25) — A go-back IS a first-class, tracked thing.** There are now **two** post-send write actions: **"Add trip"** (a normal additional mobilization) and a distinct **"Add Go Back"** (a mobilization flagged as a go-back). The flag exists so go-backs are **countable/reportable per job and across jobs**, and so their **costs are captured** (the go-back mob's days carry crew/hours/materials = the cost inputs; we roll those up per go-back). Flag lives on the mobilization: **`job_mobilizations.is_go_back boolean NOT NULL DEFAULT false`** — one small additive column (see F0). Mechanically a go-back is still "a mobilization + its days," but it is *marked* and *measured*, not anonymous. *Locked by Chris.* (This is the scheduling+cost mechanism behind the standing "Go Backs" item — re-scheduling invoiced work.)
+  - *Sub-note:* the flag could instead live per-day in the `field_sow` jsonb (migration-free), but a go-back is a whole trip and "track Go Backs" is per-trip, so the per-mob column is the right home. It re-adds one additive migration (rehearse-before-push applies again).
+  - **Billing treatment** of a go-back (customer no-charge vs new billable invoice) still stays in the billing layer — OUT of scope here. This plan captures go-back **cost** for internal tracking, not customer billing.
 - **D4 — Backfill existing live jobs** from `proposals.mobilizations` by seq (recover label/dates), so there's no permanent dual-source read. *Recommend: yes.*
 - **D5 — Seed at send is app-side** (`commitSendToSchedule`), idempotent on re-send via `onConflict(job_id, seq)` — same pattern as the existing `job_wtcs` upsert. *Recommend: yes* (matches the migration header's stated intent; a DB trigger can't easily reach the proposal's mob list).
 
 ---
 
 ## 4. Build sequence (least-reversible first; each gated + smoked)
+
+### F0 — Add the go-back flag · `command-suite-db` (migration)
+- `ALTER TABLE job_mobilizations ADD COLUMN is_go_back boolean NOT NULL DEFAULT false;` — additive, back-fills every existing row to `false` automatically. No RLS/grant change (inherits the table's).
+- **Shared-DB migration ⇒ rehearse first:** `cd ~/command-suite-db && ./scripts/rehearse.sh <migration>` before push (standing discipline — a change can read correct and only fail from scratch). Author + push from `command-suite-db` per its ledger.
+- This is the one migration Phase F needs; everything else is app-side.
+- **Smoke:** column present, existing rows `false`, insert with/without it works.
 
 ### F1 — Seed `job_mobilizations` at send · `sales-command`
 - In `commitSendToSchedule` (`ProposalDetail.jsx`), right after the `job_wtcs` upsert: insert one `job_mobilizations` row per entry in the proposal's `mobilizations` (all of them, so a label exists for every seq), mapping `{job_id: newJobId, seq, label, start_date, end_date}`.
@@ -79,10 +87,18 @@ All three confirmed by direct code/schema reads on 2026-08-25.
 - **Smoke:** MOBS card + MobsModal render identically before/after (labels now sourced from `job_mobilizations`).
 
 ### F2 — Write affordances (the actual feature) · `sch-command`
-- **F2a — Editable mobilizations.** Turn `MobsModal` from read-only into an editor (reuse the exact display/edit pattern shipped in Sales 2026-08-25: settled summary rows + Edit/Delete + Save, add = new `job_mobilizations` row `seq = max+1`). Delete does an **in-use scan** across the job's `job_wtcs.field_sow` days (block/warn if the seq is tagged) — same guard as Sales' `deleteMob`.
-- **F2b — Per-day mobilization picker in `FieldSowBuilder`.** Add a Mobilization `<select>` on each day row (the field already round-trips via passthrough — just surface it), options = this job's `job_mobilizations`. Tagging sets `day.mobilization_seq`. Adding a **go-back** = existing `+ Add Day` → pick the new mob. Persists through `updateJobWtcFieldSow` (already audit-logged).
-- **Policy note to surface:** this deliberately widens Schedule's remit — `updateJobWtcFieldSow`'s comment says "moves the calendar, never scope." Adding go-back days/trips **is** new scope. That's intended for post-send go-backs; call it out so it's a decision, not a silent drift. [DESIGN-OPEN — confirm the scope-widening is acceptable, or gate go-back day-adds behind an explicit "Add go-back" action rather than the plain +Add Day]
-- **Smoke:** on a live invoiced job, add a "Mob 2 — warranty return," add 2 go-back days tagged to it, save → job_mobilizations + field_sow updated, **proposal untouched, no pull-back, no invoice guard tripped**; MOBS card shows Mob 2.
+- **F2a — Editable mobilizations, two add-actions.** Turn `MobsModal` from read-only into an editor (reuse the display/edit pattern shipped in Sales 2026-08-25: settled rows + Edit/Delete + Save, add = new `job_mobilizations` row `seq = max+1`). **Two distinct buttons:**
+  - **`+ Add trip`** → normal mobilization (`is_go_back = false`).
+  - **`+ Add Go Back`** → mobilization flagged `is_go_back = true`, visually marked (badge/color) in the list and on the MOBS card.
+  Delete does an **in-use scan** across the job's `job_wtcs.field_sow` days (block/warn if the seq is tagged) — same guard as Sales' `deleteMob`.
+- **F2b — Per-day mobilization picker in `FieldSowBuilder`.** Add a Mobilization `<select>` on each day row (the field already round-trips via passthrough — just surface it), options = this job's `job_mobilizations` (go-backs labelled as such). Tagging sets `day.mobilization_seq`. **Adding go-back days** = `+ Add Day` → pick the go-back mob; those days carry crew/hours/materials = the go-back's cost inputs. Persists through `updateJobWtcFieldSow` (already audit-logged).
+- **Scope-widening — RESOLVED (Chris):** yes, Schedule may add post-send scope, but **only through the explicit `+ Add Go Back` path**, precisely so those costs are captured and go-backs are tracked. `updateJobWtcFieldSow`'s "calendar, never scope" discipline stands for everything else.
+- **Smoke:** on a live *invoiced* job, `+ Add Go Back` → "Mob 3 — warranty return" (flagged), add 2 go-back days with crew+hours, save → `job_mobilizations` row `is_go_back=true` + tagged days; **proposal untouched, no pull-back, no invoice guard tripped**; MOBS card shows the go-back badge.
+
+### F3 — Go-back tracking + cost rollup · `sch-command`
+- **Track:** the `is_go_back` flag makes go-backs countable/filterable per job (and, later, across jobs). Minimum now: a go-back count + badge on the job (MOBS card / JobDetail).
+- **Capture costs:** roll up each go-back mob's days — crew_count × hours_planned (+ materials) — into a per-go-back and per-job go-back cost. The **dollar** conversion reuses the job's existing rate/bid math (`bid_breakdown` / Budget). [DESIGN-OPEN — which rate source powers the dollar figure; the cost *inputs* are captured regardless.]
+- A dedicated cross-job "Go-Backs report" screen is a **follow-on**, not this phase — the data (flag + day cost inputs) is captured now so the report is later just a read.
 
 ### UI / layout
 - Entry: the existing **MOBS card** on the job card (and/or JobDetail) opens the now-editable MobsModal. Day-level tagging lives where days are already edited (CardSowModal → FieldSowBuilder). No new top-level screen.
@@ -96,14 +112,15 @@ All three confirmed by direct code/schema reads on 2026-08-25.
 - **Backfill correctness** — seq→label mapping via the proposal join; some seqs may have no proposal match (blank label) — acceptable, verify counts.
 - **Read repoint grace** — jobs not yet backfilled must still render (fallback to `proposals.mobilizations`, or run backfill before removing fallback).
 - **Delete-without-scan** — deleting a mob still tagged on days orphans them and would block a re-schedule; require the in-use scan (mirror Sales).
-- **Scope-widening** (D3/F2b policy note) — Schedule gaining "add scope" post-send is a real product decision, not just code.
-- **No shared-DB migration** — so the rehearse-before-push landmine does **not** apply here (nice). Backfill is data-only; still verify on a couple of jobs first.
+- **Scope-widening** — RESOLVED: Schedule adds post-send scope only via the explicit `+ Add Go Back` path (D3/F2).
+- **One shared-DB migration returns (F0 `is_go_back`)** — additive/low-risk, but the **rehearse-before-push** discipline applies (`command-suite-db/scripts/rehearse.sh`) + the single shared ledger. Backfill (F1) is data-only; verify on a couple of jobs first.
 
 ---
 
 ## 6. Explicitly OUT of scope
 
-- Billing treatment of go-back work (no-charge vs billable) — stays in the existing billing layer; this plan only schedules the trip.
+- **Customer billing** of go-back work (no-charge vs a new billable invoice) — stays in the existing billing layer. This plan **captures the internal cost** of a go-back (crew/hours/materials on its days) and flags/tracks it, but does not decide or produce customer billing.
+- The cross-job **Go-Backs report** screen — follow-on (data is captured now; F3 does the per-job count + cost, not a fleet report).
 - Field crew-screen mobilization labels/grouping — that's Phase E (Field currently ignores mobilization entirely, by design).
 - Any change to the join key or the day jsonb shape.
 
