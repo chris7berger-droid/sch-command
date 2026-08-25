@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { updateJobField, updateJobStatus } from '../lib/queries'
+import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -642,6 +642,22 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
     navigate('/billing?tab=worklist')
   }, [navigate])
 
+  // Remove a mis-sent or wrongly-created job. Only offered pre-work (staged/ready)
+  // — once a job is active or complete it carries field + billing history. Soft-
+  // delete (recoverable 24h) that also frees the upstream Sales proposal to be
+  // pulled back or re-sent (see deleteJob in queries.js).
+  const canDelete = stage === 'staged' || stage === 'ready'
+  const handleDelete = useCallback(async () => {
+    if (!window.confirm(
+      `Delete job ${job.job_num || ''}? It will be removed from the schedule and its proposal in Sales Command will be freed to pull back or re-send. Recoverable for 24 hours from the Recovery Bin.`
+    )) return
+    setActing(true)
+    const { error } = await deleteJob(job.job_id, changedBy)
+    if (error) { console.error(error); alert('Delete failed: ' + error.message); setActing(false); return }
+    if (onJobUpdate) onJobUpdate()
+    setActing(false)
+  }, [job.job_id, job.job_num, changedBy, onJobUpdate])
+
   // Scorecard click handlers — navigate to JobDetail with the right tab
   const goManagementTab = useCallback((tab) => {
     navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
@@ -736,6 +752,11 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
         {stage === 'complete' && (
           <button className="sjc-action-btn sjc-billing" onClick={handleSendToBilling}>
             Send to Billing
+          </button>
+        )}
+        {canDelete && (
+          <button className="sjc-action-btn sjc-delete" disabled={acting} onClick={handleDelete}>
+            Delete
           </button>
         )}
       </div>
