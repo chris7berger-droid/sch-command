@@ -170,6 +170,7 @@ All three confirmed by direct code/schema reads on 2026-08-25.
 - Any change to the join key or the day jsonb shape.
 - **Go-back tracking is forward-only (audit ADJ2):** past return-trip work that lives only in billing's `nothing_to_bill` cannot be reclassified into `is_go_back` retroactively. New go-backs from here are tracked; historical ones aren't backfilled. Stated, accepted.
 - Backlog (pre-existing, not this plan): `job_mobilizations` has no `tenant_id` column (tenant derived via `jobs→call_log`) + single PowerSync bucket — the MIG-4 pattern, capped Med at 1 tenant (audit ADJ1).
+- **Backlog (T6 security-review #6, hardening — deferred):** the pull-ticket delete hard-block lives in the JS writer (`deleteJobMobilization`) + a UI pre-check. RLS scopes DELETE to the caller's own tenant, so the only residual risk is a same-tenant authorized user deleting a mob via the direct API and cascade-destroying its own pull tickets (never cross-tenant). Defense-in-depth = a `BEFORE DELETE` trigger on `job_mobilizations` that raises when a `pull_tickets` row references it. Not built here — it's a new shared-DB migration; author as a follow-on if the guard is wanted server-side.
 
 ---
 
