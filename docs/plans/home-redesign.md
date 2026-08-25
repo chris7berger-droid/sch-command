@@ -141,40 +141,56 @@ composition + StatsBar/`Next Up` visual treatment. No framework or shared-logic 
 
 ## §2 Proposed change
 
-**A. Home-scoped theme layer.** Add a `.home-screen` scope (or `data-screen="home"`) that
-overrides tokens locally so other screens are untouched this pass:
-`--bg` → lighter linen, `--bg-card` → creamy, primary accent → teal `#30cfac`, define the
-signal roles (green=available/ready, orange=assigned/staged, red=needs-crew/low, purple=open/
-completion). [Honors "don't globally mutate shared components" + the standing teal direction.]
+> **Round-1 audit resolved this section.** The original "everything Home-scoped" theme plan had
+> a scope contradiction (shell chrome can't be reached by a Home-only scope). Superseded by the
+> two-layer split below. See §10 for the full round-1 resolutions.
+
+**A. Two-layer theme (round-1 fix).** The frame reskin and the content reskin are different jobs:
+- **Shell chrome (global): header + left sidebar.** Restyled at the `AppShell` level to the
+  mockup's charcoal + teal-accent chrome. Already dark charcoal + teal today and the sidebar is
+  already app-wide (D6), so this is a small, deliberate global chrome change — consistent chrome
+  across all screens is the intent. `/schedule` stays full-bleed (no sidebar) per D6.
+- **Weekly Crew Capacity strip → Home content, NOT shell.** Its rich charcoal/teal restyle lives
+  inside `Home.jsx`, so it can be Home-scoped and cannot leak. Other screens keep the existing
+  small `StatsBar` unchanged (or drop it there — deferred, Chris's call).
+- **Home body (scoped): `.home-screen` token layer.** `--bg` → lighter linen, `--bg-card` →
+  creamy, **content** primary accent → teal `#30cfac`; signal roles green=available/ready,
+  orange=assigned/staged, red=needs-crew/low, purple=open/completion. Scoped so it can't touch
+  other screens.
 
 **B. New Home route + screen.** Add `/home` (and point `/` there instead of `/jobs`, keeping
 `/jobs` working). New `src/views/Home.jsx` composing:
-1. Greeting header ("Good morning, …" + schedule overview) inside existing shell.
-2. **Weekly Crew Capacity** — Home variant of `StatsBar`: 3 circular summary badges + per-day
-   `X/total` + progress bar + % + TODAY marker + teal "View Crew Schedule". Reuse its data calc.
-3. **Needs Attention / Next Up / At a Glance** three-panel row — Needs Attention + At a Glance
-   are light cards built from existing job/crew data (jobs-need-crews, conflicts, not-ready;
-   jobs-scheduled, crew-assignments, completion). **Next Up** = dark feature card for the top
-   priority job with teal BUILD SCHEDULE (→ existing `/schedule` path) + VIEW JOB (→ existing
-   `/jobs/:id`). [Data wiring is the main new work — see D5.]
-4. **Jobs to Prepare** — the existing job list, reskinned to compact rows that open the
-   collapsed `sjc-card` inline (Planning/Management/Details/Budget expand as today). Resolve D3.
+1. Greeting header ("Good morning, …" + schedule overview) inside the (now-sidebar) shell.
+2. **Weekly Crew Capacity** — Home variant of `StatsBar` rendered as Home content: 3 circular
+   summary badges + per-day `X/total` + progress bar + % + TODAY marker + teal "View Crew
+   Schedule". Reuse its data calc; see §11 for exact number sources.
+3. **Needs Attention / Next Up / At a Glance** three-panel row — all numbers derive from real
+   data per §11 (no hardcoded/guessed values). **Next Up** = dark feature card for the top
+   priority job (soonest-starting job still needing attention, §11) with teal BUILD SCHEDULE
+   (→ existing `/schedule` path) + VIEW JOB (→ existing `/jobs/:id`).
+4. **Jobs to Prepare** — the existing job list, reskinned to compact rows. Clicking a row opens
+   the collapsed `sjc-card` inline (Planning/Management/Details/Budget expand as today). **The
+   row's right-side action slot surfaces the real per-stage action** (Promote to Ready / Kickoff
+   / Resume / Send to Billing) so office staff keep their one-click workflow — no action is
+   buried behind the expand click (round-1 fix). Resolve D3 (single list + dropdown).
 
 **C. Preserve** all job-card logic, status derivation, filters/search, actions, routes,
 permissions verbatim (see §0 preserve list).
 
 ## §3 Files to touch (draft)
-- `src/index.css` — add Home-scoped token overrides (no global token changes).
-- `src/App.css` — new Home classes (`.home-*`), sidebar chrome (`.app-sidebar`), StatsBar Home
-  variant, compact-row job card, Next Up / Needs Attention / At a Glance cards.
-- `src/App.jsx` — **add left sidebar to `AppShell`** (nav from `NAV_ITEMS`), per-route
-  full-bleed flag so `/schedule` renders without it; add `/home` route; repoint `/`.
-- `src/views/Home.jsx` — NEW screen composition.
-- `src/components/StatsBar.jsx` — Home variant / extend for badges + per-day capacity.
-- `src/components/StageJobCard.jsx` — support a `variant="home-compact"` (collapsed-by-default
-  in a compact row) WITHOUT changing its use on `/jobs`.
-- Possibly a small `src/lib/queries.js` addition for the Needs-Attention / At-a-Glance / Next-Up
-  aggregates (read-only selects; no schema change, no migration).
+- `src/index.css` — `.home-screen` scoped token overrides (Home body only, no global token change).
+- `src/App.css` — **global chrome** restyle (`.app-header`, new `.app-sidebar`) + Home classes
+  (`.home-*`), Home capacity strip, compact-row job card, Next Up / Needs Attention / At a Glance.
+- `src/App.jsx` — **add left sidebar to `AppShell`** (nav from `NAV_ITEMS`) as global chrome;
+  per-route full-bleed flag so `/schedule` renders without it; add `/home` route; repoint `/`.
+- `src/views/Home.jsx` — NEW screen composition (incl. the rich Weekly Crew Capacity strip as
+  Home content).
+- `src/components/StatsBar.jsx` — Home variant for the capacity strip (badges + per-day capacity).
+  Existing shell usage on other screens stays as-is.
+- `src/components/StageJobCard.jsx` — `variant="home-compact"` (collapsed-by-default compact row
+  with the real per-stage action on the row) WITHOUT changing its use on `/jobs`.
+- `src/lib/queries.js` — new read-only aggregate selectors for the dashboard numbers (§11);
+  MUST follow `loadJobs()` conventions and `job_crew.call_log_id` FK. No schema change, no migration.
 
 ## §4 Out of scope / deferred
 - Global green→teal swap on other screens (this pass keeps teal Home-scoped; global swap stays
@@ -302,6 +318,43 @@ sand/linen · teal accents in the same visual role · same hierarchy · comparab
 proportions, whitespace, typography · controls compact (not the old oversized toolbar) ·
 screen immediately reads as the NEW mockup, not the old screen. Functional success alone is
 NOT completion. **Functional fidelity + visual fidelity = completion.**
+
+## §10 Round-1 audit resolutions [LOCKED — Chris, 2026-08-25]
+The round-1 audit (3 spec gaps, all "close before build") is resolved:
+1. **Frame styling scope contradiction → two-layer split** (§2A). Shell chrome (header + sidebar)
+   restyled globally; Weekly Crew Capacity strip moved into Home content; Home body scoped. Kills
+   the "leaks to 7 screens OR frame stays old-looking" fork. Ratified.
+2. **Dashboard numbers → real sources** (§11). Every mockup number pinned to a real derivation;
+   none hardcoded/guessed. Three that encode business meaning ratified with Chris's defaults.
+3. **Compact rows hid daily actions → real per-stage action on the row** (§2B.4). Promote/
+   Kickoff/Resume/Send-to-Billing stays one-click; not buried behind the expand. Ratified.
+
+## §11 Dashboard number sources [LOCKED — Chris defaults ratified 2026-08-25]
+No number is hardcoded. Each derives from existing tables via read-only `queries.js` selectors
+(honoring `loadJobs()` conventions + `job_crew.call_log_id` FK; watch the 1000-row cap).
+
+**Weekly Crew Capacity**
+- **Crew available** = active `crew` not marked out this week (`crew` + `crew_status`). *(StatsBar
+  already computes this.)*
+- **Assigned** = crew with ≥1 `assignments` row this week.
+- **Open crew spots** = Σ over this week's jobs of `max(0, crew_needed − assigned crew)` (total
+  unfilled slots). ← Chris default.
+- **Per-day `X / total`** = assigned / available per day (existing StatsBar calc).
+
+**Needs Attention**
+- **Jobs need crews** = jobs where assigned crew < `crew_needed`.
+- **Schedule conflicts** = a crew booked on ≥2 jobs the same date (from `assignments`/`job_crew`).
+- **Jobs not ready** = Scheduled-stage jobs failing the existing `isReady()` (`queries.js:91-104`).
+
+**Next Up (top priority job)**
+- = the **soonest-starting job that still needs attention** (not-ready OR missing crew), by
+  `effectiveStart`. ← Chris default.
+
+**At a Glance**
+- **Jobs scheduled** = count of Scheduled-stage jobs in range.
+- **Crew assignments** = count of `assignments` rows this week.
+- **Schedule completion %** = share of this week's job-days that have a crew assigned
+  (assigned job-days ÷ total scheduled job-days). ← Chris default.
 
 ---
 
