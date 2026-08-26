@@ -1135,6 +1135,24 @@ export async function removeJobAsset(jobId, id, changedBy, source = 'schedule_co
   return { error: null }
 }
 
+// Soft-delete a whole job — the inverse of the Recovery Bin restore (Jobs.jsx
+// restoreJob). Sets deleted='Yes' so every job read drops it (loadJobs, StatsBar,
+// exports all filter deleted.eq.No). Critically, it also frees the upstream Sales
+// proposal: Sales' "already sent to schedule?" checks match jobs by
+// source_proposal_id AND deleted='No', so a soft-deleted job lets that proposal be
+// pulled back or re-sent instead of being stuck as "✓ Sent to Schedule" forever.
+// Recoverable for 24h from the bin; logged for the audit trail.
+export async function deleteJob(jobId, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const { error } = await supabase
+    .from('jobs')
+    .update({ deleted: 'Yes', deleted_at: new Date().toISOString() })
+    .eq('job_id', jid)
+  if (error) return { error }
+  await logJobChange(jid, 'deleted', 'No', 'Yes', changedBy, source)
+  return { error: null }
+}
+
 // ── Job mobilizations — write path (Phase F, F2a) ───────────────────────────
 // No job_mobilizations writer existed in Schedule before Phase F (reads only),
 // and updateJobField is jobs-table-only — so these named helpers do the table

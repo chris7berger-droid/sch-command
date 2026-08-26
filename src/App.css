@@ -170,6 +170,16 @@
   min-width: 500px;
 }
 
+/* Large editor modal (Field SOW builder, stage-card print). Wide enough that the
+   day/crew/hours/mobilization row and material spec grid breathe instead of
+   squishing. padding:0 so the flush dark header meets the rounded top corners. */
+.mdl-lg {
+  max-width: 1040px;
+  min-width: 0;
+  width: 94vw;
+  padding: 0;
+}
+
 .mdl h3 {
   font-family: var(--font-heading);
   font-size: 18px;
@@ -6093,6 +6103,24 @@
   background: var(--cyan);
   color: #fff;
   border-color: var(--cyan);
+}
+/* Secondary, understated destructive action — never full-width so it can't be
+   mistaken for the primary stage button. Muted outline until hover. */
+.sjc-delete {
+  display: block;
+  width: auto;
+  margin-left: auto;
+  margin-top: 8px;
+  padding: 4px 12px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(192, 57, 43, 0.45);
+}
+.sjc-delete:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+  filter: none;
 }
 
 
