@@ -576,11 +576,15 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, variant = null, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
 
+  const compactMode = variant === 'home-compact'
+  // Home compact row is collapsed by default; clicking it expands the SAME full
+  // card inline (Option B). The /jobs path never sets `variant`, so it is untouched.
+  const [expanded, setExpanded] = useState(false)
   const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false })
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
@@ -680,8 +684,73 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
     }
   }, [navigate, job])
 
+  // The real per-stage action (Promote/Kickoff/Resume/Send-to-Billing) — surfaced
+  // on the compact row AND in the expanded card so office staff keep one-click
+  // workflow (§14). `active` renders nothing (a neutral spacer keeps the column
+  // from jumping); a second "View Job" is deliberately NOT added (round-3 note).
+  const stageActionBtn = (extraClass = '') => {
+    const cls = `sjc-action-btn ${extraClass}`.trim()
+    if (stage === 'staged') return <button className={`${cls} sjc-promote`} disabled={!canPromote || acting} onClick={handlePromote}>{acting ? 'Promoting…' : 'Promote to Ready'}</button>
+    if (stage === 'ready') return <button className={`${cls} sjc-kickoff`} disabled={acting} onClick={handleKickoff}>{acting ? 'Starting…' : 'Kickoff'}</button>
+    if (stage === 'on-hold') return <button className={`${cls} sjc-resume`} disabled={acting} onClick={handleResume}>{acting ? 'Resuming…' : 'Resume'}</button>
+    if (stage === 'complete') return <button className={`${cls} sjc-billing`} onClick={handleSendToBilling}>Send to Billing</button>
+    return null
+  }
+
+  // ── Home compact row (collapsed) ──────────────────────────────────────────
+  if (compactMode && !expanded) {
+    const wtcs = job._wtcs || []
+    const wtChips = getWtcChips(wtcs)
+    const workTypeLabel = wtChips.length > 1 ? `${wtChips.length} work types`
+      : wtChips.length === 1 ? (wtcs[0]?.work_type_name || job.work_type || '—')
+      : (job.work_type || '—')
+    const loc = [job.jobsite_city, job.jobsite_state].filter(Boolean).join(', ') || '—'
+    const startStr = effectiveStart(job)
+    const dtk = startStr ? daysBetween(startStr, today) : null
+    let timeSignal = null
+    if (stage === 'active') {
+      const end = effectiveEnd(job)
+      const totalDays = startStr && end ? daysBetween(end, new Date(startStr + 'T00:00:00')) + 1 : null
+      // Wall-clock today (ymd of the local `today` prop) — never toISOString (UTC
+      // rolls the date over in the US evening → off-by-one "day N").
+      const elapsed = startStr ? daysBetween(ymd(today), new Date(startStr + 'T00:00:00')) : null
+      const dayNum = totalDays && elapsed != null ? Math.min(totalDays, Math.max(1, elapsed + 1)) : null
+      if (dayNum != null) timeSignal = `day ${dayNum} of ${totalDays}`
+    } else if (dtk != null) {
+      timeSignal = dtk < 0 ? `${Math.abs(dtk)}d overdue` : dtk === 0 ? 'today' : `in ${dtk}d`
+    }
+    const badgeClass = stage === 'staged' ? 'staged' : stage === 'ready' ? 'ready'
+      : stage === 'active' ? 'active' : stage === 'on-hold' ? 'on-hold' : 'complete'
+    const badgeLabel = stage === 'on-hold' ? 'ON HOLD' : stage.toUpperCase()
+    const amount = job.amount ? parseFloat(job.amount) : 0
+    const stop = (fn) => (e) => { e.stopPropagation(); fn() }
+    return (
+      <div className="jtp-row" onClick={() => setExpanded(true)} role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true) } }}>
+        <span className={`jtp-badge jtp-badge-${badgeClass}`}>{badgeLabel}</span>
+        <span className="jtp-box">{'📦'}</span>
+        <span className="jtp-jobname"><b>{job.job_num || '—'}</b> {job.job_name || ''}</span>
+        <span className="jtp-cell jtp-customer">{job.customer_name || '—'}</span>
+        <span className="jtp-pill">{workTypeLabel}</span>
+        <span className="jtp-cell jtp-loc">{loc}</span>
+        <span className="jtp-cell jtp-date">{startStr ? fmtMD(startStr) : '—'}{timeSignal && <span className="jtp-time"> · {timeSignal}</span>}</span>
+        <span className="jtp-cell jtp-crew">{crewRows.length}/{job.crew_needed || '?'}</span>
+        <span className="jtp-cell jtp-budget">{amount > 0 ? fmtMoney(amount) : '—'}</span>
+        <span className="jtp-actions" onClick={e => e.stopPropagation()}>
+          <button className="jtp-btn jtp-btn-outline" onClick={stop(goCrewSchedule)}>BUILD SCHEDULE →</button>
+          {stage === 'active'
+            ? <span className="jtp-action-spacer" aria-hidden="true" />
+            : stageActionBtn('jtp-btn jtp-btn-fill')}
+        </span>
+      </div>
+    )
+  }
+
   return (
-    <div className="sjc-card">
+    <div className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}>
+      {compactMode && (
+        <button className="jtp-collapse" onClick={() => setExpanded(false)} title="Collapse">Close ✕</button>
+      )}
       <StageBanner job={job} stage={stage} crewRows={crewRows} matRows={matRows} prtMap={prtMap} today={today} />
 
       <div className="sjc-header" onClick={() => navigate(`/jobs/${job.job_id}?mode=management`)}>
