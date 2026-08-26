@@ -1438,6 +1438,22 @@ export function stageOf(j, crewByCallLog, matsByJobId) {
   return 'active' // In Progress / Ongoing
 }
 
+// Wall-clock week helpers — shared so Home.jsx / JobsToPrepare / HomePanels stop
+// each carrying their own copy (the same PR that centralized effectiveStart).
+// Wall-clock only (never toISOString on a date) per the date-columns rule.
+export function fmtD(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+export function getMonday(d) {
+  const dt = new Date(d); const day = dt.getDay()
+  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1)); dt.setHours(0, 0, 0, 0); return dt
+}
+export function wkDates(monday) {
+  const r = []
+  for (let i = 0; i < 6; i++) { const dt = new Date(monday); dt.setDate(dt.getDate() + i); r.push(fmtD(dt)) }
+  return r
+}
+
 // ── Home dashboard aggregates (read-only, §11) ──────────────────────────────
 // All numbers derive from already-loaded data — no new unbounded reads here.
 // The caller (Home.jsx) loads the crew/assignments/jobs slices; every assignments
@@ -1482,8 +1498,10 @@ export function computeHomeDashboard({
   const weekEnd = dates[dates.length - 1]
   const intersectsWeek = (j) => {
     if (!weekStart || !weekEnd) return false
-    const s = effectiveStart(j) || '1900-01-01'
-    const e = effectiveEnd(j) || effectiveStart(j) || '2999-12-31'
+    const rawS = effectiveStart(j), rawE = effectiveEnd(j)
+    if (!rawS && !rawE) return false          // an undated job isn't "this week"
+    const s = rawS || '1900-01-01'            // one-sided span only widens the KNOWN side
+    const e = rawE || rawS || '2999-12-31'
     return s <= weekEnd && e >= weekStart
   }
   const scheduling = (j) => _SCHEDULING_STATUSES.has(getJobStatus(j))
@@ -1494,12 +1512,15 @@ export function computeHomeDashboard({
 
   // ── Capacity strip (week window) ──────────────────────────────────────────
   const getCSt = (name, d) => crewStatusMap[name + '|' + d] || 'available'
+  // Precompute crew_name|date presence so the per-day loop is O(crew·days),
+  // not O(crew·days·assignments) (the .some() scan it replaces).
+  const asgKey = new Set(weekAssignments.map(a => a.crew_name + '|' + a.date))
   const capacityDays = dates.map(d => {
     let out = 0, assigned = 0
     for (const c of crew) {
       const st = getCSt(c.name, d)
       if (st !== 'available') out++
-      else if (weekAssignments.some(a => a.crew_name === c.name && a.date === d)) assigned++
+      else if (asgKey.has(c.name + '|' + d)) assigned++
     }
     const avail = crew.length - out
     const pct = avail > 0 ? Math.round((assigned / avail) * 100) : 0
@@ -1556,6 +1577,12 @@ export function computeHomeDashboard({
   // via week map), ordered by effectiveStart.
   const attention = jobs.filter(j => {
     if (getJobStatus(j) !== 'Scheduled') return false
+    // Date floor: a job whose start is far in the past is stale data, not "next
+    // up" — without this the oldest past-start not-ready job pins itself forever
+    // (it sorts first by ascending start). 14-day grace still surfaces genuinely
+    // overdue-but-recent jobs; undated jobs stay eligible (they sort last).
+    const diff = _dayDiff(effectiveStart(j), todayStr)
+    if (diff != null && diff < -14) return false
     const notReadyFlag = !isReady(j, crewByAll, matsByJobId)
     const shortFlag = weekCrew(j) < need(j) && intersectsWeek(j)
     return notReadyFlag || shortFlag

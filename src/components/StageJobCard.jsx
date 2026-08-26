@@ -711,7 +711,9 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
     if (stage === 'active') {
       const end = effectiveEnd(job)
       const totalDays = startStr && end ? daysBetween(end, new Date(startStr + 'T00:00:00')) + 1 : null
-      const elapsed = startStr ? daysBetween(new Date().toISOString().slice(0, 10), new Date(startStr + 'T00:00:00')) : null
+      // Wall-clock today (ymd of the local `today` prop) — never toISOString (UTC
+      // rolls the date over in the US evening → off-by-one "day N").
+      const elapsed = startStr ? daysBetween(ymd(today), new Date(startStr + 'T00:00:00')) : null
       const dayNum = totalDays && elapsed != null ? Math.min(totalDays, Math.max(1, elapsed + 1)) : null
       if (dayNum != null) timeSignal = `day ${dayNum} of ${totalDays}`
     } else if (dtk != null) {

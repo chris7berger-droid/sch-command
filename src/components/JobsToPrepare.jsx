@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { stageOf, effectiveStart, effectiveEnd } from '../lib/queries'
+import { stageOf, effectiveStart, effectiveEnd, fmtD, getMonday } from '../lib/queries'
 import StageJobCard from './StageJobCard'
 
 // "Jobs to Prepare" (§14) — the single flat list that replaces the /jobs picker-
@@ -28,13 +28,6 @@ const STAGE_OPTIONS = [
   { key: 'complete', label: 'Complete' },
 ]
 
-function fmtD(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-function getMonday(d) {
-  const dt = new Date(d); const day = dt.getDay()
-  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1)); dt.setHours(0, 0, 0, 0); return dt
-}
 function rangeForKey(key, now) {
   switch (key) {
     case 'week': { const mon = getMonday(now); const fri = new Date(mon); fri.setDate(fri.getDate() + 4); return { from: fmtD(mon), to: fmtD(fri) } }

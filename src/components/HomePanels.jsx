@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { effectiveStart } from '../lib/queries'
+import { effectiveStart, getMonday, fmtD } from '../lib/queries'
 
 // The three middle panels (§8 composition #3): Needs Attention (light), Next Up
 // (dark feature card), At a Glance (light). All numbers come from
@@ -39,11 +39,7 @@ export function NextUp({ nextUp }) {
     if (!job) return
     const s = effectiveStart(job)
     if (s) {
-      const d = new Date(s + 'T00:00:00')
-      const day = d.getDay()
-      d.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
-      const wk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      navigate(`/schedule?job=${job.job_id}&week=${wk}`)
+      navigate(`/schedule?job=${job.job_id}&week=${fmtD(getMonday(new Date(s + 'T00:00:00')))}`)
     } else {
       navigate(`/schedule?job=${job.job_id}`)
     }
@@ -53,7 +49,7 @@ export function NextUp({ nextUp }) {
     return (
       <section className="hp-card hp-nextup hp-nextup-empty">
         <div className="hp-label hp-label-teal">Next Up</div>
-        <div className="hp-nextup-none">All caught up — no jobs need attention.</div>
+        <div className="hp-nextup-none">No upcoming jobs need scheduling attention.</div>
       </section>
     )
   }
@@ -61,7 +57,9 @@ export function NextUp({ nextUp }) {
   const loc = [job.jobsite_city, job.jobsite_state].filter(Boolean).join(', ') || '—'
   const crewSize = nextUp.crewSize
   const crewNeeded = nextUp.crewNeeded
-  const crewOk = crewSize > 0 && crewSize >= crewNeeded
+  // A 0-crew-needed job is satisfied at 0/0 — don't flag it "not assigned".
+  const noCrewNeeded = crewNeeded === 0
+  const crewOk = crewSize >= crewNeeded
   const workType = job._wtcs?.[0]?.work_type_name || job.work_type || '—'
 
   return (
@@ -78,7 +76,9 @@ export function NextUp({ nextUp }) {
         <div className="hp-nu-field"><span className="hp-nu-lbl">Location</span><span className="hp-nu-val">{loc}</span></div>
       </div>
       <div className={`hp-nu-crew ${crewOk ? 'ok' : 'bad'}`}>
-        {crewOk ? `✓ ${crewSize}/${crewNeeded} crew assigned` : '⚠ Crew not assigned'}
+        {noCrewNeeded && crewSize === 0 ? '✓ No crew needed'
+          : crewOk ? `✓ ${crewSize}/${crewNeeded} crew assigned`
+          : '⚠ Crew not assigned'}
       </div>
       <div className="hp-nu-actions">
         <button className="hp-btn hp-btn-fill" onClick={goCrewSchedule}>Build Schedule →</button>

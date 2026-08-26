@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './App.css'
 import { supabase } from './lib/supabase'
 import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from './lib/auth'
@@ -143,9 +143,19 @@ function AppShell({ session, teamMember }) {
   const isSchedule = path === '/schedule'
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const actionsRef = useRef(null)
   // /schedule always renders the icon-rail (A1) so the board keeps its width but
   // nav stays reachable; elsewhere the user's manual toggle governs.
   const collapsed = navCollapsed || isSchedule
+
+  // Dismiss the Actions menu on any outside click/touch (mouseLeave alone misses
+  // taps and clicks that never entered the menu).
+  useEffect(() => {
+    if (!actionsOpen) return
+    const onDoc = (e) => { if (actionsRef.current && !actionsRef.current.contains(e.target)) setActionsOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [actionsOpen])
 
   // Load work types + crew for modals
   const loadModalData = useCallback(async () => {
@@ -355,7 +365,7 @@ function AppShell({ session, teamMember }) {
             </div>
             <div className="app-header-actions">
               <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
-              <div className="app-actions-menu" onMouseLeave={() => setActionsOpen(false)}>
+              <div className="app-actions-menu" ref={actionsRef} onMouseLeave={() => setActionsOpen(false)}>
                 <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
                 {actionsOpen && (
                   <div className="app-actions-dropdown">

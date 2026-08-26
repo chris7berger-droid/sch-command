@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   loadJobs, loadAllRows, loadPRTsForCallLogIds, loadMobilizationsByJobId,
-  computeHomeDashboard,
+  computeHomeDashboard, fmtD, getMonday, wkDates,
 } from '../lib/queries'
 import HomeCapacityStrip from '../components/HomeCapacityStrip'
 import { NeedsAttention, NextUp, AtAGlance } from '../components/HomePanels'
@@ -10,18 +10,6 @@ import JobsToPrepare from '../components/JobsToPrepare'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-function fmtD(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-function getMonday(d) {
-  const dt = new Date(d); const day = dt.getDay()
-  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1)); dt.setHours(0, 0, 0, 0); return dt
-}
-function wkDates(monday) {
-  const r = []
-  for (let i = 0; i < 6; i++) { const dt = new Date(monday); dt.setDate(dt.getDate() + i); r.push(fmtD(dt)) }
-  return r
-}
 export default function Home() {
   const today = useMemo(() => new Date(), [])
   const monday = useMemo(() => getMonday(new Date()), [])
