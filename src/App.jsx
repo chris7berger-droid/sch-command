@@ -1,4 +1,4 @@
-import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import './App.css'
 import { supabase } from './lib/supabase'
@@ -6,6 +6,7 @@ import { getSession, onAuthStateChange, signOut, getCurrentTeamMember } from './
 import { useSync } from './lib/sync'
 import { useToast } from './lib/toast'
 import { printWeekSchedule, printJobList, printMaterialsList, printDailyStatus } from './lib/exports'
+import Home from './views/Home'
 import Jobs from './views/Jobs'
 import Schedule from './views/Schedule'
 import Billing from './views/Billing'
@@ -24,21 +25,40 @@ import { ScheduleCommandMark } from './components/Logo'
 import { UserProvider } from './lib/user'
 
 const NAV_ITEMS = [
-  { path: '/jobs', label: 'Jobs' },
-  { path: '/schedule', label: 'Crew Schedule' },
-  { path: '/calendar', label: 'Calendar' },
-  { path: '/daily', label: 'Daily' },
-  { path: '/materials', label: 'Logistics' },
-  { path: '/billing', label: 'Billing' },
-  { path: '/production-rate', label: 'Production Rate' },
-  { path: '/schedules', label: 'Schedules' },
-  { path: '/settings', label: 'Settings' },
+  { path: '/home', label: 'Home', icon: '⌂' },
+  { path: '/jobs', label: 'Jobs', icon: '▤' },
+  { path: '/schedule', label: 'Crew Schedule', icon: '▦' },
+  { path: '/calendar', label: 'Calendar', icon: '▧' },
+  { path: '/daily', label: 'Daily', icon: '◷' },
+  { path: '/materials', label: 'Logistics', icon: '⬢' },
+  { path: '/billing', label: 'Billing', icon: '＄' },
+  { path: '/production-rate', label: 'Production Rate', icon: '◪' },
+  { path: '/schedules', label: 'Schedules', icon: '❏' },
+  { path: '/settings', label: 'Settings', icon: '⚙' },
 ]
 
 function flipName(n) {
   if (!n) return ''
   const p = n.split(',')
   return p.length === 2 ? p[1].trim() + ' ' + p[0].trim() : n
+}
+
+function firstName(n) {
+  if (!n) return 'there'
+  const p = n.split(',')
+  return (p.length === 2 ? p[1].trim() : n.trim().split(' ')[0]) || 'there'
+}
+
+function initials(n) {
+  const full = flipName(n)
+  if (!full) return '—'
+  const parts = full.split(/\s+/).filter(Boolean)
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '—'
+}
+
+function greeting() {
+  const h = new Date().getHours()
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'
 }
 
 export default function App() {
@@ -116,6 +136,16 @@ function AppShell({ session, teamMember }) {
   const [workTypes, setWorkTypes] = useState([])
   const [crewList, setCrewList] = useState([])
   const [showArchived, setShowArchived] = useState(false)
+
+  // Shell reparent (§12): route-aware sidebar that REPLACES the top nav.
+  const location = useLocation()
+  const path = location.pathname
+  const isSchedule = path === '/schedule'
+  const [navCollapsed, setNavCollapsed] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  // /schedule always renders the icon-rail (A1) so the board keeps its width but
+  // nav stays reachable; elsewhere the user's manual toggle governs.
+  const collapsed = navCollapsed || isSchedule
 
   // Load work types + crew for modals
   const loadModalData = useCallback(async () => {
@@ -274,54 +304,93 @@ function AppShell({ session, teamMember }) {
   return (
     <UserProvider teamMember={teamMember}>
     <>
-      <header className="app-header">
-        <div className="app-header-top">
-          <div className="app-title">
-            <ScheduleCommandMark size={42} />
-            <span>Schedule <span className="green">Command</span></span>
+      <div className="app-frame">
+        <aside className={`app-sidebar${collapsed ? ' app-sidebar-collapsed' : ''}`}>
+          <div className="app-sidebar-top">
+            <ScheduleCommandMark size={collapsed ? 30 : 34} />
+            {!collapsed && (
+              <div className="app-sidebar-brand">
+                <span className="app-sidebar-brand-name">Schedule <span className="green">Command</span></span>
+                <span className="app-sidebar-brand-sub">Command Suite</span>
+              </div>
+            )}
             <span className={`sync-dot sync-${syncState}`} />
           </div>
-          <div className="app-actions">
-            <div className="app-actions-label">Actions</div>
-            <div className="app-actions-row">
-              <button className="app-act-btn" onClick={handleRefresh}>Refresh</button>
-              <button className="app-act-btn" onClick={openAddJob}>+ Job</button>
-              <button className="app-act-btn" onClick={openAddCrew}>+ Crew</button>
-              <button className="app-act-btn" onClick={() => { setModal('workTypes') }}>Work Types</button>
-              <button className="app-act-btn" onClick={() => { setModal('crewList') }}>Crew List</button>
-              <button className="app-act-btn" onClick={() => { setModal('sendSchedules') }}>Send Schedules</button>
-              <button className="app-act-btn app-act-primary" onClick={() => { setModal('export') }}>Export</button>
-              <button className="app-act-btn" onClick={() => signOut()} style={{ opacity: 0.6 }}>Sign Out</button>
+          <nav className="app-sidebar-nav">
+            {NAV_ITEMS.map(item => (
+              <NavLink key={item.path} to={item.path} title={item.label} className="app-sidebar-link">
+                <span className="app-sidebar-icon">{item.icon}</span>
+                {!collapsed && <span className="app-sidebar-label">{item.label}</span>}
+              </NavLink>
+            ))}
+          </nav>
+          <div className="app-sidebar-bottom">
+            {!isSchedule && (
+              <button className="app-sidebar-collapse" onClick={() => setNavCollapsed(c => !c)} title={collapsed ? 'Expand' : 'Collapse'}>
+                {collapsed ? '›' : '‹ Collapse'}
+              </button>
+            )}
+            <div className="app-sidebar-user">
+              <div className="app-sidebar-avatar">{initials(teamMember?.name)}</div>
+              {!collapsed && (
+                <div className="app-sidebar-user-text">
+                  <span className="app-sidebar-user-name">{flipName(teamMember?.name) || 'User'}</span>
+                  <span className="app-sidebar-user-role">{teamMember?.role || ''}</span>
+                </div>
+              )}
             </div>
+            <button className="app-sidebar-signout" onClick={() => signOut()}>{collapsed ? '⎋' : 'Sign Out'}</button>
           </div>
+        </aside>
+
+        <div className="app-col">
+          <header className="app-header">
+            <div className="app-header-greeting">
+              {path === '/home' && (
+                <>
+                  <span className="app-header-hi">{greeting()}, {firstName(teamMember?.name)}. ☀️</span>
+                  <span className="app-header-hi-sub">Here's your schedule overview.</span>
+                </>
+              )}
+            </div>
+            <div className="app-header-actions">
+              <button className="app-act-btn app-act-primary" onClick={openAddJob}>+ Job</button>
+              <div className="app-actions-menu" onMouseLeave={() => setActionsOpen(false)}>
+                <button className="app-act-btn" onClick={() => setActionsOpen(o => !o)}>Actions ▾</button>
+                {actionsOpen && (
+                  <div className="app-actions-dropdown">
+                    <button onClick={() => { setActionsOpen(false); handleRefresh() }}>Refresh</button>
+                    <button onClick={() => { setActionsOpen(false); openAddCrew() }}>+ Crew</button>
+                    <button onClick={() => { setActionsOpen(false); setModal('workTypes') }}>Work Types</button>
+                    <button onClick={() => { setActionsOpen(false); setModal('crewList') }}>Crew List</button>
+                    <button onClick={() => { setActionsOpen(false); setModal('sendSchedules') }}>Send Schedules</button>
+                    <button onClick={() => { setActionsOpen(false); setModal('export') }}>Export</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </header>
+          {path !== '/home' && <StatsBar />}
+          <main className="app-main">
+            <Routes>
+              <Route path="/" element={<Navigate to="/home" replace />} />
+              <Route path="/home" element={<Home />} />
+              <Route path="/jobs" element={<Jobs />} />
+              <Route path="/jobs/:jobId" element={<JobDetail />} />
+              <Route path="/schedule" element={<Schedule />} />
+              <Route path="/billing" element={<Billing />} />
+              <Route path="/billing/forecast" element={<Forecast />} />
+              <Route path="/materials" element={<Materials />} />
+              <Route path="/calendar" element={<Calendar />} />
+              <Route path="/daily" element={<Daily />} />
+              <Route path="/schedules" element={<Schedules />} />
+              <Route path="/production-rate" element={<ProductionRate />} />
+              <Route path="/budget" element={<Budget />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </main>
         </div>
-        <nav className="app-nav">
-          <span className="app-nav-label">Views</span>
-          {NAV_ITEMS.map(item => (
-            <NavLink key={item.path} to={item.path}>
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </header>
-      <StatsBar />
-      <main className="app-main">
-        <Routes>
-          <Route path="/" element={<Navigate to="/jobs" replace />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/jobs/:jobId" element={<JobDetail />} />
-          <Route path="/schedule" element={<Schedule />} />
-          <Route path="/billing" element={<Billing />} />
-          <Route path="/billing/forecast" element={<Forecast />} />
-          <Route path="/materials" element={<Materials />} />
-          <Route path="/calendar" element={<Calendar />} />
-          <Route path="/daily" element={<Daily />} />
-          <Route path="/schedules" element={<Schedules />} />
-          <Route path="/production-rate" element={<ProductionRate />} />
-          <Route path="/budget" element={<Budget />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </main>
+      </div>
 
       {/* Add Job Modal */}
       {modal === 'job' && (

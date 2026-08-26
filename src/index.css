@@ -26,9 +26,28 @@
   --brd: rgba(28, 24, 20, 0.2);
   --neon: #5BBD3F;
 
+  --teal: #30cfac;
+
   --font-heading: 'Barlow Condensed', sans-serif;
   --font-body: 'Barlow', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ── Home-scoped theme layer (§13) ──────────────────────────────────────────
+   Overrides tokens for the Home screen ONLY (never leaks to other screens).
+   Lighter warm linen page, creamy cards, a TRUE-black panel for the capacity
+   strip + Next Up (distinct from the global --header-dark chrome), teal as the
+   content primary, and the operational signal palette. */
+.home-screen {
+  --bg: #e7decb;
+  --bg-card: #f3ede0;
+  --panel-dark: #111110;
+  --teal: #30cfac;
+  --teal-ink: #0d5c4a;      /* legal teal TEXT on light cards (§13 G6) */
+  --sig-green: #3fae52;
+  --sig-orange: #e0892a;
+  --sig-red: #d24b3e;
+  --sig-purple: #8b6fc7;
 }
 
 * {

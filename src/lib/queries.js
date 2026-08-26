@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { STATUS_OPTIONS_PICKER } from './jobStatus'
+import { STATUS_OPTIONS_PICKER, getJobStatus } from './jobStatus'
 import { rollupSowMaterials, coverageStatusFor } from './sowMaterials'
 
 // ── Paginating loader ──────────────────────────────────────────────────────
@@ -1416,4 +1416,168 @@ export async function setBillingWorklistFlag(jobId, field, value, changedBy, sou
   }
 
   return { error: null }
+}
+
+// ── Shared scheduling primitives (single source of truth) ───────────────────
+// effectiveStart/effectiveEnd previously had 5 identical non-exported copies
+// (Jobs.jsx / StageJobCard.jsx / DaysModal.jsx / StagedCardList.jsx /
+// JobDetail.jsx). Home (§11) needs ONE shared copy — export it here rather than
+// add a 6th. A job's Schedule-set calendar (scheduled_*) wins over the sold dates.
+export function effectiveStart(j) { return j?.scheduled_start || j?.start_date || null }
+export function effectiveEnd(j) { return j?.scheduled_end || j?.end_date || null }
+
+// Lifecycle stage of one job — was module-private in AllJobsList.jsx. Exported so
+// the tabless Home "Jobs to Prepare" list can compute each row's stage the same
+// way the /jobs All-Jobs grouping does (§14 C3). Readiness uses the own-dates /
+// all-time crew map per §11 B2, so Home agrees with /jobs.
+export function stageOf(j, crewByCallLog, matsByJobId) {
+  const s = getJobStatus(j)
+  if (s === 'Scheduled') return isReady(j, crewByCallLog, matsByJobId) ? 'ready' : 'staged'
+  if (s === 'On Hold') return 'on-hold'
+  if (s === 'Complete') return 'complete'
+  return 'active' // In Progress / Ongoing
+}
+
+// ── Home dashboard aggregates (read-only, §11) ──────────────────────────────
+// All numbers derive from already-loaded data — no new unbounded reads here.
+// The caller (Home.jsx) loads the crew/assignments/jobs slices; every assignments
+// read it hands in for the WEEK map must be date-bounded to Mon–Sat (§11 G3b).
+
+// Crew-per-job grouping, keyed by call_log_id → [{name}]. Mirrors Jobs.jsx's
+// `crewByCallLog` memo VERBATIM (source = the `assignments` table, NOT job_crew —
+// §11 G2). Reused for BOTH the week-windowed map and the all-time/own-dates map.
+export function buildCrewByCallLog(jobs, assignments) {
+  const clByJob = Object.fromEntries((jobs || []).map(j => [j.job_id, j.call_log_id]))
+  const sets = {}
+  for (const a of (assignments || [])) {
+    const clId = clByJob[a.job_id]
+    if (!clId || !a.crew_name) continue
+    ;(sets[clId] ||= new Set()).add(a.crew_name)
+  }
+  const out = {}
+  for (const clId in sets) out[clId] = [...sets[clId]].map(name => ({ name }))
+  return out
+}
+
+function _dayDiff(dateStr, todayStr) {
+  if (!dateStr) return null
+  return Math.round((new Date(dateStr + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / 86400000)
+}
+
+const _SCHEDULING_STATUSES = new Set(['Scheduled', 'In Progress', 'Ongoing'])
+
+// Compute every Home dashboard number from loaded slices. TWO crew maps (§11 G3a):
+//  • weekAssignments (Mon–Sat window) → capacity strip + "needs crew" + per-day.
+//  • allAssignments (own dates / all-time) → isReady + "not ready", so Home's
+//    readiness matches /jobs exactly (no cross-screen contradiction).
+export function computeHomeDashboard({
+  jobs = [], crew = [], crewStatusMap = {},
+  weekAssignments = [], allAssignments = [],
+  matsByJobId = {}, dates = [], todayStr,
+}) {
+  const crewByWeek = buildCrewByCallLog(jobs, weekAssignments)
+  const crewByAll = buildCrewByCallLog(jobs, allAssignments)
+
+  const weekStart = dates[0]
+  const weekEnd = dates[dates.length - 1]
+  const intersectsWeek = (j) => {
+    if (!weekStart || !weekEnd) return false
+    const s = effectiveStart(j) || '1900-01-01'
+    const e = effectiveEnd(j) || effectiveStart(j) || '2999-12-31'
+    return s <= weekEnd && e >= weekStart
+  }
+  const scheduling = (j) => _SCHEDULING_STATUSES.has(getJobStatus(j))
+  const need = (j) => parseInt(j.crew_needed) || 0            // §11 B1 guard
+  const weekCrew = (j) => (crewByWeek[j.call_log_id]?.length || 0)
+
+  const weekJobs = jobs.filter(j => scheduling(j) && intersectsWeek(j))
+
+  // ── Capacity strip (week window) ──────────────────────────────────────────
+  const getCSt = (name, d) => crewStatusMap[name + '|' + d] || 'available'
+  const capacityDays = dates.map(d => {
+    let out = 0, assigned = 0
+    for (const c of crew) {
+      const st = getCSt(c.name, d)
+      if (st !== 'available') out++
+      else if (weekAssignments.some(a => a.crew_name === c.name && a.date === d)) assigned++
+    }
+    const avail = crew.length - out
+    const pct = avail > 0 ? Math.round((assigned / avail) * 100) : 0
+    return { date: d, assigned, avail, out, pct, isToday: d === todayStr }
+  })
+
+  const crewAvailable = crew.length
+  // §11 B3: distinct crew assigned this week (a crew on 2 jobs must not double-count).
+  const assignedCount = new Set(weekAssignments.map(a => a.crew_name).filter(Boolean)).size
+  // §11: Σ shortfall over this-week scheduling jobs.
+  const openSpots = weekJobs.reduce((s, j) => s + Math.max(0, need(j) - weekCrew(j)), 0)
+
+  // ── Needs Attention ───────────────────────────────────────────────────────
+  // Short on crew THIS WEEK (week map) — jobs with work in the week under headcount.
+  const needCrews = weekJobs.filter(j => weekCrew(j) < need(j))
+  // Double-booked: a crew_name on ≥2 distinct job_id the same date (§11 — count
+  // distinct job_id, not rows; split shifts on one job are not a conflict).
+  const byCrewDate = {}
+  for (const a of weekAssignments) {
+    if (!a.crew_name || !a.date) continue
+    ;(byCrewDate[a.crew_name + '|' + a.date] ||= new Set()).add(String(a.job_id))
+  }
+  const conflictCrew = new Set()
+  for (const k in byCrewDate) if (byCrewDate[k].size >= 2) conflictCrew.add(k.split('|')[0])
+  const conflicts = conflictCrew.size
+  // Not ready (own-dates map, §11 B2) — Scheduled-stage jobs failing isReady whose
+  // start is within 10 days (incl. already-past, still-Scheduled).
+  const notReady = jobs.filter(j => {
+    if (getJobStatus(j) !== 'Scheduled') return false
+    if (isReady(j, crewByAll, matsByJobId)) return false
+    const diff = _dayDiff(effectiveStart(j), todayStr)
+    return diff != null && diff <= 10
+  })
+
+  // ── At a Glance ───────────────────────────────────────────────────────────
+  const jobsScheduled = weekJobs.length
+  const crewAssignmentsCount = weekAssignments.length
+  // Completion % = assigned job-days ÷ scheduled job-days, within the week (§11 B4).
+  const assignedDatesByJob = {}
+  for (const a of weekAssignments) { (assignedDatesByJob[a.job_id] ||= new Set()).add(a.date) }
+  let num = 0, den = 0
+  for (const j of weekJobs) {
+    const s = effectiveStart(j), e = effectiveEnd(j)
+    if (!s || !e) continue                             // guard null span
+    const jobDates = dates.filter(d => d >= s && d <= e)   // in-week working days ∩ span
+    den += jobDates.length
+    const asg = assignedDatesByJob[j.job_id] || new Set()
+    num += jobDates.filter(d => asg.has(d)).length
+  }
+  const completionPct = den === 0 ? null : Math.round((num / den) * 100)  // null → render —
+
+  // ── Next Up ───────────────────────────────────────────────────────────────
+  // Soonest-starting job still needing attention (not-ready via own-dates OR short
+  // via week map), ordered by effectiveStart.
+  const attention = jobs.filter(j => {
+    if (getJobStatus(j) !== 'Scheduled') return false
+    const notReadyFlag = !isReady(j, crewByAll, matsByJobId)
+    const shortFlag = weekCrew(j) < need(j) && intersectsWeek(j)
+    return notReadyFlag || shortFlag
+  }).sort((a, b) => {
+    const sa = effectiveStart(a), sb = effectiveStart(b)
+    if (!sa && !sb) return 0
+    if (!sa) return 1
+    if (!sb) return -1
+    return sa.localeCompare(sb)
+  })
+  const nextUpJob = attention[0] || null
+  const nextUp = nextUpJob ? {
+    job: nextUpJob,
+    crewSize: crewByAll[nextUpJob.call_log_id]?.length || 0,
+    crewNeeded: need(nextUpJob),
+  } : null
+
+  return {
+    crewByWeek, crewByAll,
+    capacityDays, crewAvailable, assignedCount, openSpots,
+    needCrews: needCrews.length, conflicts, notReady: notReady.length,
+    jobsScheduled, crewAssignmentsCount, completionPct,
+    nextUp,
+  }
 }
