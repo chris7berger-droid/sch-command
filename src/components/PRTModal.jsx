@@ -22,7 +22,7 @@ export default function PRTModal({ job, onClose }) {
     <div className="mbg" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="mdl mdl-wide" style={{ maxWidth: 720, maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0 }}>Production Reports — {job.job_num || ''} {job.job_name || ''}</h3>
+          <h3 style={{ margin: 0 }}>Production Reports — {job.job_num || job.job_name || ''}</h3>
           <button className="app-act-btn" onClick={onClose}>Close</button>
         </div>
         <div className="jd-section">
