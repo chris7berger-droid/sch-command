@@ -9,6 +9,7 @@ import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 import MobsModal from './MobsModal'
+import LoadOutModal from './LoadOutModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -598,6 +599,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
   const [showMobsModal, setShowMobsModal] = useState(false)
+  const [showLoadoutModal, setShowLoadoutModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -794,7 +796,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           onBilledClick={() => navigate('/billing?tab=worklist')}
           onPrtClick={() => goManagementTab('production')}
           onLogsClick={() => goManagementTab('daily-log')}
-          onLoadoutClick={() => goManagementTab('material-confirmation')}
+          onLoadoutClick={() => setShowLoadoutModal(true)}
           onNotesClick={() => setShowNotes(prev => !prev)}
         />
       )}
@@ -883,6 +885,13 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           mobs={mobs}
           onClose={() => setShowMobsModal(false)}
           onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
+        />
+      )}
+
+      {showLoadoutModal && (
+        <LoadOutModal
+          job={job}
+          onClose={() => setShowLoadoutModal(false)}
         />
       )}
     </div>
