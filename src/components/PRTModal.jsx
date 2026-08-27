@@ -115,16 +115,14 @@ export default function PRTModal({ job, onClose }) {
                       ) : tasks.map((t, i) => {
                         const actual = Number(t.pct_today) || 0
                         const target = Number(t.target_pct) || 0
-                        const hit = actual >= target
                         return (
                           <div key={i} className="jd-pp-task">
                             <div className="jd-pp-task-head">
                               <span className="jd-pp-task-name">{t.description}</span>
-                              <span className={`jd-pp-tag ${hit ? 'jd-pp-ok' : 'jd-pp-warn'}`}>{hit ? 'on track' : 'behind'}</span>
                             </div>
                             <div className="jd-pp-task-bar">
                               <div className="jd-pp-task-target" style={{ width: `${Math.min(target, 100)}%` }} />
-                              <div className={`jd-pp-task-actual ${hit ? 'jd-pp-fill-ok' : 'jd-pp-fill-warn'}`} style={{ width: `${Math.min(actual, 100)}%` }} />
+                              <div className="jd-pp-task-actual jd-pp-fill-ok" style={{ width: `${Math.min(actual, 100)}%` }} />
                             </div>
                             <div className="jd-pp-task-nums">
                               <span>actual <strong>{actual}%</strong></span>
