@@ -4,6 +4,8 @@ Record of audit-terminal reviews. One row per audit pass.
 
 | Date | Subject | Findings | Severity | Outcome | Pattern |
 |---|---|---|---|---|---|
+| 2026-08-26 | fix/pullback-resend-teardown @ 54236de (rev d2da12e) · docs/plans/pullback_resend_teardown.md (round 2, verification) | 5 (3 caused-by / 2 adjacent, after dedup) | 0H/0M/5L (+ Info) · no regressions | BUILD-READY (rev pass 2; 5 Low plan-text folds; no round 3) | build-ready / self-check↔guard-handoff-precision |
+| 2026-08-26 | fix/pullback-resend-teardown @ bf0b41b · docs/plans/pullback_resend_teardown.md (round 1) | 8 (6 caused-by / 2 adjacent, after dedup) | 2H/3M caused-by + 1 scope-cut (§4.3 cluster) + 3 adjacent | accepted-pending-changes (revision pass 1 = d2da12e; §4.3 CUT → PB-2; §4.1/§4.2 hardened; re-audit round 2) | false-FK-premise / teardown-over-reach |
 | 2026-08-02 | feat/dms1-phase4 @ 6ba68b3 · daily_material_schedule_phase4_build.md (round 3) | 11 (3 reg + 6 new + 2 quar) | 3H/3M/2L | accepted-pending-changes (rev pass 3; REG-A showQty prop; multi-WTC filter+sum; re-audit round 4) | foldin-contradictions / multi-wtc-merge |
 | 2026-08-02 | feat/dms1-phase4 @ ad70cec · daily_material_schedule_phase4_build.md (round 2) | 7 groups (+1 adj) | 2H/3M/2L | accepted-pending-changes (rev pass 2; totals re-sourced to proposal_wtc.materials per Chris; re-audit round 3) | totals-source-dead-field / scope-cut |
 | 2026-08-02 | feat/dms1-phase4 @ 2b38376 · daily_material_schedule_phase4_build.md (round 1) | 9 (7 groups) | 2H/4M/1L + 2 adj | accepted-pending-changes (revision pass 1; re-audit round 2 on §A+§B) | wrong-baseline-premise |
