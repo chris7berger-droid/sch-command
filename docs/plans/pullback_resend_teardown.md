@@ -1,7 +1,8 @@
 # Pull-Back → Re-Send Teardown — the empty-SOW lifecycle bug
 
-**Status:** PLAN (design ratified with Chris 2026-08-26; **not built**). Plan-first
-because it crosses the Sales→Schedule→Field boundary and touches shared prod data.
+**Status:** PLAN — **BUILD-READY** (round-2 audit 2026-08-26: 0H/0M, 5 Low plan-text folds applied;
+no round 3). **Not built.** Plan-first because it crosses the Sales→Schedule→Field boundary and
+touches shared prod data.
 **Branch:** `fix/pullback-resend-teardown` (sch-command — plan home).
 **Backlog:** PB-1 (sch-command `docs/BACKLOG.md`).
 **Spine:** `command-suite-db/docs/MASTER_SCHEDULE.md` (SOW carrier = `job_wtcs.field_sow`).
@@ -110,15 +111,29 @@ delete this proposal's **tombstone-held** `job_wtcs` rows, then insert fresh.
                              WHERE source_proposal_id = <this proposal> AND deleted = 'Yes');
   ```
   Via the client: fetch this proposal's `proposal_wtc` ids **and** its tombstone (`deleted='Yes'`)
-  job_ids, then `.delete().in('proposal_wtc_id', pwIds).in('job_id', tombstoneJobIds)`. **Never**
-  key the delete by `call_log_id` — siblings / CO jobs share a call_log, so a call_log-scoped
-  delete could reach a live sibling's rows. **Never** delete a slot held by a `deleted='No'` job
-  (that's the live-held case — §4.2 handles it; this delete leaves it).
-- **Self-check after the delete (audit #2):** capture the delete's returned rows / error and
-  **re-query** for any remaining tombstone-held slot among this proposal's `pwIds`. RLS delete can
-  silently no-op (CLAUDE.md) — if a slot is still tombstone-held, **abort the send before
-  inserting** (don't create a partial job) and alert. Do **not** rely on §4.2 to catch a failed
-  teardown.
+  job_ids, then `.delete().in('proposal_wtc_id', pwIds).in('job_id', tombstoneJobIds)`.
+- **What each predicate actually protects (round-2 #4 — do not mislabel):** cross-proposal /
+  sibling / CO isolation comes from **`proposal_wtc`'s 1:1 ownership** (each `proposal_wtc` belongs
+  to exactly one proposal; verified — 0 cross-proposal `job_wtcs`), so the `proposal_wtc_id ∈ this
+  proposal` predicate already prevents ever touching another proposal's rows. The `job_id ∈
+  deleted='Yes' jobs` predicate does a **narrower** job: it stops the delete from stripping the slot
+  off **this same proposal's own LIVE re-sent job**. **Never** scope the delete by `call_log_id` —
+  siblings / CO jobs share a call_log, so a call_log-scoped delete would reach a live sibling's rows.
+- **Both predicates are mandatory; never conditionally drop one (round-2 #2):** `.in(col, [])` is a
+  safe no-op (supabase-js emits `col=in.()`, matches nothing) — so an empty `pwIds`/`tombstoneJobIds`
+  needs no special-casing, **but** a builder must NOT "defend" an empty list by dropping the `job_id`
+  predicate (that degrades to a `proposal_wtc_id`-only delete that can reach a live-held slot). If
+  either list is empty, **skip the delete entirely**; otherwise keep BOTH `.in()`s.
+- **Self-check after the delete — ordering + rollback (round-2 #1, the one with real consequence):**
+  the `jobs` row is inserted **first** (`ProposalDetail.jsx:752`, needed for `newJobId` in
+  `jobWtcRows`), so the delete + self-check necessarily run **after** the jobs insert but **before**
+  the `job_wtcs` upsert. "Abort before insert" therefore means **before the `job_wtcs` upsert.**
+  Re-query for any remaining tombstone-held slot among this proposal's `pwIds` (RLS delete can
+  silently no-op — CLAUDE.md); if any slot is still tombstone-held, **roll back the just-inserted
+  `jobs` row** (reuse the `:800-814` block), **`return` before the `:865` call_log Parked write**,
+  and alert — the **same rollback discipline as §4.2**, else you strand exactly the empty-job +
+  Parked-call_log state this fix exists to kill. This self-check is a **hard precondition** for §4.2
+  (see §4.2's live-held bullet).
 - **Non-atomicity is benign:** between the delete and the insert there is a window, but the delete
   only removes rows of an **already-dead tombstone**; nothing live is at risk, and an insert
   failure is caught by §4.2's rollback.
@@ -130,9 +145,13 @@ delete this proposal's **tombstone-held** `job_wtcs` rows, then insert fresh.
 The send commit must treat "a proposal with WTCs produced **fewer** `job_wtcs` rows than it has
 WTCs" as a **hard failure**.
 
-- **Count check (audit #3):** `upsert(...).select()` → assert `written.length ===
-  jobWtcRows.length`. Else roll back the just-inserted `jobs` row (reuse the existing block at
-  `ProposalDetail.jsx:800-814`), alert, and leave the proposal **NOT-sent**.
+- **Count check (audit #3) — `.select()` must be ADDED (round-2 #3):** the live upsert
+  (`ProposalDetail.jsx:789-791`) destructures only `{ error: wtcErr }` — there is **no `.select()`
+  today.** Add `.select('proposal_wtc_id')` and capture the result as `written`, then assert
+  `written.length === jobWtcRows.length`. Adding `.select()` is behavior-neutral (the return was
+  discarded), and the count is sound under `ignoreDuplicates` (`ON CONFLICT DO NOTHING RETURNING`
+  omits skipped rows). Else roll back the just-inserted `jobs` row (reuse `ProposalDetail.jsx:800-814`),
+  alert, and leave the proposal **NOT-sent**.
 - **Placement + ordering:** the guard lives co-located with the existing `wtcErr` branch,
   **inside** the `if (newJobId)` block (before `:861`) and must `return` — so the
   `call_log.stage = "Parked"` write at `:865` is **skipped** on rollback (else a Parked call_log
@@ -142,10 +161,12 @@ WTCs" as a **hard failure**.
   (`:853-857`). Only the unrecoverable `job_wtcs` write gates the send.
 - **Drop the earlier "the guard also catches the RLS-no-op delete" claim** — that is §4.1's
   self-check's job. The guard is a second, independent net, not the teardown's verifier.
-- **Live-held-slot case (audit #5):** a `written.length < WTC` can also arise *legitimately* when
-  a **LIVE** job already holds one of these slots (§4.1 correctly did not delete it). Treat it as a
-  rollback with a specific alert — e.g. *"Another live job already holds these work types — resolve
-  that job before re-sending."* Never silently ship the partial.
+- **Live-held-slot case — the alert is UNCONDITIONAL (audit #5 + round-2 #1 corollary):** because
+  §4.1's self-check is a hard precondition that already aborts on **any** tombstone-held slot before
+  we reach here, any short-write that reaches §4.2 is **by construction live-held** (a `deleted='No'`
+  job holds the slot, so §4.1's delete correctly left it). So §4.2 does **not** need to disambiguate
+  per slot — it rolls back and emits the live-held alert unconditionally: *"Another live job already
+  holds these work types — resolve that job before re-sending."* Never silently ship the partial.
 
 ### 4.3 — CUT this loop (deferred → PB-2)
 
@@ -189,6 +210,8 @@ sole post-Send editor) — this is only about the delete→re-send reset path.
 **No migration. No edge function. No RLS change.** All PostgREST writes from the app.
 Former §4.3 pull-back teardown **deferred → PB-2** (separate plan). Correct code refs: soft-delete
 = `sch-command/src/lib/queries.js:1145 deleteJob`; restore = `sch-command/src/views/Jobs.jsx:387 restoreJob`.
+**Build note (round-2 #3):** the existing `job_wtcs` upsert at `:789-791` has no `.select()` — the
+§4.2 count guard requires adding `.select('proposal_wtc_id')` and capturing the rows as `written`.
 
 ## 8. Verify / smoke plan (before merge)
 
@@ -201,8 +224,10 @@ Former §4.3 pull-back teardown **deferred → PB-2** (separate plan). Correct c
    *different* proposal's tombstone, are both untouched by the §4.1 delete.
 5. **Self-check fires:** simulate an RLS-no-op delete (leave the tombstone slot held) → send
    **aborts before insert**, no partial job created, alert shown.
-6. **Count guard fires:** force a short write (a slot held by a LIVE job) → send rolls back the
-   jobs row, proposal NOT-sent, call_log stage NOT left at Parked.
+6. **Count guard fires:** force a short write **using a LIVE-held slot** (round-2 #5 — a
+   tombstone-held slot is caught earlier by §4.1's self-check, so a live holder is the only way to
+   reach §4.2; this proves the two nets are distinct) → send rolls back the jobs row, proposal
+   NOT-sent, call_log stage NOT left at Parked.
 7. **Unaffected:** plain soft-delete → un-delete (`restoreJob`) → SOW intact (the fix never
    touches the restore path).
 8. Run the §5 re-sends; re-query the §2/§0 "empty live job" set → returns 0.
