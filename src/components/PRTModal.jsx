@@ -1,12 +1,5 @@
 import { useEffect, useState } from 'react'
-import { loadPRTsForJob, approvePRT } from '../lib/queries'
-import { useUser } from '../lib/user'
-
-function fmtWhen(ts) {
-  if (!ts) return ''
-  const d = new Date(ts)
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-}
+import { loadPRTsForJob } from '../lib/queries'
 
 // Robust parse for a JSONB column that may come back as an array (clean) or a
 // (possibly double-encoded) string from older writes.
@@ -21,10 +14,8 @@ function parseArr(v) {
 // vs. where the plan says the job should be, then each day's PRT compared to the
 // SOW plan (target vs actual) with the crew's notes.
 export default function PRTModal({ job, onClose }) {
-  const user = useUser()
   const [prts, setPrts] = useState([])
   const [loading, setLoading] = useState(true)
-  const [approvingId, setApprovingId] = useState(null)
 
   useEffect(() => {
     let alive = true
@@ -34,19 +25,6 @@ export default function PRTModal({ job, onClose }) {
     })()
     return () => { alive = false }
   }, [job.call_log_id])
-
-  const approve = async (prtId) => {
-    setApprovingId(prtId)
-    const { data, error } = await approvePRT(prtId, user?.id)
-    if (!error) {
-      setPrts(prev => prev.map(p => p.id === prtId
-        ? { ...p, status: 'approved', approved_by: user?.id, approved_at: data?.approved_at || new Date().toISOString() }
-        : p))
-    } else {
-      alert(`Could not approve: ${error.message || 'unknown error'}`)
-    }
-    setApprovingId(null)
-  }
 
   // ── SOW plan: order the distinct SOW days and tag each task with its DAY INDEX
   // (day 1, 2, …). Progress is measured against the day the crew is ON — the
@@ -139,13 +117,7 @@ export default function PRTModal({ job, onClose }) {
                       <div className="jd-pp-day-head">
                         <span className="jd-pp-day-date">{p.report_date}</span>
                         <span className="jd-pp-day-by">by {submitter}</span>
-                        {p.status === 'approved' ? (
-                          <span className="jd-pp-approved" title={p.approved_at ? `Approved ${fmtWhen(p.approved_at)}` : 'Approved'}>✓ APPROVED</span>
-                        ) : (
-                          <button className="jd-pp-approve" disabled={approvingId === p.id} onClick={() => approve(p.id)}>
-                            {approvingId === p.id ? 'Approving…' : 'Approve'}
-                          </button>
-                        )}
+                        <span className={`jd-prt-status jd-prt-status-${p.status || 'submitted'}`}>{p.status || 'submitted'}</span>
                       </div>
                       {tasks.length === 0 ? (
                         <div className="jh-empty">No tasks reported</div>

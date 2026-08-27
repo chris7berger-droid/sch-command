@@ -741,19 +741,6 @@ export async function loadDailyLogsForJob(callLogId) {
   return { data: data || [], error: null }
 }
 
-// Office approval of a submitted PRT: submitted → approved, stamping who + when.
-// approverId is the current office user's team_members.id (uuid).
-export async function approvePRT(prtId, approverId) {
-  const { data, error } = await supabase
-    .from('daily_production_reports')
-    .update({ status: 'approved', approved_by: approverId || null, approved_at: new Date().toISOString() })
-    .eq('id', prtId)
-    .select('id, status, approved_by, approved_at')
-    .single()
-  if (error) return { data: null, error }
-  return { data, error: null }
-}
-
 // Crew material load-out confirmations for a job (Field Command writes these;
 // the office reads them here). Keyed by call_log.id, matching the crew-side write.
 export async function loadMaterialChecksForJob(callLogId) {
