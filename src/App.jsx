@@ -328,9 +328,11 @@ function AppShell({ session, teamMember }) {
           </div>
           <nav className="app-sidebar-nav">
             {NAV_ITEMS.map(item => (
-              <NavLink key={item.path} to={item.path} title={item.label} className="app-sidebar-link">
+              <NavLink key={item.path} to={item.path} aria-label={item.label} className="app-sidebar-link">
                 <span className="app-sidebar-icon">{item.icon}</span>
-                {!collapsed && <span className="app-sidebar-label">{item.label}</span>}
+                {collapsed
+                  ? <span className="app-sidebar-tip">{item.label}</span>
+                  : <span className="app-sidebar-label">{item.label}</span>}
               </NavLink>
             ))}
           </nav>

@@ -741,6 +741,18 @@ export async function loadDailyLogsForJob(callLogId) {
   return { data: data || [], error: null }
 }
 
+// Crew material load-out confirmations for a job (Field Command writes these;
+// the office reads them here). Keyed by call_log.id, matching the crew-side write.
+export async function loadMaterialChecksForJob(callLogId) {
+  if (!callLogId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('job_material_checks')
+    .select('id, job_id, wtc_material_id, check_date, material_name, checked, checked_by_name, updated_at')
+    .eq('job_id', callLogId)
+  if (error) return { data: null, error }
+  return { data: data || [], error: null }
+}
+
 export async function loadRecentPRTs(days = 14) {
   const since = new Date()
   since.setDate(since.getDate() - days)

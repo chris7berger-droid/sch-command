@@ -9,6 +9,9 @@ import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 import MobsModal from './MobsModal'
+import LoadOutModal from './LoadOutModal'
+import PRTModal from './PRTModal'
+import LogsModal from './LogsModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -287,7 +290,7 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
   )
 }
 
-function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
+function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onLoadoutClick, onNotesClick }) {
   const amount = job.amount ? parseFloat(job.amount) : 0
 
   return (
@@ -352,6 +355,11 @@ function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">LOGS</span>
           <span className="sjc-score-val">{logsCount > 0 ? logsCount : '—'}</span>
+        </div>
+        <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onLoadoutClick} title="Crew material load-out confirmation">
+          <span className="sjc-score-icon">{'🚚'}</span>
+          <span className="sjc-score-label">LOAD-OUT</span>
+          <span className="sjc-score-val">View &rarr;</span>
         </div>
         <div className="sjc-score sjc-score-stub" title="Coming soon — attachments">
           <span className="sjc-score-icon">{'📎'}</span>
@@ -593,6 +601,9 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
   const [showMobsModal, setShowMobsModal] = useState(false)
+  const [showLoadoutModal, setShowLoadoutModal] = useState(false)
+  const [showPrtModal, setShowPrtModal] = useState(false)
+  const [showLogsModal, setShowLogsModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -662,10 +673,6 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
     setActing(false)
   }, [job.job_id, job.job_num, changedBy, onJobUpdate])
 
-  // Scorecard click handlers — navigate to JobDetail with the right tab
-  const goManagementTab = useCallback((tab) => {
-    navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
-  }, [navigate, job.job_id])
 
   // CREW → existing Crew Schedule, deep-linked to this job's week (Schedule.jsx
   // reads ?job=&week= and highlights). The crew-build tool lives there.
@@ -787,8 +794,9 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           logsCount={logsCount}
           prtMap={prtMap}
           onBilledClick={() => navigate('/billing?tab=worklist')}
-          onPrtClick={() => goManagementTab('production')}
-          onLogsClick={() => goManagementTab('daily-log')}
+          onPrtClick={() => setShowPrtModal(true)}
+          onLogsClick={() => setShowLogsModal(true)}
+          onLoadoutClick={() => setShowLoadoutModal(true)}
           onNotesClick={() => setShowNotes(prev => !prev)}
         />
       )}
@@ -877,6 +885,27 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           mobs={mobs}
           onClose={() => setShowMobsModal(false)}
           onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
+        />
+      )}
+
+      {showLoadoutModal && (
+        <LoadOutModal
+          job={job}
+          onClose={() => setShowLoadoutModal(false)}
+        />
+      )}
+
+      {showPrtModal && (
+        <PRTModal
+          job={job}
+          onClose={() => setShowPrtModal(false)}
+        />
+      )}
+
+      {showLogsModal && (
+        <LogsModal
+          job={job}
+          onClose={() => setShowLogsModal(false)}
         />
       )}
     </div>
