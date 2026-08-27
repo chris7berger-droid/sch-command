@@ -38,7 +38,23 @@
   text-transform: uppercase; letter-spacing: 0.05em;
   border-left: 3px solid transparent; transition: background .12s, color .12s;
 }
-.app-sidebar-collapsed .app-sidebar-link { justify-content: center; padding: 10px 0; width: 44px; gap: 0; border-left: none; }
+.app-sidebar-collapsed .app-sidebar-link { position: relative; justify-content: center; padding: 10px 0; width: 44px; gap: 0; border-left: none; }
+/* Collapsed rail is short (10 items) — let it overflow so hover tooltips escape
+   the nav instead of being clipped by its scroll container. */
+.app-sidebar-collapsed .app-sidebar-nav { overflow: visible; }
+/* Hover tooltip for the icon-only (collapsed) rail — the label as a dark flyout. */
+.app-sidebar-tip {
+  position: absolute; left: calc(100% + 12px); top: 50%; transform: translateY(-50%);
+  background: var(--header-dark); color: #fff;
+  font-family: var(--font-heading); font-weight: 600; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 5px 10px; border-radius: 6px; white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity .12s; z-index: 60;
+}
+.app-sidebar-collapsed .app-sidebar-link:hover .app-sidebar-tip { opacity: 1; visibility: visible; }
+.app-sidebar-collapsed .app-sidebar-link.active .app-sidebar-tip { color: #30cfac; }
 .app-sidebar-link:hover { background: rgba(255,255,255,0.06); color: #fff; }
 .app-sidebar-link.active { color: #30cfac; background: rgba(48,207,172,0.10); border-left-color: #30cfac; }
 .app-sidebar-collapsed .app-sidebar-link.active { box-shadow: inset 3px 0 0 #30cfac; }
