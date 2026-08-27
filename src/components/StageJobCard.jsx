@@ -10,6 +10,8 @@ import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 import MobsModal from './MobsModal'
 import LoadOutModal from './LoadOutModal'
+import PRTModal from './PRTModal'
+import LogsModal from './LogsModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -600,6 +602,8 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
   const [showDaysModal, setShowDaysModal] = useState(false)
   const [showMobsModal, setShowMobsModal] = useState(false)
   const [showLoadoutModal, setShowLoadoutModal] = useState(false)
+  const [showPrtModal, setShowPrtModal] = useState(false)
+  const [showLogsModal, setShowLogsModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -669,10 +673,6 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
     setActing(false)
   }, [job.job_id, job.job_num, changedBy, onJobUpdate])
 
-  // Scorecard click handlers — navigate to JobDetail with the right tab
-  const goManagementTab = useCallback((tab) => {
-    navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
-  }, [navigate, job.job_id])
 
   // CREW → existing Crew Schedule, deep-linked to this job's week (Schedule.jsx
   // reads ?job=&week= and highlights). The crew-build tool lives there.
@@ -794,8 +794,8 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           logsCount={logsCount}
           prtMap={prtMap}
           onBilledClick={() => navigate('/billing?tab=worklist')}
-          onPrtClick={() => goManagementTab('production')}
-          onLogsClick={() => goManagementTab('daily-log')}
+          onPrtClick={() => setShowPrtModal(true)}
+          onLogsClick={() => setShowLogsModal(true)}
           onLoadoutClick={() => setShowLoadoutModal(true)}
           onNotesClick={() => setShowNotes(prev => !prev)}
         />
@@ -892,6 +892,20 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
         <LoadOutModal
           job={job}
           onClose={() => setShowLoadoutModal(false)}
+        />
+      )}
+
+      {showPrtModal && (
+        <PRTModal
+          job={job}
+          onClose={() => setShowPrtModal(false)}
+        />
+      )}
+
+      {showLogsModal && (
+        <LogsModal
+          job={job}
+          onClose={() => setShowLogsModal(false)}
         />
       )}
     </div>
