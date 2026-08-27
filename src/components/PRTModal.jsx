@@ -10,10 +10,6 @@ function parseArr(v) {
   return Array.isArray(out) ? out : []
 }
 
-function localDateStr(d = new Date()) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 // Production Reports — the office production picture for a job: overall progress
 // vs. where the plan says the job should be, then each day's PRT compared to the
 // SOW plan (target vs actual) with the crew's notes.
@@ -30,19 +26,31 @@ export default function PRTModal({ job, onClose }) {
     return () => { alive = false }
   }, [job.call_log_id])
 
-  // ── SOW plan: unique tasks with their planned target % and scheduled date ──
+  // ── SOW plan: order the distinct SOW days and tag each task with its DAY INDEX
+  // (day 1, 2, …). Progress is measured against the day the crew is ON — the
+  // number of production days reported — NOT the literal calendar date, so a job
+  // whose schedule hasn't reached its start date still tracks sensibly. ──
   const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
-  const sowTaskMap = new Map()
+  const daysList = []
   for (const w of wtcs) {
-    const sow = Array.isArray(w.field_sow) ? w.field_sow : []
-    for (const d of sow) {
-      for (const t of (d.tasks || [])) {
-        const key = (t.description || '').trim()
-        if (!key) continue
-        const prev = sowTaskMap.get(key)
-        if (!prev || (d.date || '') > (prev.date || '')) {
-          sowTaskMap.set(key, { description: t.description, target: Number(t.pct_complete) || 0, date: d.date || null })
-        }
+    for (const d of (Array.isArray(w.field_sow) ? w.field_sow : [])) daysList.push(d)
+  }
+  daysList.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.day_label || '').localeCompare(b.day_label || ''))
+  const dayIndexByKey = new Map() // distinct day (by date, else label) → 1-based index
+  for (const d of daysList) {
+    const key = d.date || d.day_label || `#${dayIndexByKey.size}`
+    if (!dayIndexByKey.has(key)) dayIndexByKey.set(key, dayIndexByKey.size + 1)
+  }
+  const totalDays = dayIndexByKey.size
+  const sowTaskMap = new Map()
+  for (const d of daysList) {
+    const dayIndex = dayIndexByKey.get(d.date || d.day_label || '') || 1
+    for (const t of (d.tasks || [])) {
+      const key = (t.description || '').trim()
+      if (!key) continue
+      const prev = sowTaskMap.get(key)
+      if (!prev || dayIndex < prev.dayIndex) {
+        sowTaskMap.set(key, { description: t.description, target: Number(t.pct_complete) || 0, dayIndex })
       }
     }
   }
@@ -58,11 +66,12 @@ export default function PRTModal({ job, onClose }) {
     }
   }
 
-  // ── Overall: where the job IS vs where the plan says it SHOULD be by today ──
-  const today = localDateStr()
+  // ── Overall: where the job IS vs the plan through the current production day ──
   const denom = sowTasks.length || 1
+  const reportedDays = new Set(prts.map(p => p.report_date).filter(Boolean)).size
+  const currentDay = Math.min(reportedDays, totalDays || 1)
   const actualPct = Math.round(sowTasks.reduce((s, t) => s + (actualByTask.get(t.description.trim()) || 0), 0) / denom)
-  const expectedPct = Math.round(sowTasks.reduce((s, t) => s + ((t.date && t.date <= today) ? t.target : 0), 0) / denom)
+  const expectedPct = Math.round(sowTasks.reduce((s, t) => s + (t.dayIndex <= currentDay ? t.target : 0), 0) / denom)
   const delta = actualPct - expectedPct
 
   return (
@@ -80,7 +89,7 @@ export default function PRTModal({ job, onClose }) {
             {sowTasks.length > 0 && (
               <div className="jd-pp-overall">
                 <div className="jd-pp-head">
-                  <span className="jd-pp-title">JOB PROGRESS</span>
+                  <span className="jd-pp-title">JOB PROGRESS{totalDays > 0 ? ` · DAY ${currentDay} OF ${totalDays}` : ''}</span>
                   <span className={`jd-pp-delta ${delta >= 0 ? 'jd-pp-ahead' : 'jd-pp-behind'}`}>
                     {delta >= 0 ? `+${delta}% ahead of plan` : `${delta}% behind plan`}
                   </span>
