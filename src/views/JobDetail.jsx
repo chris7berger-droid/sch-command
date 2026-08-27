@@ -53,6 +53,7 @@ export default function JobDetail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const mode = searchParams.get('mode') // 'planning' | 'management' | null
+  const tabParam = searchParams.get('tab') // deep-link to a specific tab (card buttons)
   const user = useUser()
   const changedBy = user?.name || 'unknown'
   const [job, setJob] = useState(null)
@@ -85,7 +86,7 @@ export default function JobDetail() {
       setJob(jobRes.data)
       // Field SOW editing moved to the in-card CardSowModal (remediation step 3);
       // JobDetail no longer hosts the SOW editor. Planning default → SOW.
-      setTab(prev => prev || (mode === 'planning' ? 'sow' : 'overview'))
+      setTab(prev => prev || tabParam || (mode === 'planning' ? 'sow' : 'overview'))
     }
     setAssignments(asgnRes.data || [])
     setBillingLog(blRes.data || [])
