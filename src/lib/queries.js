@@ -885,6 +885,31 @@ export async function updateJobWtcFieldSow(jobWtcId, nextFieldSow, changedBy, so
     .eq('id', jobWtcId)
   if (error) return { error }
 
+  // Roll the WTC calendar up to the parent jobs.scheduled_start/scheduled_end.
+  // These parent columns are a denormalized copy of the schedule span that the
+  // whole app trusts (DAYS pill totalWorkDays, Schedule board jobOverlapsWeek,
+  // billing forecast, calendar). Editing field_sow here without syncing them
+  // let them drift stale — an inverted/short span then made jobs read 0 days
+  // ("?d") and vanish from their own crew-schedule week. Span = min(start)/
+  // max(end) across ALL the job's WTCs (dated days only); null when none dated.
+  // Derived, so it rides on the field_sow audit row above — no separate log.
+  const parentJobId = current?.job_id
+  if (parentJobId != null) {
+    const { data: sibs } = await supabase
+      .from('job_wtcs')
+      .select('start_date, end_date')
+      .eq('job_id', parentJobId)
+    const starts = (sibs || []).map(w => w.start_date).filter(Boolean).sort()
+    const ends = (sibs || []).map(w => w.end_date).filter(Boolean).sort()
+    await supabase
+      .from('jobs')
+      .update({
+        scheduled_start: starts[0] || null,
+        scheduled_end: ends.length ? ends[ends.length - 1] : null,
+      })
+      .eq('job_id', parentJobId)
+  }
+
   // audit-log — JSON.stringify (not String()); keyed on the parent job so the
   // history view still attributes the change to the job.
   const oldStr = JSON.stringify(current?.field_sow ?? [])
