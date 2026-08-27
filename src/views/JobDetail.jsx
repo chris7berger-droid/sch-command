@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobWithWTCs, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadTeamMemberMap } from '../lib/queries'
+import { loadJobWithWTCs, updateJobField, loadPRTsForJob, loadDailyLogsForJob, loadMaterialChecksForJob, loadTeamMemberMap } from '../lib/queries'
 import { useUser } from '../lib/user'
 import { getJobStatus, getStatusBadgeClass } from '../lib/jobStatus'
 import PRTDetail from '../components/PRTDetail'
@@ -67,6 +67,7 @@ export default function JobDetail() {
   const [prts, setPrts] = useState([])
   const [openPrtId, setOpenPrtId] = useState(null)
   const [dailyLogs, setDailyLogs] = useState([])
+  const [materialChecks, setMaterialChecks] = useState([])
   const [teamMap, setTeamMap] = useState({})
 
   const fetchData = useCallback(async () => {
@@ -92,20 +93,23 @@ export default function JobDetail() {
     // job_crew.job_id is FK to call_log.id, not jobs.job_id
     const clId = jobRes.data?.call_log_id
     if (clId) {
-      const [{ data: fcData }, prtRes, dlRes, tmRes] = await Promise.all([
+      const [{ data: fcData }, prtRes, dlRes, mcRes, tmRes] = await Promise.all([
         supabase.from('job_crew').select('id, team_member_id, role, team_members(name)').eq('job_id', clId),
         loadPRTsForJob(clId),
         loadDailyLogsForJob(clId),
+        loadMaterialChecksForJob(clId),
         loadTeamMemberMap(),
       ])
       setFieldCrew(fcData || [])
       setPrts(prtRes.data || [])
       setDailyLogs(dlRes.data || [])
+      setMaterialChecks(mcRes.data || [])
       setTeamMap(tmRes.data || {})
     } else {
       setFieldCrew([])
       setPrts([])
       setDailyLogs([])
+      setMaterialChecks([])
       setTeamMap({})
     }
     setLoading(false)
@@ -143,6 +147,7 @@ export default function JobDetail() {
     { key: 'overview', label: 'Overview' },
     { key: 'production', label: 'Production' },
     { key: 'daily-log', label: 'Daily Log' },
+    { key: 'material-confirmation', label: 'Load-Out' },
     { key: 'billing', label: 'Billing' },
     { key: 'history', label: 'History' },
   ]
@@ -520,6 +525,71 @@ export default function JobDetail() {
                 })()}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Load-Out (crew material confirmation) ───────── */}
+        {tab === 'material-confirmation' && (
+          <div className="jd-section">
+            {(() => {
+              const wtcs = Array.isArray(job._wtcs) ? job._wtcs : []
+              const days = []
+              for (const w of wtcs) {
+                const sow = Array.isArray(w.field_sow) ? w.field_sow : []
+                for (const d of sow) {
+                  const mats = Array.isArray(d.materials) ? d.materials : []
+                  if (mats.length) days.push({ ...d, work_type_name: w.work_type_name, materials: mats })
+                }
+              }
+              if (days.length === 0) {
+                return <div className="jh-empty">No materials on this job's SOW yet.</div>
+              }
+              const checkByMat = new Map()
+              for (const c of materialChecks) checkByMat.set(c.wtc_material_id, c)
+              days.sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.day_label || '').localeCompare(b.day_label || ''))
+              const totalMats = days.reduce((n, d) => n + d.materials.length, 0)
+              const confirmedCount = days.reduce((n, d) => n + d.materials.filter(m => checkByMat.get(m.wtc_material_id)?.checked).length, 0)
+              return (
+                <>
+                  <div className="jd-mc-summary">
+                    Crew confirmed <strong>{confirmedCount}</strong> of <strong>{totalMats}</strong> materials loaded.
+                  </div>
+                  <div className="jd-mc-list">
+                    {days.map((d, i) => {
+                      const heading = [d.day_label, d.date].filter(Boolean).join(' · ') || `Day ${i + 1}`
+                      return (
+                        <div key={d.id || i} className="jd-mc-group">
+                          <div className="jd-mc-date">
+                            {heading}
+                            {d.work_type_name ? <span className="jd-mc-wt"> · {d.work_type_name}</span> : null}
+                          </div>
+                          <div className="jd-mc-items">
+                            {d.materials.map((m, j) => {
+                              const chk = checkByMat.get(m.wtc_material_id)
+                              const confirmed = !!chk?.checked
+                              return (
+                                <div key={m.wtc_material_id || j} className={`jd-mc-row${confirmed ? ' jd-mc-row-ok' : ''}`}>
+                                  <span className="jd-mc-check">{confirmed ? '✓' : '○'}</span>
+                                  <span className="jd-mc-name">
+                                    {m.name || 'Unnamed material'}
+                                    {m.kit_size ? <span className="jd-mc-kit"> · {m.kit_size}</span> : null}
+                                  </span>
+                                  <span className="jd-mc-meta">
+                                    {confirmed
+                                      ? <>{chk.checked_by_name || 'Crew'}<span className="jd-mc-time"> · {fmtTimestamp(chk.updated_at)}</span></>
+                                      : <span className="jd-mc-pending">Not confirmed</span>}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )
+            })()}
           </div>
         )}
 

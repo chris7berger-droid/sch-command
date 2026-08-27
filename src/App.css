@@ -5303,6 +5303,47 @@
 .jh-tile-daily   .jh-tile-count { color: #7ec8a0; }
 
 /* ── Daily Log (Field Command entries on JobDetail) ───────────────── */
+/* Load-Out — crew material load-out confirmation (Field writes, office reads) */
+.jd-mc-summary {
+  font-family: var(--font-display, 'Barlow Condensed', sans-serif);
+  font-size: 15px;
+  letter-spacing: 0.03em;
+  color: var(--text-body, #2d2720);
+  margin-bottom: 16px;
+}
+.jd-mc-summary strong { color: var(--text-head, #1c1814); }
+.jd-mc-list { display: flex; flex-direction: column; gap: 18px; }
+.jd-mc-group { display: flex; flex-direction: column; gap: 6px; }
+.jd-mc-date {
+  font-family: var(--font-display, 'Barlow Condensed', sans-serif);
+  font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-light, #6b6358);
+  padding-bottom: 4px; border-bottom: 1px solid rgba(28, 24, 20, 0.12);
+}
+.jd-mc-wt { color: var(--text-faint, #887c6e); font-weight: 600; }
+.jd-mc-items {
+  background: var(--linen-card, #c8bcaa);
+  border: 1px solid rgba(28, 24, 20, 0.18);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.jd-mc-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid rgba(28, 24, 20, 0.10);
+}
+.jd-mc-row:first-child { border-top: none; }
+.jd-mc-check {
+  width: 20px; text-align: center; font-weight: 700; font-size: 15px;
+  color: var(--text-faint, #887c6e);
+}
+.jd-mc-row-ok .jd-mc-check { color: var(--command-green, #5BBD3F); }
+.jd-mc-name { flex: 1; font-family: var(--font-body, 'Barlow', sans-serif); font-size: 14px; color: var(--text-body, #2d2720); }
+.jd-mc-kit { color: var(--text-faint, #887c6e); }
+.jd-mc-meta { font-family: var(--font-body, 'Barlow', sans-serif); font-size: 12px; color: var(--text-light, #6b6358); text-align: right; white-space: nowrap; }
+.jd-mc-time { color: var(--text-faint, #887c6e); }
+.jd-mc-pending { color: var(--text-faint, #887c6e); font-style: italic; }
+
 .jd-dl-list {
   display: flex;
   flex-direction: column;

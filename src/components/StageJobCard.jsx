@@ -287,7 +287,7 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
   )
 }
 
-function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
+function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onLoadoutClick, onNotesClick }) {
   const amount = job.amount ? parseFloat(job.amount) : 0
 
   return (
@@ -352,6 +352,11 @@ function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">LOGS</span>
           <span className="sjc-score-val">{logsCount > 0 ? logsCount : '—'}</span>
+        </div>
+        <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onLoadoutClick} title="Crew material load-out confirmation">
+          <span className="sjc-score-icon">{'🚚'}</span>
+          <span className="sjc-score-label">LOAD-OUT</span>
+          <span className="sjc-score-val">View &rarr;</span>
         </div>
         <div className="sjc-score sjc-score-stub" title="Coming soon — attachments">
           <span className="sjc-score-icon">{'📎'}</span>
@@ -789,6 +794,7 @@ export default function StageJobCard({ job, stage, variant = null, crewByCallLog
           onBilledClick={() => navigate('/billing?tab=worklist')}
           onPrtClick={() => goManagementTab('production')}
           onLogsClick={() => goManagementTab('daily-log')}
+          onLoadoutClick={() => goManagementTab('material-confirmation')}
           onNotesClick={() => setShowNotes(prev => !prev)}
         />
       )}
