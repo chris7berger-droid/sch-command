@@ -407,6 +407,24 @@ export default function Schedule({ embedded = false } = {}) {
     })
   }
 
+  // The days a "Select all" should pick: this job's in-range working days in the
+  // visible week, minus any the crew is OUT (sick/off) — never auto-book time off.
+  function assignableDays(m) {
+    if (!m?.job) return []
+    return dates.filter(ds => jobInRange(m.job, ds) && getCSt(m.name, ds) === 'available')
+  }
+
+  // One-click fill/clear: if every assignable day is already selected, clear them
+  // (still dropping any existing days on save); otherwise select them all.
+  function toggleAllAssignDays() {
+    setAssignModal(prev => {
+      if (!prev) return prev
+      const all = assignableDays(prev)
+      const allOn = all.length > 0 && all.every(d => prev.selectedDays.includes(d))
+      return { ...prev, selectedDays: allOn ? [] : all }
+    })
+  }
+
   async function applyAssignModal() {
     if (!assignModal) return
     const { name, jobId, selectedDays } = assignModal
@@ -1093,7 +1111,24 @@ export default function Schedule({ embedded = false } = {}) {
             <div className="sch-modal-label">
               to <strong style={{ color: '#1565c0' }}>{assignModal.job ? assignModal.job.job_num + ' - ' + assignModal.job.job_name : 'Job'}</strong>
             </div>
-            <div className="sch-modal-label" style={{ marginTop: 8 }}>Select days:</div>
+            {(() => {
+              const all = assignableDays(assignModal)
+              const allOn = all.length > 0 && all.every(d => assignModal.selectedDays.includes(d))
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                  <div className="sch-modal-label">Select days:</div>
+                  {all.length > 1 && (
+                    <button
+                      className="sch-btn"
+                      style={{ fontSize: 11, padding: '3px 10px' }}
+                      onClick={toggleAllAssignDays}
+                    >
+                      {allOn ? 'Clear all' : `Select all ${all.length}`}
+                    </button>
+                  )}
+                </div>
+              )
+            })()}
             <div className="sch-modal-days">
               {dates.map((ds, i) => {
                 const inRange = assignModal.job ? jobInRange(assignModal.job, ds) : false

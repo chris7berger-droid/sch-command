@@ -110,7 +110,7 @@ Unlike the design-open rows above, these have a settled four-dimension answer be
 3. **BILLED source of truth** — `billing_log` vs `invoices`/`invoice_lines`; which app owns billing state, and how the card derives % from it.
 4. **PROP/amount origin** — confirm where `jobs.amount` is set and whether it's a copy or reference.
 5. **Attachments (§7)** — canonical store, cross-app view-only contract, PowerSync sync rules. Its own build loop after this contract lands.
-6. **Copy-vs-reference policy for send-to-schedule** — `proposal_wtc → job_wtcs` is a snapshot today; decide whether post-handoff drift is acceptable per entity, or edits must propagate.
+6. **Copy-vs-reference policy for send-to-schedule** — `proposal_wtc → job_wtcs` is a snapshot today; decide whether post-handoff drift is acceptable per entity, or edits must propagate. **Partially settled by PB-1 (shipped 2026-08-27, sales-command merge `2275723`):** for the *re-send* path specifically, the handoff stays a **snapshot at Send**, and a re-send is a **clean rebuild** (tombstone-held slot released, fresh `job_wtcs` written) — NOT a merge into a live job. No change to steady-state SOW ownership (Schedule sole post-Send editor). The broader per-entity drift/propagation question remains open.
 
 ## Explicitly not in scope here
 

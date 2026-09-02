@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist, loadMobilizationsByCallLog } from '../lib/queries'
+import { loadJobs, loadAllRows, loadPRTsForCallLogIds, isReady, loadBillingWorklist, loadMobilizationsByJobId } from '../lib/queries'
 import JobsPicker from '../components/JobsPicker'
 import StagedCardList from '../components/StagedCardList'
 import AllJobsList from '../components/AllJobsList'
@@ -175,7 +175,7 @@ export default function Jobs() {
   const [dailyLogs, setDailyLogs] = useState([])
   const [prtMap, setPrtMap] = useState(new Map())
   const [proposalMaterialsByCallLog, setProposalMaterialsByCallLog] = useState({})
-  const [mobsByCallLog, setMobsByCallLog] = useState({})
+  const [mobsByJobId, setMobsByJobId] = useState({})
   const [syncWarning, setSyncWarning] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -283,15 +283,17 @@ export default function Jobs() {
       setProposalMaterialsByCallLog({})
     }
 
-    // Batched proposal-authored mobilization labels/dates, keyed by call_log_id.
-    // Feeds the MOBS card, which reads mobilization_seq off the SOW days and
-    // hydrates label/dates from here (read-only; Sales owns the write).
-    if (pmCallLogIds.length > 0) {
-      const mobs = await loadMobilizationsByCallLog(pmCallLogIds)
+    // Phase F (F1b): the live job's mobilizations, keyed by JOB_ID from
+    // job_mobilizations (post-send source of truth, D1). Keyed by job_id — not
+    // call_log_id — because a call_log can carry archive + live jobs. Falls back
+    // wholesale to proposal-authored mobs for any job with 0 rows (F1's seed is
+    // non-fatal, so 0 rows is a legitimate state). Feeds the MOBS card + modal.
+    if (loadedJobs.length > 0) {
+      const mobs = await loadMobilizationsByJobId(loadedJobs)
       if (thisLoad !== loadIdRef.current) return
-      setMobsByCallLog(mobs)
+      setMobsByJobId(mobs)
     } else {
-      setMobsByCallLog({})
+      setMobsByJobId({})
     }
 
     const activeCallLogIds = loadedJobs
@@ -476,7 +478,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
@@ -512,7 +514,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No staged jobs in this date range"
@@ -527,7 +529,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No ready jobs in this date range"
@@ -545,7 +547,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
@@ -563,7 +565,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               prtMap={prtMap}
               onJobUpdate={() => loadData({ background: true })}
             />
@@ -577,7 +579,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               today={today}
               onJobUpdate={() => loadData({ background: true })}
               emptyText="No production-complete jobs in this date range"
@@ -591,7 +593,7 @@ export default function Jobs() {
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               prtMap={prtMap}
               today={today}
               onJobUpdate={() => loadData({ background: true })}

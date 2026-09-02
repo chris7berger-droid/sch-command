@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { updateJobField, updateJobStatus } from '../lib/queries'
+import { updateJobField, updateJobStatus, deleteJob } from '../lib/queries'
 import { getCardTitle, getWtcChips } from '../lib/jobCardLabel'
 import { baseChecklistPasses, hasFieldSow, materialsDecided, getJobMobilizations } from '../lib/queries'
 import { useUser } from '../lib/user'
@@ -9,6 +9,9 @@ import CardSowModal from './CardSowModal'
 import MaterialsModal from './MaterialsModal'
 import DaysModal from './DaysModal'
 import MobsModal from './MobsModal'
+import LoadOutModal from './LoadOutModal'
+import PRTModal from './PRTModal'
+import LogsModal from './LogsModal'
 
 function effectiveStart(j) { return j.scheduled_start || j.start_date || null }
 function effectiveEnd(j) { return j.scheduled_end || j.end_date || null }
@@ -262,21 +265,32 @@ function PlanningPanel({ job, crewRows, matRows, assignmentDates, onSowClick, on
           <span className="sjc-score-label">DAYS</span>
           <span className="sjc-score-val">{hasDate ? <>{workDays || '?'}d</> : '✗'}</span>
         </div>
-        <div
-          className={`sjc-score${mobs.length ? ' sjc-score-click sjc-score-neutral' : ' sjc-score-stub'}`}
-          onClick={mobs.length ? onMobsClick : undefined}
-          title={mobs.length ? 'View mobilizations' : 'No mobilizations set on the Sales proposal'}
-        >
-          <span className="sjc-score-icon">{'🚚'}</span>
-          <span className="sjc-score-label">MOBS</span>
-          <span className="sjc-score-val">{mobs.length || '—'}</span>
-        </div>
+        {/* Phase F: MOBS is now an editor entry — always clickable, even at 0 mobs,
+            so a go-back can be added. Go-back count = mobs flagged is_go_back with
+            ≥1 tagged day (audit O3 — a seeded-but-unscheduled mob isn't a real trip). */}
+        {(() => {
+          const goBacks = mobs.filter(m => m.is_go_back && m.dayCount > 0).length
+          return (
+            <div
+              className="sjc-score sjc-score-click sjc-score-neutral"
+              onClick={onMobsClick}
+              title={goBacks > 0 ? `${mobs.length} mobilization(s), ${goBacks} go-back(s) — add or edit` : 'Add or edit mobilizations'}
+            >
+              <span className="sjc-score-icon">{'🚚'}</span>
+              <span className="sjc-score-label">MOBS</span>
+              <span className="sjc-score-val">
+                {mobs.length || '—'}
+                {goBacks > 0 && <span style={{ marginLeft: 4, fontSize: 11, color: 'var(--warning)' }} title={`${goBacks} go-back(s)`}>↩{goBacks}</span>}
+              </span>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
 }
 
-function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onNotesClick }) {
+function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick, onLogsClick, onLoadoutClick, onNotesClick }) {
   const amount = job.amount ? parseFloat(job.amount) : 0
 
   return (
@@ -341,6 +355,11 @@ function ManagementPanel({ job, logsCount = 0, prtMap, onBilledClick, onPrtClick
           <span className="sjc-score-icon">{'📅'}</span>
           <span className="sjc-score-label">LOGS</span>
           <span className="sjc-score-val">{logsCount > 0 ? logsCount : '—'}</span>
+        </div>
+        <div className="sjc-score sjc-score-click sjc-score-neutral" onClick={onLoadoutClick} title="Crew material load-out confirmation">
+          <span className="sjc-score-icon">{'🚚'}</span>
+          <span className="sjc-score-label">LOAD-OUT</span>
+          <span className="sjc-score-val">View &rarr;</span>
         </div>
         <div className="sjc-score sjc-score-stub" title="Coming soon — attachments">
           <span className="sjc-score-icon">{'📎'}</span>
@@ -565,11 +584,15 @@ function NotesPanel({ job, changedBy, onSaved }) {
   )
 }
 
-export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByCallLog = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
+export default function StageJobCard({ job, stage, variant = null, crewByCallLog = {}, matsByJobId = {}, logsByCallLog = {}, assignmentsByJobId = {}, proposalMaterialsByCallLog = {}, mobsByJobId = {}, prtMap = new Map(), today = new Date(), onJobUpdate }) {
   const navigate = useNavigate()
   const user = useUser()
   const changedBy = user?.name || 'unknown'
 
+  const compactMode = variant === 'home-compact'
+  // Home compact row is collapsed by default; clicking it expands the SAME full
+  // card inline (Option B). The /jobs path never sets `variant`, so it is untouched.
+  const [expanded, setExpanded] = useState(false)
   const [panels, setPanels] = useState({ planning: false, management: false, details: false, budget: false })
   const [acting, setActing] = useState(false)
   const [showSowModal, setShowSowModal] = useState(false)
@@ -578,6 +601,9 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const [showMtrlModal, setShowMtrlModal] = useState(false)
   const [showDaysModal, setShowDaysModal] = useState(false)
   const [showMobsModal, setShowMobsModal] = useState(false)
+  const [showLoadoutModal, setShowLoadoutModal] = useState(false)
+  const [showPrtModal, setShowPrtModal] = useState(false)
+  const [showLogsModal, setShowLogsModal] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
 
   const crewRows = crewByCallLog[job.call_log_id] || []
@@ -585,7 +611,7 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
   const proposalMaterials = proposalMaterialsByCallLog[job.call_log_id] || []
   const logsCount = logsByCallLog[job.call_log_id] || 0
   const assignmentDates = assignmentsByJobId[job.job_id] || null
-  const mobs = getJobMobilizations(job, mobsByCallLog[job.call_log_id])
+  const mobs = getJobMobilizations(job, mobsByJobId[job.job_id])
 
   const togglePanel = useCallback((key) => {
     setPanels(prev => ({ ...prev, [key]: !prev[key] }))
@@ -631,10 +657,22 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
     navigate('/billing?tab=worklist')
   }, [navigate])
 
-  // Scorecard click handlers — navigate to JobDetail with the right tab
-  const goManagementTab = useCallback((tab) => {
-    navigate(`/jobs/${job.job_id}?mode=management&tab=${tab}`)
-  }, [navigate, job.job_id])
+  // Remove a mis-sent or wrongly-created job. Only offered pre-work (staged/ready)
+  // — once a job is active or complete it carries field + billing history. Soft-
+  // delete (recoverable 24h) that also frees the upstream Sales proposal to be
+  // pulled back or re-sent (see deleteJob in queries.js).
+  const canDelete = stage === 'staged' || stage === 'ready'
+  const handleDelete = useCallback(async () => {
+    if (!window.confirm(
+      `Delete job ${job.job_num || ''}? It will be removed from the schedule and its proposal in Sales Command will be freed to pull back or re-send. Recoverable for 24 hours from the Recovery Bin.`
+    )) return
+    setActing(true)
+    const { error } = await deleteJob(job.job_id, changedBy)
+    if (error) { console.error(error); alert('Delete failed: ' + error.message); setActing(false); return }
+    if (onJobUpdate) onJobUpdate()
+    setActing(false)
+  }, [job.job_id, job.job_num, changedBy, onJobUpdate])
+
 
   // CREW → existing Crew Schedule, deep-linked to this job's week (Schedule.jsx
   // reads ?job=&week= and highlights). The crew-build tool lives there.
@@ -653,8 +691,73 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
     }
   }, [navigate, job])
 
+  // The real per-stage action (Promote/Kickoff/Resume/Send-to-Billing) — surfaced
+  // on the compact row AND in the expanded card so office staff keep one-click
+  // workflow (§14). `active` renders nothing (a neutral spacer keeps the column
+  // from jumping); a second "View Job" is deliberately NOT added (round-3 note).
+  const stageActionBtn = (extraClass = '') => {
+    const cls = `sjc-action-btn ${extraClass}`.trim()
+    if (stage === 'staged') return <button className={`${cls} sjc-promote`} disabled={!canPromote || acting} onClick={handlePromote}>{acting ? 'Promoting…' : 'Promote to Ready'}</button>
+    if (stage === 'ready') return <button className={`${cls} sjc-kickoff`} disabled={acting} onClick={handleKickoff}>{acting ? 'Starting…' : 'Kickoff'}</button>
+    if (stage === 'on-hold') return <button className={`${cls} sjc-resume`} disabled={acting} onClick={handleResume}>{acting ? 'Resuming…' : 'Resume'}</button>
+    if (stage === 'complete') return <button className={`${cls} sjc-billing`} onClick={handleSendToBilling}>Send to Billing</button>
+    return null
+  }
+
+  // ── Home compact row (collapsed) ──────────────────────────────────────────
+  if (compactMode && !expanded) {
+    const wtcs = job._wtcs || []
+    const wtChips = getWtcChips(wtcs)
+    const workTypeLabel = wtChips.length > 1 ? `${wtChips.length} work types`
+      : wtChips.length === 1 ? (wtcs[0]?.work_type_name || job.work_type || '—')
+      : (job.work_type || '—')
+    const loc = [job.jobsite_city, job.jobsite_state].filter(Boolean).join(', ') || '—'
+    const startStr = effectiveStart(job)
+    const dtk = startStr ? daysBetween(startStr, today) : null
+    let timeSignal = null
+    if (stage === 'active') {
+      const end = effectiveEnd(job)
+      const totalDays = startStr && end ? daysBetween(end, new Date(startStr + 'T00:00:00')) + 1 : null
+      // Wall-clock today (ymd of the local `today` prop) — never toISOString (UTC
+      // rolls the date over in the US evening → off-by-one "day N").
+      const elapsed = startStr ? daysBetween(ymd(today), new Date(startStr + 'T00:00:00')) : null
+      const dayNum = totalDays && elapsed != null ? Math.min(totalDays, Math.max(1, elapsed + 1)) : null
+      if (dayNum != null) timeSignal = `day ${dayNum} of ${totalDays}`
+    } else if (dtk != null) {
+      timeSignal = dtk < 0 ? `${Math.abs(dtk)}d overdue` : dtk === 0 ? 'today' : `in ${dtk}d`
+    }
+    const badgeClass = stage === 'staged' ? 'staged' : stage === 'ready' ? 'ready'
+      : stage === 'active' ? 'active' : stage === 'on-hold' ? 'on-hold' : 'complete'
+    const badgeLabel = stage === 'on-hold' ? 'ON HOLD' : stage.toUpperCase()
+    const amount = job.amount ? parseFloat(job.amount) : 0
+    const stop = (fn) => (e) => { e.stopPropagation(); fn() }
+    return (
+      <div className="jtp-row" onClick={() => setExpanded(true)} role="button" tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(true) } }}>
+        <span className={`jtp-badge jtp-badge-${badgeClass}`}>{badgeLabel}</span>
+        <span className="jtp-box">{'📦'}</span>
+        <span className="jtp-jobname"><b>{job.job_num || '—'}</b> {job.job_name || ''}</span>
+        <span className="jtp-cell jtp-customer">{job.customer_name || '—'}</span>
+        <span className="jtp-pill">{workTypeLabel}</span>
+        <span className="jtp-cell jtp-loc">{loc}</span>
+        <span className="jtp-cell jtp-date">{startStr ? fmtMD(startStr) : '—'}{timeSignal && <span className="jtp-time"> · {timeSignal}</span>}</span>
+        <span className="jtp-cell jtp-crew">{crewRows.length}/{job.crew_needed || '?'}</span>
+        <span className="jtp-cell jtp-budget">{amount > 0 ? fmtMoney(amount) : '—'}</span>
+        <span className="jtp-actions" onClick={e => e.stopPropagation()}>
+          <button className="jtp-btn jtp-btn-outline" onClick={stop(goCrewSchedule)}>BUILD SCHEDULE →</button>
+          {stage === 'active'
+            ? <span className="jtp-action-spacer" aria-hidden="true" />
+            : stageActionBtn('jtp-btn jtp-btn-fill')}
+        </span>
+      </div>
+    )
+  }
+
   return (
-    <div className="sjc-card">
+    <div className={`sjc-card${compactMode ? ' sjc-card-home-expanded' : ''}`}>
+      {compactMode && (
+        <button className="jtp-collapse" onClick={() => setExpanded(false)} title="Collapse">Close ✕</button>
+      )}
       <StageBanner job={job} stage={stage} crewRows={crewRows} matRows={matRows} prtMap={prtMap} today={today} />
 
       <div className="sjc-header" onClick={() => navigate(`/jobs/${job.job_id}?mode=management`)}>
@@ -691,8 +794,9 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           logsCount={logsCount}
           prtMap={prtMap}
           onBilledClick={() => navigate('/billing?tab=worklist')}
-          onPrtClick={() => goManagementTab('production')}
-          onLogsClick={() => goManagementTab('daily-log')}
+          onPrtClick={() => setShowPrtModal(true)}
+          onLogsClick={() => setShowLogsModal(true)}
+          onLoadoutClick={() => setShowLoadoutModal(true)}
           onNotesClick={() => setShowNotes(prev => !prev)}
         />
       )}
@@ -725,6 +829,11 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
         {stage === 'complete' && (
           <button className="sjc-action-btn sjc-billing" onClick={handleSendToBilling}>
             Send to Billing
+          </button>
+        )}
+        {canDelete && (
+          <button className="sjc-action-btn sjc-delete" disabled={acting} onClick={handleDelete}>
+            Delete
           </button>
         )}
       </div>
@@ -775,6 +884,28 @@ export default function StageJobCard({ job, stage, crewByCallLog = {}, matsByJob
           job={job}
           mobs={mobs}
           onClose={() => setShowMobsModal(false)}
+          onUpdated={() => { if (onJobUpdate) onJobUpdate() }}
+        />
+      )}
+
+      {showLoadoutModal && (
+        <LoadOutModal
+          job={job}
+          onClose={() => setShowLoadoutModal(false)}
+        />
+      )}
+
+      {showPrtModal && (
+        <PRTModal
+          job={job}
+          onClose={() => setShowPrtModal(false)}
+        />
+      )}
+
+      {showLogsModal && (
+        <LogsModal
+          job={job}
+          onClose={() => setShowLogsModal(false)}
         />
       )}
     </div>

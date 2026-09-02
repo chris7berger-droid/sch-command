@@ -1,12 +1,12 @@
 import { useMemo } from 'react'
-import { getJobStatus } from '../lib/jobStatus'
-import { isReady } from '../lib/queries'
+import { stageOf } from '../lib/queries'
 import StagedCardList from './StagedCardList'
 
 // All Jobs is heterogeneous (every status at once), so it groups jobs into the
 // same lifecycle stages as the picker and renders each group with the shared
 // StageJobCard (via StagedCardList) — no more old-style JobCardList. Section
-// order matches the picker tiles.
+// order matches the picker tiles. stageOf now lives in queries.js (shared with
+// Home's tabless list — §14 C3).
 const STAGE_SECTIONS = [
   { stage: 'staged', label: 'Staged' },
   { stage: 'ready', label: 'Ready' },
@@ -15,14 +15,6 @@ const STAGE_SECTIONS = [
   { stage: 'complete', label: 'Production Complete' },
 ]
 
-function stageOf(j, crewByCallLog, matsByJobId) {
-  const s = getJobStatus(j)
-  if (s === 'Scheduled') return isReady(j, crewByCallLog, matsByJobId) ? 'ready' : 'staged'
-  if (s === 'On Hold') return 'on-hold'
-  if (s === 'Complete') return 'complete'
-  return 'active' // In Progress / Ongoing
-}
-
 export default function AllJobsList({
   jobs = [],
   crewByCallLog = {},
@@ -30,7 +22,7 @@ export default function AllJobsList({
   logsByCallLog = {},
   assignmentsByJobId = {},
   proposalMaterialsByCallLog = {},
-  mobsByCallLog = {},
+  mobsByJobId = {},
   prtMap = new Map(),
   today = new Date(),
   onJobUpdate,
@@ -62,7 +54,7 @@ export default function AllJobsList({
               logsByCallLog={logsByCallLog}
               assignmentsByJobId={assignmentsByJobId}
               proposalMaterialsByCallLog={proposalMaterialsByCallLog}
-              mobsByCallLog={mobsByCallLog}
+              mobsByJobId={mobsByJobId}
               prtMap={prtMap}
               today={today}
               onJobUpdate={onJobUpdate}

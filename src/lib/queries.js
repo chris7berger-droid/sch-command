@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { STATUS_OPTIONS_PICKER } from './jobStatus'
+import { STATUS_OPTIONS_PICKER, getJobStatus } from './jobStatus'
 import { rollupSowMaterials, coverageStatusFor } from './sowMaterials'
 
 // ── Paginating loader ──────────────────────────────────────────────────────
@@ -147,10 +147,94 @@ export function getJobMobilizations(job, mobsBySeq = {}) {
         end_date: hasConcrete ? sorted[sorted.length - 1] : (meta.end_date || null),
         // True when the range comes from the proposal plan, not yet-scheduled days.
         datesPlanned: !hasConcrete && (meta.start_date != null || meta.end_date != null),
+        // Phase F: go-back flag from job_mobilizations (proposal fallback → false).
+        is_go_back: !!meta.is_go_back,
         days: sorted,
       }
     })
     .sort((a, b) => a.seq - b.seq)
+}
+
+// Phase F (F3) — per-mobilization cost rollup, derived on read (D6). For each
+// mobilization seq, sum the cost of every field-SOW day tagged to it, across all
+// the job's WTCs (whole tagged day counts toward its mob — audit O6). Returns
+// { [seq]: { materialCost, laborCost, total, dayCount, unpriced, needsRate } }.
+//
+//  • Material $ = Σ qty_planned × unit price. Price source (D6, audit A1): a
+//    stamped price_per_unit wins (original sold lines); else materials_catalog.price
+//    joined on catalog_id; else fall back to (name, kit_size) ONLY when catalog_id
+//    is null. Off-catalog (no id, no name match) → $0 with `unpriced` flagged —
+//    never a silent zero. qty_planned = number of priced units (kits/boxes), D6.
+//  • Labor $ = Σ hours_planned × rate (crew_count is NOT a multiplier — hours are
+//    already total man-hours, D6). Rate = the WTC's stamped bid_breakdown.burden_rate
+//    (PW-correct: calc stamps pw_rate on PW jobs). Unstamped WTC → tenant
+//    default_burden_rate ONLY on a non-PW job; a PW job with no stamped rate flags
+//    `needsRate` rather than undercosting with the standard default (D6/B1).
+export function computeMobCosts(job, catalog = []) {
+  const byId = new Map()
+  const byNameKit = new Map()
+  for (const c of (catalog || [])) {
+    if (c?.id != null) byId.set(String(c.id), c)
+    const key = `${(c?.name || '').toLowerCase()}|${(c?.kit_size || '').toLowerCase()}`
+    if (!byNameKit.has(key)) byNameKit.set(key, c)
+  }
+  // Unit price for a day-material line. Returns null when nothing prices it.
+  const priceOf = (m) => {
+    const stamped = parseFloat(m?.price_per_unit)
+    if (stamped > 0) return stamped
+    if (m?.catalog_id != null) {
+      const hit = byId.get(String(m.catalog_id))
+      if (hit && hit.price != null) return parseFloat(hit.price) || 0
+    } else {
+      const key = `${(m?.name || m?.product || '').toLowerCase()}|${(m?.kit_size || m?.kit || '').toLowerCase()}`
+      const hit = byNameKit.get(key)
+      if (hit && hit.price != null) return parseFloat(hit.price) || 0
+    }
+    return null // off-catalog / unpriced
+  }
+
+  const isPW = job?.prevailing_wage === 'Yes' || job?.prevailing_wage === true
+  const tenantRate = parseFloat(job?.default_burden_rate)
+  const out = {}
+  const ensure = seq => (out[seq] || (out[seq] = { materialCost: 0, laborCost: 0, total: 0, dayCount: 0, unpriced: false, needsRate: false }))
+
+  const wtcs = Array.isArray(job?._wtcs) && job._wtcs.length ? job._wtcs : null
+  // Each unit: { days, rate|null }. Legacy zero-WTC jobs have no bid_breakdown, so
+  // their rate resolves off the job (default / PW rule) exactly like an unstamped WTC.
+  const units = wtcs
+    ? wtcs.map(w => ({ days: Array.isArray(w.field_sow) ? w.field_sow : [], bid: w.bid_breakdown }))
+    : [{ days: Array.isArray(job?.field_sow) ? job.field_sow : [], bid: null }]
+
+  for (const u of units) {
+    const stampedRate = parseFloat(u.bid?.burden_rate)
+    let rate = null // null ⇒ unknown (needsRate)
+    if (stampedRate > 0) rate = stampedRate
+    else if (!isPW && tenantRate > 0) rate = tenantRate
+    // else: PW-unstamped, or no default → rate stays null (needsRate)
+
+    for (const d of u.days) {
+      const seq = d?.mobilization_seq
+      if (seq == null) continue
+      const e = ensure(seq)
+      e.dayCount += 1
+      // Labor
+      const hours = parseFloat(d.hours_planned) || 0
+      if (hours > 0) {
+        if (rate != null) e.laborCost += hours * rate
+        else e.needsRate = true
+      }
+      // Materials
+      for (const m of (d.materials || [])) {
+        const qty = parseFloat(m?.qty_planned) || 0
+        if (qty <= 0) continue
+        const price = priceOf(m)
+        if (price == null) e.unpriced = true
+        else e.materialCost += qty * price
+      }
+    }
+  }
+  for (const seq of Object.keys(out)) out[seq].total = out[seq].materialCost + out[seq].laborCost
+  return out
 }
 
 // Batched read of proposal-authored mobilization metadata (label + planned
@@ -182,6 +266,60 @@ export async function loadMobilizationsByCallLog(callLogIds) {
   return out
 }
 
+// Phase F (D1) — post-send source of truth. Batched read of the LIVE job's
+// mobilizations from job_mobilizations, keyed by job_id → { [seq]: {label,
+// start_date, end_date, is_go_back} }.
+//
+// Keyed by JOB_ID, NOT call_log_id (round-1 B1 / audit E1): a call_log can carry
+// multiple jobs (archive + live — the dedup in loadMobilizationsByCallLog proves
+// it happens), so a call_log-keyed read would hydrate the wrong job's mobs. This
+// is why loadMobilizationsByCallLog is NOT reused directly for the live read.
+//
+// PERMANENT fallback (audit E2, not gate-removable): the send-time seed is
+// non-fatal (F1), so a live job can legitimately have 0 job_mobilizations rows
+// while its days are tagged. Any such job falls back — WHOLESALE per job (never a
+// per-seq merge) — to the proposal-authored mobs by its call_log_id. A correct
+// standing fallback is fine to keep indefinitely.
+//
+// Takes the loaded job objects (needs job_id + call_log_id for the fallback).
+export async function loadMobilizationsByJobId(jobs) {
+  const out = {}
+  const list = (jobs || []).filter(j => j && j.job_id != null)
+  if (!list.length) return out
+  const jobIds = [...new Set(list.map(j => j.job_id))]
+
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .select('job_id, seq, label, start_date, end_date, is_go_back')
+    .in('job_id', jobIds)
+  if (error) {
+    console.warn('[mobs] could not load job_mobilizations:', error.message)
+  } else {
+    for (const row of (data || [])) {
+      if (row.job_id == null || row.seq == null) continue
+      const map = out[row.job_id] || (out[row.job_id] = {})
+      map[row.seq] = {
+        label: row.label || null,
+        start_date: row.start_date || null,
+        end_date: row.end_date || null,
+        is_go_back: !!row.is_go_back,
+      }
+    }
+  }
+
+  // Wholesale per-job fallback for jobs with 0 job_mobilizations rows.
+  const needFallback = list.filter(j => !out[j.job_id] || Object.keys(out[j.job_id]).length === 0)
+  const fbCallLogIds = [...new Set(needFallback.map(j => j.call_log_id).filter(Boolean))]
+  if (fbCallLogIds.length > 0) {
+    const byCallLog = await loadMobilizationsByCallLog(fbCallLogIds)
+    for (const j of needFallback) {
+      const meta = j.call_log_id != null ? byCallLog[j.call_log_id] : null
+      if (meta && Object.keys(meta).length > 0) out[j.job_id] = meta
+    }
+  }
+  return out
+}
+
 // ── Call_log fields pulled via join ─────────────────────────────────────────
 const CALL_LOG_SELECT = `
   call_log (
@@ -202,6 +340,9 @@ const CALL_LOG_SELECT = `
     show_cents,
     customers:customer_id (
       requires_pay_app
+    ),
+    tenant_config:tenant_id (
+      default_burden_rate
     )
   )
 `.replace(/\s+/g, ' ').trim()
@@ -230,6 +371,11 @@ function normalizeJob(row) {
     is_change_order:    cl.is_change_order     || false,
     co_number:          cl.co_number           || null,
     show_cents:         cl.show_cents          || false,
+    // Phase F (F3) — tenant fallback labor rate for the go-back cost rollup, used
+    // ONLY when a WTC has no stamped bid_breakdown.burden_rate AND the job is not
+    // prevailing-wage (a PW job with no stamped rate surfaces "needs rate" instead
+    // of ever applying the standard default — D6/B1).
+    default_burden_rate: cl.tenant_config?.default_burden_rate ?? null,
     // deposit tag — derived from the job's DEPOSIT INVOICES (Sales marks each one),
     // not from a job-level flag. _deposit is attached by loadJobs, not here.
     _deposit: null,
@@ -595,6 +741,18 @@ export async function loadDailyLogsForJob(callLogId) {
   return { data: data || [], error: null }
 }
 
+// Crew material load-out confirmations for a job (Field Command writes these;
+// the office reads them here). Keyed by call_log.id, matching the crew-side write.
+export async function loadMaterialChecksForJob(callLogId) {
+  if (!callLogId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('job_material_checks')
+    .select('id, job_id, wtc_material_id, check_date, material_name, checked, checked_by_name, updated_at')
+    .eq('job_id', callLogId)
+  if (error) return { data: null, error }
+  return { data: data || [], error: null }
+}
+
 export async function loadRecentPRTs(days = 14) {
   const since = new Date()
   since.setDate(since.getDate() - days)
@@ -738,6 +896,31 @@ export async function updateJobWtcFieldSow(jobWtcId, nextFieldSow, changedBy, so
     .update({ field_sow: nextFieldSow, start_date: startDate, end_date: endDate })
     .eq('id', jobWtcId)
   if (error) return { error }
+
+  // Roll the WTC calendar up to the parent jobs.scheduled_start/scheduled_end.
+  // These parent columns are a denormalized copy of the schedule span that the
+  // whole app trusts (DAYS pill totalWorkDays, Schedule board jobOverlapsWeek,
+  // billing forecast, calendar). Editing field_sow here without syncing them
+  // let them drift stale — an inverted/short span then made jobs read 0 days
+  // ("?d") and vanish from their own crew-schedule week. Span = min(start)/
+  // max(end) across ALL the job's WTCs (dated days only); null when none dated.
+  // Derived, so it rides on the field_sow audit row above — no separate log.
+  const parentJobId = current?.job_id
+  if (parentJobId != null) {
+    const { data: sibs } = await supabase
+      .from('job_wtcs')
+      .select('start_date, end_date')
+      .eq('job_id', parentJobId)
+    const starts = (sibs || []).map(w => w.start_date).filter(Boolean).sort()
+    const ends = (sibs || []).map(w => w.end_date).filter(Boolean).sort()
+    await supabase
+      .from('jobs')
+      .update({
+        scheduled_start: starts[0] || null,
+        scheduled_end: ends.length ? ends[ends.length - 1] : null,
+      })
+      .eq('job_id', parentJobId)
+  }
 
   // audit-log — JSON.stringify (not String()); keyed on the parent job so the
   // history view still attributes the change to the job.
@@ -989,6 +1172,104 @@ export async function removeJobAsset(jobId, id, changedBy, source = 'schedule_co
   return { error: null }
 }
 
+// Soft-delete a whole job — the inverse of the Recovery Bin restore (Jobs.jsx
+// restoreJob). Sets deleted='Yes' so every job read drops it (loadJobs, StatsBar,
+// exports all filter deleted.eq.No). Critically, it also frees the upstream Sales
+// proposal: Sales' "already sent to schedule?" checks match jobs by
+// source_proposal_id AND deleted='No', so a soft-deleted job lets that proposal be
+// pulled back or re-sent instead of being stuck as "✓ Sent to Schedule" forever.
+// Recoverable for 24h from the bin; logged for the audit trail.
+export async function deleteJob(jobId, changedBy, source = 'schedule_command') {
+  const jid = parseInt(jobId)
+  const { error } = await supabase
+    .from('jobs')
+    .update({ deleted: 'Yes', deleted_at: new Date().toISOString() })
+    .eq('job_id', jid)
+  if (error) return { error }
+  await logJobChange(jid, 'deleted', 'No', 'Yes', changedBy, source)
+  return { error: null }
+}
+
+// ── Job mobilizations — write path (Phase F, F2a) ───────────────────────────
+// No job_mobilizations writer existed in Schedule before Phase F (reads only),
+// and updateJobField is jobs-table-only — so these named helpers do the table
+// write AND log a job_changes row via logJobChange (audit D1/H). D3 wants
+// go-back add/delete countable in the audit log, so every write logs.
+
+// Authoritative row list for the editor: read job_mobilizations rows DIRECTLY
+// (audit C1), not the day-derived getJobMobilizations array — a freshly-added
+// dayless go-back has no tagged days yet, so it only exists as a table row.
+export async function loadJobMobilizationRows(jobId) {
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back')
+    .eq('job_id', parseInt(jobId))
+    .order('seq', { ascending: true })
+  if (error) { console.warn('[mobs] could not load job_mobilizations rows:', error.message); return { data: [], error } }
+  return { data: data || [], error: null }
+}
+
+// Add a mobilization to a live job. `seq` is computed by the caller as max+1 over
+// BOTH existing rows AND every day's mobilization_seq (audit O2), so a new mob
+// can't collide with a seq that lives only on tagged days. is_go_back distinguishes
+// a tracked return trip (+ Add Go Back) from rescheduled sold work (+ Add trip).
+export async function addJobMobilization(jobId, { seq, label, start_date, end_date, is_go_back }, changedBy, source = 'schedule_mobs') {
+  const jid = parseInt(jobId)
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .insert({ job_id: jid, seq, label: label || null, start_date: start_date || null, end_date: end_date || null, is_go_back: !!is_go_back })
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back').single()
+  if (error) return { data: null, error }
+  await logJobChange(jid, `mobilization[${seq}].added`, null, `${is_go_back ? 'go_back' : 'trip'}: ${label || `Mob ${seq}`}`, changedBy, source)
+  return { data, error: null }
+}
+
+// Edit an existing mobilization's label/dates (never seq or is_go_back — identity
+// and go-back classification are fixed at creation). Logs the label change.
+export async function updateJobMobilization(jobId, mobRow, { label, start_date, end_date }, changedBy, source = 'schedule_mobs') {
+  const jid = parseInt(jobId)
+  const { data, error } = await supabase
+    .from('job_mobilizations')
+    .update({ label: label || null, start_date: start_date || null, end_date: end_date || null })
+    .eq('id', mobRow.id)
+    .select('id, job_id, seq, label, start_date, end_date, is_go_back').single()
+  if (error) return { data: null, error }
+  await logJobChange(jid, `mobilization[${mobRow.seq}].edited`, mobRow.label || null, label || null, changedBy, source)
+  return { data, error: null }
+}
+
+// Delete a mobilization. Two-part in-use scan (audit C1), split by reversibility:
+//  (1) pull_tickets by job_mobilization_id = HARD BLOCK, no override — the FK is
+//      ON DELETE CASCADE, so deleting would silently destroy pull tickets + their
+//      lines + per-mob ticket numbering (irreversible). Returns {blocked:true}.
+//  (2) field_sow day-tags across the job's WTCs (by mobilization_seq) = recoverable
+//      (days can be re-tagged), so the CALLER warns + confirms BEFORE calling this.
+// Never collapse the two into one confirm→proceed (that would allow click-through
+// pull-ticket loss). The scan works because the editor reads rows directly, so
+// mobRow carries the job_mobilizations `id` the FK points at.
+// Count pull tickets on a mobilization — the hard-block signal. Separable from
+// deleteJobMobilization so the UI can check the block BEFORE asking the user to
+// confirm the (recoverable) field_sow tag loss, instead of confirm-then-block.
+export async function countPullTicketsForMob(mobId) {
+  const { data, error } = await supabase.from('pull_tickets').select('id').eq('job_mobilization_id', mobId)
+  if (error) return { count: 0, error }
+  return { count: data?.length || 0, error: null }
+}
+
+export async function deleteJobMobilization(jobId, mobRow, changedBy, source = 'schedule_mobs') {
+  const jid = parseInt(jobId)
+  // (1) HARD BLOCK: any pull ticket on this mob makes delete a data-loss operation.
+  // Authoritative re-check even when the caller pre-checked (belt-and-suspenders).
+  const { count: ptCount, error: ptErr } = await countPullTicketsForMob(mobRow.id)
+  if (ptErr) return { error: ptErr }
+  if (ptCount > 0) return { blocked: true, pullTicketCount: ptCount }
+
+  const { error } = await supabase.from('job_mobilizations').delete().eq('id', mobRow.id)
+  if (error) return { error }
+  await logJobChange(jid, `mobilization[${mobRow.seq}].deleted`, mobRow.label || `Mob ${mobRow.seq}`, null, changedBy, source)
+  return { error: null }
+}
+
 // ── Tenant asset lists — Settings editor (Step 6) ───────────────────────────
 // Minimal per-tenant CRUD over the live tenant_* tables. "Delete" = soft-delete
 // (active=false) because a forbid-hard-delete guard blocks real deletes. tenant_id
@@ -1172,4 +1453,195 @@ export async function setBillingWorklistFlag(jobId, field, value, changedBy, sou
   }
 
   return { error: null }
+}
+
+// ── Shared scheduling primitives (single source of truth) ───────────────────
+// effectiveStart/effectiveEnd previously had 5 identical non-exported copies
+// (Jobs.jsx / StageJobCard.jsx / DaysModal.jsx / StagedCardList.jsx /
+// JobDetail.jsx). Home (§11) needs ONE shared copy — export it here rather than
+// add a 6th. A job's Schedule-set calendar (scheduled_*) wins over the sold dates.
+export function effectiveStart(j) { return j?.scheduled_start || j?.start_date || null }
+export function effectiveEnd(j) { return j?.scheduled_end || j?.end_date || null }
+
+// Lifecycle stage of one job — was module-private in AllJobsList.jsx. Exported so
+// the tabless Home "Jobs to Prepare" list can compute each row's stage the same
+// way the /jobs All-Jobs grouping does (§14 C3). Readiness uses the own-dates /
+// all-time crew map per §11 B2, so Home agrees with /jobs.
+export function stageOf(j, crewByCallLog, matsByJobId) {
+  const s = getJobStatus(j)
+  if (s === 'Scheduled') return isReady(j, crewByCallLog, matsByJobId) ? 'ready' : 'staged'
+  if (s === 'On Hold') return 'on-hold'
+  if (s === 'Complete') return 'complete'
+  return 'active' // In Progress / Ongoing
+}
+
+// Wall-clock week helpers — shared so Home.jsx / JobsToPrepare / HomePanels stop
+// each carrying their own copy (the same PR that centralized effectiveStart).
+// Wall-clock only (never toISOString on a date) per the date-columns rule.
+export function fmtD(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+export function getMonday(d) {
+  const dt = new Date(d); const day = dt.getDay()
+  dt.setDate(dt.getDate() - (day === 0 ? 6 : day - 1)); dt.setHours(0, 0, 0, 0); return dt
+}
+export function wkDates(monday) {
+  const r = []
+  for (let i = 0; i < 6; i++) { const dt = new Date(monday); dt.setDate(dt.getDate() + i); r.push(fmtD(dt)) }
+  return r
+}
+
+// ── Home dashboard aggregates (read-only, §11) ──────────────────────────────
+// All numbers derive from already-loaded data — no new unbounded reads here.
+// The caller (Home.jsx) loads the crew/assignments/jobs slices; every assignments
+// read it hands in for the WEEK map must be date-bounded to Mon–Sat (§11 G3b).
+
+// Crew-per-job grouping, keyed by call_log_id → [{name}]. Mirrors Jobs.jsx's
+// `crewByCallLog` memo VERBATIM (source = the `assignments` table, NOT job_crew —
+// §11 G2). Reused for BOTH the week-windowed map and the all-time/own-dates map.
+export function buildCrewByCallLog(jobs, assignments) {
+  const clByJob = Object.fromEntries((jobs || []).map(j => [j.job_id, j.call_log_id]))
+  const sets = {}
+  for (const a of (assignments || [])) {
+    const clId = clByJob[a.job_id]
+    if (!clId || !a.crew_name) continue
+    ;(sets[clId] ||= new Set()).add(a.crew_name)
+  }
+  const out = {}
+  for (const clId in sets) out[clId] = [...sets[clId]].map(name => ({ name }))
+  return out
+}
+
+function _dayDiff(dateStr, todayStr) {
+  if (!dateStr) return null
+  return Math.round((new Date(dateStr + 'T00:00:00') - new Date(todayStr + 'T00:00:00')) / 86400000)
+}
+
+const _SCHEDULING_STATUSES = new Set(['Scheduled', 'In Progress', 'Ongoing'])
+
+// Compute every Home dashboard number from loaded slices. TWO crew maps (§11 G3a):
+//  • weekAssignments (Mon–Sat window) → capacity strip + "needs crew" + per-day.
+//  • allAssignments (own dates / all-time) → isReady + "not ready", so Home's
+//    readiness matches /jobs exactly (no cross-screen contradiction).
+export function computeHomeDashboard({
+  jobs = [], crew = [], crewStatusMap = {},
+  weekAssignments = [], allAssignments = [],
+  matsByJobId = {}, dates = [], todayStr,
+}) {
+  const crewByWeek = buildCrewByCallLog(jobs, weekAssignments)
+  const crewByAll = buildCrewByCallLog(jobs, allAssignments)
+
+  const weekStart = dates[0]
+  const weekEnd = dates[dates.length - 1]
+  const intersectsWeek = (j) => {
+    if (!weekStart || !weekEnd) return false
+    const rawS = effectiveStart(j), rawE = effectiveEnd(j)
+    if (!rawS && !rawE) return false          // an undated job isn't "this week"
+    const s = rawS || '1900-01-01'            // one-sided span only widens the KNOWN side
+    const e = rawE || rawS || '2999-12-31'
+    return s <= weekEnd && e >= weekStart
+  }
+  const scheduling = (j) => _SCHEDULING_STATUSES.has(getJobStatus(j))
+  const need = (j) => parseInt(j.crew_needed) || 0            // §11 B1 guard
+  const weekCrew = (j) => (crewByWeek[j.call_log_id]?.length || 0)
+
+  const weekJobs = jobs.filter(j => scheduling(j) && intersectsWeek(j))
+
+  // ── Capacity strip (week window) ──────────────────────────────────────────
+  const getCSt = (name, d) => crewStatusMap[name + '|' + d] || 'available'
+  // Precompute crew_name|date presence so the per-day loop is O(crew·days),
+  // not O(crew·days·assignments) (the .some() scan it replaces).
+  const asgKey = new Set(weekAssignments.map(a => a.crew_name + '|' + a.date))
+  const capacityDays = dates.map(d => {
+    let out = 0, assigned = 0
+    for (const c of crew) {
+      const st = getCSt(c.name, d)
+      if (st !== 'available') out++
+      else if (asgKey.has(c.name + '|' + d)) assigned++
+    }
+    const avail = crew.length - out
+    const pct = avail > 0 ? Math.round((assigned / avail) * 100) : 0
+    return { date: d, assigned, avail, out, pct, isToday: d === todayStr }
+  })
+
+  const crewAvailable = crew.length
+  // §11 B3: distinct crew assigned this week (a crew on 2 jobs must not double-count).
+  const assignedCount = new Set(weekAssignments.map(a => a.crew_name).filter(Boolean)).size
+  // §11: Σ shortfall over this-week scheduling jobs.
+  const openSpots = weekJobs.reduce((s, j) => s + Math.max(0, need(j) - weekCrew(j)), 0)
+
+  // ── Needs Attention ───────────────────────────────────────────────────────
+  // Short on crew THIS WEEK (week map) — jobs with work in the week under headcount.
+  const needCrews = weekJobs.filter(j => weekCrew(j) < need(j))
+  // Double-booked: a crew_name on ≥2 distinct job_id the same date (§11 — count
+  // distinct job_id, not rows; split shifts on one job are not a conflict).
+  const byCrewDate = {}
+  for (const a of weekAssignments) {
+    if (!a.crew_name || !a.date) continue
+    ;(byCrewDate[a.crew_name + '|' + a.date] ||= new Set()).add(String(a.job_id))
+  }
+  const conflictCrew = new Set()
+  for (const k in byCrewDate) if (byCrewDate[k].size >= 2) conflictCrew.add(k.split('|')[0])
+  const conflicts = conflictCrew.size
+  // Not ready (own-dates map, §11 B2) — Scheduled-stage jobs failing isReady whose
+  // start is within 10 days (incl. already-past, still-Scheduled).
+  const notReady = jobs.filter(j => {
+    if (getJobStatus(j) !== 'Scheduled') return false
+    if (isReady(j, crewByAll, matsByJobId)) return false
+    const diff = _dayDiff(effectiveStart(j), todayStr)
+    return diff != null && diff <= 10
+  })
+
+  // ── At a Glance ───────────────────────────────────────────────────────────
+  const jobsScheduled = weekJobs.length
+  const crewAssignmentsCount = weekAssignments.length
+  // Completion % = assigned job-days ÷ scheduled job-days, within the week (§11 B4).
+  const assignedDatesByJob = {}
+  for (const a of weekAssignments) { (assignedDatesByJob[a.job_id] ||= new Set()).add(a.date) }
+  let num = 0, den = 0
+  for (const j of weekJobs) {
+    const s = effectiveStart(j), e = effectiveEnd(j)
+    if (!s || !e) continue                             // guard null span
+    const jobDates = dates.filter(d => d >= s && d <= e)   // in-week working days ∩ span
+    den += jobDates.length
+    const asg = assignedDatesByJob[j.job_id] || new Set()
+    num += jobDates.filter(d => asg.has(d)).length
+  }
+  const completionPct = den === 0 ? null : Math.round((num / den) * 100)  // null → render —
+
+  // ── Next Up ───────────────────────────────────────────────────────────────
+  // Soonest-starting job still needing attention (not-ready via own-dates OR short
+  // via week map), ordered by effectiveStart.
+  const attention = jobs.filter(j => {
+    if (getJobStatus(j) !== 'Scheduled') return false
+    // Date floor: a job whose start is far in the past is stale data, not "next
+    // up" — without this the oldest past-start not-ready job pins itself forever
+    // (it sorts first by ascending start). 14-day grace still surfaces genuinely
+    // overdue-but-recent jobs; undated jobs stay eligible (they sort last).
+    const diff = _dayDiff(effectiveStart(j), todayStr)
+    if (diff != null && diff < -14) return false
+    const notReadyFlag = !isReady(j, crewByAll, matsByJobId)
+    const shortFlag = weekCrew(j) < need(j) && intersectsWeek(j)
+    return notReadyFlag || shortFlag
+  }).sort((a, b) => {
+    const sa = effectiveStart(a), sb = effectiveStart(b)
+    if (!sa && !sb) return 0
+    if (!sa) return 1
+    if (!sb) return -1
+    return sa.localeCompare(sb)
+  })
+  const nextUpJob = attention[0] || null
+  const nextUp = nextUpJob ? {
+    job: nextUpJob,
+    crewSize: crewByAll[nextUpJob.call_log_id]?.length || 0,
+    crewNeeded: need(nextUpJob),
+  } : null
+
+  return {
+    crewByWeek, crewByAll,
+    capacityDays, crewAvailable, assignedCount, openSpots,
+    needCrews: needCrews.length, conflicts, notReady: notReady.length,
+    jobsScheduled, crewAssignmentsCount, completionPct,
+    nextUp,
+  }
 }
