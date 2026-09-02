@@ -100,7 +100,10 @@ export default function Daily() {
       supabase.from('assignments').select('*').in('date', ds),
       supabase.from('crew_status').select('*').in('date', ds),
     ])
-    if (jRes.data) setJobs(jRes.data.filter(j => j.deleted !== true && j.deleted !== 'true' && j.deleted !== 'Yes'))
+    if (jRes.data) setJobs(jRes.data.filter(j =>
+      j.deleted !== true && j.deleted !== 'true' && j.deleted !== 'Yes' &&
+      ['Ongoing', 'Scheduled', 'In Progress', 'On Hold'].includes(j.status)
+    ))
     if (cRes.data) setCrew(cRes.data.filter(c => c.archived !== 'Yes'))
     if (aRes.data) setAssignments(aRes.data)
     if (sRes.data) setCrewStatus(sRes.data)
