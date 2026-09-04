@@ -365,3 +365,43 @@ subset, 840 = table total; wipe clears the whole table.)
 **Filed to command-suite-db backlog (multi-tenant prerequisite, NOT this import):** drop the 5
 blanket `"Authenticated users can do everything"` policies on jobs/assignments/billing_log/crew/
 crew_status and enforce tenant-only isolation, per `CLAUDE_RLS.md` 6-gate deploy.
+
+---
+
+## 14. Amendment A-14 (2026-09-04) — sales-side backlinks on imported jobs
+
+*Post-build design realization (Chris). Verified in code, not assumed. Appended (not rewritten into
+§5/§6) because the plan is already BUILT and under gates.*
+
+**Finding.** A normal Sales→Schedule "Send to Schedule" writes three backlink columns on the `jobs`
+row that the import currently leaves null: `call_log_id` (import **does** set this — the load-bearing
+one), `source_call_log_id`, and `source_proposal_id`
+(`sales-command/src/components/ProposalDetail.jsx:741-742`). It also builds `job_wtcs`
+(per-work-type dated SOW, from `proposal_wtc`) and `job_mobilizations`. The import writes none of
+these beyond `call_log_id`.
+
+**Impact ranking (code-evidenced):**
+- **`source_proposal_id` / `source_call_log_id` — the one real gap (must-fix).** Sales' "already
+  sent to Schedule?" guard matches on `jobs.source_proposal_id`
+  (`ProposalDetail.jsx:141,600,642,833`). Left null, Sales never sees a matched proposal as sent →
+  a later "Send to Schedule" creates a **duplicate `jobs` row**. Silent cross-app integrity hole.
+- **`job_wtcs` / `field_sow` — load-bearing but fail-safe.** Missing → imported job can't reach the
+  "Ready" column, shows a red "✗ no SOW" badge, empty SOW modal (`queries.js:68-104`,
+  `Jobs.jsx:136-137`). No crash. Irrelevant for completed history (most of the ~120); matters only
+  for active/upcoming imported jobs.
+- **`job_mobilizations`, `job_crew`, `proposal_number`, jobs-col `is_change_order`/`co_number` —
+  cosmetic or correctly-empty.** Degrade to blank; CO status resolves via the `call_log` join.
+
+**Decisions:**
+- **A-14.1 (fold into this build):** on Apply, set `source_call_log_id = call_log_id`, and set
+  `source_proposal_id` from the matched `call_log`'s approved proposal **when exactly one exists**;
+  if a matched `call_log` has zero or multiple proposals, leave null and flag the row for review
+  (don't guess). Closes the duplicate-on-resend hole. Small, additive.
+- **A-14.2 (future work, NOT this build):** a targeted per-job **"Pull scope from Sales"** action
+  that re-runs the send-to-schedule logic (build `job_wtcs` + `job_mobilizations` + `field_sow` from
+  the matched proposal) for the handful of **active** imported jobs that need a live SOW. Deliberately
+  not a bulk backfill — most imported jobs are dead history with no structured scope to rebuild.
+
+**Open question for A-14.1:** confirm how many matched call_logs map to exactly one vs multiple
+proposals (drives how often the "flag for review" branch fires). Resolve with a read-only count
+before build picks this up.
