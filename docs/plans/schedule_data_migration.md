@@ -1,10 +1,36 @@
 # Schedule Data Migration — App Script Sheet → Schedule Command
 
 **Branch:** `feat/schedule-data-migration` (sch-command)
-**Status:** Plan — revised after audit rounds 1–3 + onboarding reframe. **Build-ready for the
-one-time HDSP import.** Not started.
+**Status:** **BUILT (feature + one-time scripts), 2026-09-04** — commit + save only; nothing
+deployed, no test data touched. Gates (buildvsplan / code-review / security-review) + the actual
+one-time run (fresh export → match → rehearse → apply) are separate downstream steps.
 **History:** ideate + plan → audit R1 (clean-slate) → audit R2 (wipe scope) → onboarding-tool
-decision → audit R3 (converged 0C/0H) — all 2026-09-03.
+decision → audit R3 (converged 0C/0H) — all 2026-09-03 → build 2026-09-04.
+
+## Build log (2026-09-04)
+
+Branch `feat/schedule-data-migration` (sch-command) + `feat/schedule-data-migration`
+(command-suite-db). Live schema re-verified before building (§10).
+
+- **Import engine** — `src/lib/yesv2Import.js` (+ `.verify.mjs`, 21 checks pass): hardcoded YESv2
+  header contract + validation (R3-4), §5 transforms (Active→Ongoing, text Yes/No, wall-clock
+  dates, money strip, `_oldJobId` for the A2 remap, `call_log_id` null pre-match), crew_status
+  last-wins collapse (B5), crew derivation, smart-assist ranking (number → customer → job-name)
+  with confidence tiers.
+- **Feature** — `src/views/Import.jsx` (`/import` route + nav) + `src/lib/importData.js`: CSV
+  upload with per-tab header validation, left/right panes, ranked candidates + click-to-confirm
+  (chosen over drag — same one-link result, steadier over ~120 rows), right-pane search,
+  Internal/Unmatched states, duplicate-target hard block (N4), draft autosave/restore, ADDITIVE
+  Apply with the A2 remap. **No `DELETE FROM jobs` anywhere in the feature (R3-3).**
+- **Draft table** — command-suite-db migration `20260904120000_migration_match_draft.sql`:
+  `tenant_id` DEFAULT + FK, 4 standard tenant policies, **no catch-all** (R3-2). Not pushed.
+- **One-time wipe+load** — `scripts/generate_hdsp_migration_sql.mjs` + `HDSP_MIGRATION_RUNBOOK.md`:
+  standalone generator (outside feature runtime) emitting ONE transaction — backup all 9 children
+  + job_changes (§6.3), FK-order rows-only wipe (§6.4), empty-gate (§6.5/N3), guard index
+  pre-insert (§6.6/N4 — created here, not a standing migration, because current prod's duplicate
+  `call_log_id`s would fail a unique index today), staged load with the A2 remap, explicit
+  tenant_id stamp (§5/A3). Verified to emit well-formed SQL in `--sample` mode.
+- **O2 (rehearse mechanism)** still open — confirm with the DB terminal before the prod run.
 
 ---
 
