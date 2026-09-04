@@ -103,7 +103,7 @@ Old sheet tabs → live schedule tables. Everything. **Correct live column names
 | BillingLog | `billing_log` | `job_id` (**remapped**) + date + percent + cumulative_percent + type + notes + invoiced + invoiced_date. |
 | CrewStatus | `crew_status` | crew_name + date + status. **UNIQUE(crew_name, date)** → collapse duplicates last-wins before load. |
 | (derived) Crew | `crew` | Distinct crew names from Assignments + CrewStatus. **Must load FIRST** — `assignments.crew_name` and `crew_status.crew_name` FK → `crew.name`. |
-| Materials | *(see open decision O1)* | **No `materials` table exists.** Decide: create a legacy table in command-suite-db, map into `job_material_lines`, or drop from scope. |
+| Materials | — | **Dropped from scope (Chris, 2026-09-03).** Sheet's ~20 rows are stale; the app has its own materials model. Not imported. (Aside: audit A4 said the `materials` table doesn't exist, but CLAUDE.md + the live `/materials` view read one — a discrepancy left unresolved because materials is now out of scope and moot.) |
 | WorkTypes | — | Skip. Sales owns `work_types`. |
 | Deleted | — | Empty. Skip. |
 
@@ -115,8 +115,8 @@ Old sheet tabs → live schedule tables. Everything. **Correct live column names
 - **A2 — old-JobID → new job_id remap.** `jobs.job_id` is serial (max 106) and old sheet JobIDs
   (1,2,3…) overlap real rows. Insert `jobs` first, capture each generated `job_id`, build an
   `oldJobID → newJobId` map, and **repoint every child row** (assignments, billing_log, materials
-  if in scope, crew_status is keyed by name not id) through the map. Never copy old JobID verbatim
-  into children (that was `migrate.mjs`'s bug).
+  crew_status is keyed by name not id) through the map. Never copy old JobID verbatim into children
+  (that was `migrate.mjs`'s bug).
 - **A3 — tenant stamp.** Every target table is `tenant_id uuid NOT NULL DEFAULT
   get_user_tenant_id()`; that function returns NULL in a script/anon context → insert fails on row
   one. **Loader runs as an authenticated HDSP-tenant user, or sets `tenant_id` explicitly.**
@@ -137,7 +137,7 @@ Honors "rehearse before push to shared DB." Ordered:
    `billing_log`, `crew_status`, `crew` **with a written restore command**. Record before-counts
    per table.
 4. **Wipe schedule test data.** Inside **one transaction**, delete children → parents
-   (assignments, billing_log, crew_status, [materials], then jobs). FKs are NO ACTION, so order
+   (assignments, billing_log, crew_status, then jobs). FKs are NO ACTION, so order
    matters. This is safe *because* all current schedule data is test (§3.10) — the backup in step 3
    is the guard.
 5. **Rehearse on a prod-shaped copy.** Run the full Apply against a throwaway copy; assert:
@@ -171,12 +171,10 @@ Honors "rehearse before push to shared DB." Ordered:
   guard index instead.
 - Tenant, ID remap, status map, load order, column names → folded into §5/§6.
 
+**Resolved this round (round 2 prep):**
+- **O1 — Materials → DROPPED from scope (Chris, 2026-09-03).** Not imported. §5, §11/A4 updated.
+
 **Remaining (build-start):**
-- **O1 — Materials:** `materials` table doesn't exist. **Decide:** (a) create a legacy `materials`
-  table in command-suite-db, (b) map the ~20 rows into `job_material_lines`, or (c) drop materials
-  from scope. *Lean: (c) drop / defer — the sheet's materials are ~20 stale rows and the new app has
-  its own materials model; forcing legacy rows in adds cruft. Needs Chris's OK since scope was
-  "everything."*
 - **O2 — Rehearse mechanism:** branch DB vs local Postgres restore vs scratch schema on the shared
   project. Confirm what's realistic.
 - **O3 — Tool home + draft storage:** temp route in sch-command (lean) vs standalone; confirm
@@ -217,7 +215,7 @@ Honors "rehearse before push to shared DB." Ordered:
 | A1 | 62 orphans are live (test) data, not junk — 742 assignments | **Accept** — §3.10 (backup before wipe), §6.3 |
 | A2 | No old-JobID → new job_id remap | **Accept** — §5 remap |
 | A3 | tenant_id insert fails under script context | **Accept** — §5 tenant note |
-| A4 | `materials` table doesn't exist | **Accept** — §8 O1 (decide at build) |
+| A4 | `materials` table doesn't exist | **Resolved** — materials dropped from scope (Chris); existence dispute moot. §5 |
 | A5 | status "Active" invalid, loads silently | **Accept** — §5 (Active→Ongoing) |
 | A6 | dedupe not deferrable; dups already exist | **Accept (reframed)** — clean slate wipes dups; add guard index §6.7 |
 | B1 | crew load-order FK dependency | **Accept** — §5, §6.5 |
