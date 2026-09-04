@@ -69,18 +69,37 @@ Shared Supabase project: `pbgvgjjuhnpsumnowuym`.
     export.** Scope of the wipe is all 9 `jobs` children + the audit log, not just 3 (see §6). We do
     NOT relink the existing 62 rows. The sheet is the sole source of truth. The SOW / material-flow
     feature structure we built is preserved (DELETE, not DROP).
+11. **Matcher is a permanent onboarding feature, not a throwaway** *(decided with Chris)* — built as
+    a reusable Customer Onboarding / Import tool in Schedule Command: CSV-in, additive-only,
+    match-to-existing. The one-time test-data wipe is a separate operation, not part of the feature.
+    See §4.
 
 ---
 
-## 4. The matching tool
+## 4. The matching tool — a permanent onboarding feature
 
-**What it is:** a one-time, internal, dev-only tool. Proposed home: a temporary route in
-sch-command (reuses the existing Supabase client + auth so it runs as an authenticated
-HDSP-tenant user — see §5 tenant note), removed after cutover.
+**What it is (decided with Chris):** not a throwaway — a **permanent Customer Onboarding / Import
+feature in Schedule Command**, analogous to Sales Command's archive locker. Every future customer
+onboards the same way. Runs in-app as the authenticated tenant user (satisfies the §5 tenant stamp
+for free).
+
+**Core principles of the reusable tool:**
+- **CSV in, never a live connection.** The customer hands us a CSV export; we never reach into their
+  old system. Their old structure is left entirely alone.
+- **Additive only.** The tool imports; it never deletes or wipes anything. (Chris's one-time
+  test-data wipe, §6, is a *separate*, guarded, one-off operation — NOT part of this feature.)
+- **Mix-and-match, import-what-you-need.** User selects which rows/columns come across.
+- **Match-to-existing** (this build): link CSV rows to records already in the tenant (call_log /
+  customers). *Leave room for* a future **create-from-CSV** mode for brand-new empty tenants.
+- **Swappable source:** a future generic **column-mapping** step ("your column → our field"). For
+  YESv2 the columns are known, so hardcode that mapping now; generalize later.
+
+**This build (YESv2 → HDSP) uses the feature in match-to-existing mode**, fed by the fresh YESv2
+CSV export (§6.1) — exactly how a customer would use it.
 
 **Layout:**
-- **Left — old jobs** (fresh sheet export): old JobID, job number, job name, dates, amount, status.
-- **Right — master records** (`call_log`, 378): `display_job_number`, `job_name`, `customer_name`.
+- **Left — imported rows** (uploaded YESv2 CSV): old JobID, job number, job name, dates, amount, status.
+- **Right — master records** (tenant's `call_log`, 378 for HDSP): `display_job_number`, `job_name`, `customer_name`.
 - **Match:** drag left onto right → one link `old_row → call_log.id`. A given `call_log.id` may be
   targeted only once — the tool **hard-blocks** a duplicate target (Apply disabled while any
   duplicate exists, N4), so two old rows can't collide onto one CO.
@@ -198,11 +217,16 @@ Honors "rehearse before push to shared DB." Ordered:
 **Resolved this round (round 2 prep):**
 - **O1 — Materials → DROPPED from scope (Chris, 2026-09-03).** Not imported. §5, §11/A4 updated.
 
+**Resolved this round (round 2 → onboarding-tool decision, Chris):**
+- **O3 — Tool home →** permanent **Customer Onboarding / Import feature** in Schedule Command (not a
+  throwaway). CSV-in, additive-only, match-to-existing now (create-from-CSV + generic column-mapping
+  later). One-time wipe stays separate. See §4.
+
 **Remaining (build-start):**
 - **O2 — Rehearse mechanism:** branch DB vs local Postgres restore vs scratch schema on the shared
   project. Confirm what's realistic.
-- **O3 — Tool home + draft storage:** temp route in sch-command (lean) vs standalone; confirm
-  `migration_match_draft` table shape.
+- **O4 — Draft storage shape:** confirm `migration_match_draft` (or a per-tenant `import_session`)
+  table so drafts persist per onboarding run.
 
 ---
 
