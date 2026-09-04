@@ -70,9 +70,14 @@ tool**, not an auto-match script. Built as a **permanent Customer Onboarding / I
 
 ## Remaining steps (the one-time move — all downstream, deliberate)
 
-1. **Deploy the draft table** — from `~/command-suite-db` on main: `npm run db:push` (runs the
-   safety-check + collision + anon-lock gates). Additive CREATE TABLE, low-risk. Turns on match
-   persistence.
+1. **Deploy the draft table** — from `~/command-suite-db` on main: `npm run db:push`. **BLOCKED
+   2026-09-04 on DMS-8 (pre-existing baseline drift), deferred by Chris (option A).** The push's
+   rehearsal gate refuses because the committed baseline is stale vs live prod (expected 9,172
+   column-grants, prod has 9,220 — +48). The migration itself is fine (additive CREATE TABLE);
+   the gate won't rehearse against an out-of-date baseline. **Do NOT blind-bump the constant** —
+   understand the 48-grant drift + refresh the baseline first (that's DMS-8). Then rehearse
+   (`./scripts/rehearse.sh supabase/migrations/20260904120000_migration_match_draft.sql`) → db:push.
+   Until done, `/import` works but match progress won't survive a page refresh (quiet degrade).
 2. **Run the one-time move** (per `scripts/HDSP_MIGRATION_RUNBOOK.md`):
    fresh export of the live sheet → match in `/import` (as an HDSP user) → export the confirmed
    draft → `node scripts/generate_hdsp_migration_sql.mjs …` → **REHEARSE on a prod-shaped copy
