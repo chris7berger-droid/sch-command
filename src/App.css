@@ -6652,3 +6652,86 @@
   .hcs-body { flex-direction: column; align-items: stretch; gap: 18px; }
   .hcs-badges { border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); padding-right: 0; padding-bottom: 16px; justify-content: space-around; }
 }
+
+/* ── Customer Onboarding / Import (§4) ──────────────────────────────────────── */
+.imp { padding: 20px 24px 60px; max-width: 1200px; margin: 0 auto; }
+.imp-head { margin-bottom: 18px; }
+.imp-title { font-family: var(--font-heading); font-weight: 700; font-size: 26px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-primary); }
+.imp-sub { font-size: 13px; color: var(--text-light); margin-top: 4px; }
+.imp-card { background: var(--bg-card); border: 1px solid var(--brd); border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+.imp-step { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 15px; color: var(--text-primary); margin-bottom: 14px; }
+
+.imp-uploads { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.imp-up { border: 1px solid var(--brd); border-radius: 8px; padding: 12px; background: var(--bg-deep); }
+.imp-up-ok { border-color: var(--command-green); }
+.imp-up-bad { border-color: var(--danger); }
+.imp-up-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.imp-up-name { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; color: var(--text-secondary); }
+.imp-req { color: var(--danger); font-weight: 600; }
+.imp-x { background: none; border: none; color: var(--text-light); cursor: pointer; font-size: 13px; }
+.imp-file { display: block; text-align: center; border: 1px dashed var(--brd); border-radius: 6px; padding: 10px; font-size: 12px; color: var(--text-secondary); cursor: pointer; background: var(--bg-card); }
+.imp-file input { display: none; }
+.imp-up-info { font-size: 12px; }
+.imp-up-file { color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; margin-bottom: 4px; word-break: break-all; }
+.imp-ok { color: var(--grn); font-size: 12px; font-weight: 600; }
+.imp-bad { color: var(--danger); font-size: 12px; font-weight: 600; }
+.imp-note { color: var(--text-light); font-size: 12px; }
+.imp-expect { color: var(--text-light); font-size: 11px; margin-top: 10px; font-family: var(--font-mono); }
+
+.imp-progress { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.imp-chip { font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 12px; background: var(--bg-deep); color: var(--text-secondary); border: 1px solid var(--brd); }
+.imp-chip-matched { background: rgba(91,189,63,0.18); color: var(--grn); border-color: var(--command-green); }
+.imp-chip-internal { background: rgba(8,145,178,0.15); color: var(--cyan); }
+.imp-chip-unmatched { background: rgba(230,126,34,0.15); color: var(--warning); }
+.imp-chip-dup { background: rgba(192,57,43,0.15); color: var(--danger); border-color: var(--danger); }
+
+.imp-panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.imp-pane-h { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; color: var(--text-light); margin-bottom: 8px; }
+.imp-list { max-height: 560px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.imp-row { border: 1px solid var(--brd); border-radius: 7px; padding: 8px 10px; background: var(--bg-card); cursor: pointer; }
+.imp-row:hover { border-color: var(--text-light); }
+.imp-row-active { border-color: var(--command-green); box-shadow: 0 0 0 1px var(--command-green); }
+.imp-row-matched { border-left: 3px solid var(--command-green); }
+.imp-row-internal { border-left: 3px solid var(--cyan); }
+.imp-row-unmatched { border-left: 3px solid var(--warning); }
+.imp-row-dup { background: rgba(192,57,43,0.08); }
+.imp-row-main { display: flex; gap: 8px; align-items: baseline; }
+.imp-row-num { font-family: var(--font-mono); font-weight: 700; font-size: 12px; color: var(--text-primary); }
+.imp-row-name { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-row-meta { display: flex; gap: 10px; font-size: 11px; color: var(--text-light); margin-top: 3px; font-family: var(--font-mono); }
+.imp-row-state { margin-top: 5px; }
+.imp-tag { font-size: 11px; font-family: var(--font-mono); padding: 2px 8px; border-radius: 10px; }
+.imp-tag-matched { background: rgba(91,189,63,0.18); color: var(--grn); }
+.imp-tag-internal { background: rgba(8,145,178,0.15); color: var(--cyan); }
+.imp-tag-unmatched { background: rgba(230,126,34,0.15); color: var(--warning); }
+
+.imp-right { border-left: 1px solid var(--brd); padding-left: 16px; }
+.imp-right-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.imp-btn { border: 1px solid var(--brd); background: var(--bg-card); color: var(--text-secondary); border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+.imp-btn:hover { border-color: var(--text-light); }
+.imp-btn-internal { border-color: var(--cyan); color: var(--cyan); }
+.imp-cand-h { font-family: var(--font-heading); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.05em; color: var(--text-light); margin: 12px 0 6px; }
+.imp-cands { display: flex; flex-direction: column; gap: 6px; }
+.imp-cand { display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px; align-items: center; text-align: left; border: 1px solid var(--brd); border-radius: 7px; padding: 8px 10px; background: var(--bg-card); cursor: pointer; }
+.imp-cand:hover { border-color: var(--command-green); }
+.imp-cand-high { border-left: 3px solid var(--command-green); }
+.imp-cand-medium { border-left: 3px solid var(--ylw); }
+.imp-cand-low { border-left: 3px solid var(--dim); }
+.imp-cand-num { font-family: var(--font-mono); font-weight: 700; font-size: 12px; color: var(--text-primary); }
+.imp-cand-name { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imp-cand-cust { font-size: 11px; color: var(--text-light); }
+.imp-cand-conf { font-size: 10px; font-family: var(--font-mono); text-transform: uppercase; padding: 2px 6px; border-radius: 8px; }
+.imp-conf-high { background: rgba(91,189,63,0.18); color: var(--grn); }
+.imp-conf-medium { background: rgba(200,164,21,0.18); color: var(--ylw); }
+.imp-conf-low { background: var(--bg-deep); color: var(--dim); }
+.imp-search { width: 100%; border: 1px solid var(--brd); border-radius: 6px; padding: 8px 10px; font-size: 13px; background: var(--bg-deep); color: var(--text-primary); margin-bottom: 8px; }
+
+.imp-blocked { color: var(--warning); font-size: 12px; margin: 8px 0; }
+.imp-apply { background: var(--command-green); color: #1c1814; border: none; border-radius: 6px; padding: 10px 28px; font-family: var(--font-heading); font-weight: 700; font-size: 14px; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
+.imp-apply:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .imp-uploads { grid-template-columns: repeat(2, 1fr); }
+  .imp-panes { grid-template-columns: 1fr; }
+  .imp-right { border-left: none; padding-left: 0; border-top: 1px solid var(--brd); padding-top: 12px; }
+}

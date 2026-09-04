@@ -19,6 +19,7 @@ import ProductionRate from './views/ProductionRate'
 import Budget from './views/Budget'
 import JobDetail from './views/JobDetail'
 import Settings from './views/Settings'
+import Import from './views/Import'
 import StatsBar from './components/StatsBar'
 import Login from './views/Login'
 import { ScheduleCommandMark } from './components/Logo'
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { path: '/production-rate', label: 'Production Rate', icon: '◪' },
   { path: '/schedules', label: 'Schedules', icon: '❏' },
   { path: '/settings', label: 'Settings', icon: '⚙' },
+  { path: '/import', label: 'Import', icon: '⇪' },
 ]
 
 function flipName(n) {
@@ -399,6 +401,7 @@ function AppShell({ session, teamMember }) {
               <Route path="/production-rate" element={<ProductionRate />} />
               <Route path="/budget" element={<Budget />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/import" element={<Import />} />
             </Routes>
           </main>
         </div>
