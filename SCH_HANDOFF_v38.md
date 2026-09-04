@@ -104,7 +104,9 @@ runbook · `7f9b7f9` plan built · `b7f709c` plan A-14 amendment · `10d753f` A-
 
 ## Heads-up
 
-Earlier a review machine's **local `main` had drifted from GitHub** (carried unpushed Daily-view /
-Schedule / modal work), which made a gate see "unrelated changes on the branch." Against
-`origin/main` the branch was clean (only these 10 files). Worth reconciling that machine's local
-main so it doesn't recur.
+Earlier a review machine's **local `main` was stale (behind GitHub)** — it simply hadn't pulled the
+already-merged Daily-view / Schedule / modal work, so a gate compared against an out-of-date main and
+mislabeled those files "unrelated changes on the branch." Verified: all of them are present on
+`origin/main`, and against `origin/main` the branch was clean (only these 10 files). **Nothing is
+unpushed or at risk of loss** — the fix is just to refresh that machine's copy (`git checkout main
+&& git pull`); optional/cosmetic since a fetch catches it up anyway.
