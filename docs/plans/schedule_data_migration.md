@@ -1,8 +1,10 @@
 # Schedule Data Migration — App Script Sheet → Schedule Command
 
 **Branch:** `feat/schedule-data-migration` (sch-command)
-**Status:** Plan — revised after audit round 1. Ready for build. Not started.
-**History:** ideate + plan 2026-09-03 → audit round 1 → this revision (2026-09-03).
+**Status:** Plan — revised after audit rounds 1–3 + onboarding reframe. **Build-ready for the
+one-time HDSP import.** Not started.
+**History:** ideate + plan → audit R1 (clean-slate) → audit R2 (wipe scope) → onboarding-tool
+decision → audit R3 (converged 0C/0H) — all 2026-09-03.
 
 ---
 
@@ -80,12 +82,24 @@ Shared Supabase project: `pbgvgjjuhnpsumnowuym`.
 
 **What it is (decided with Chris):** not a throwaway — a **permanent Customer Onboarding / Import
 feature in Schedule Command**, analogous to Sales Command's archive locker. Every future customer
-onboards the same way. Runs in-app as the authenticated tenant user (satisfies the §5 tenant stamp
-for free).
+onboards the same way. Runs in-app as the authenticated tenant user.
+
+> **⚠️ Tenant isolation is NOT RLS-enforced today (R3-1, verified live 2026-09-03).**
+> `jobs`, `assignments`, `billing_log`, `crew`, `crew_status` each carry a legacy policy
+> `"Authenticated users can do everything"` (cmd=ALL, `USING auth.role()='authenticated'`). Postgres
+> OR's permissive policies, so this **overrides** the correct `tenant_id = get_user_tenant_id()`
+> policy — the effective check on these 5 tables collapses to "any authenticated user." Harmless now
+> (1 live tenant, no victim), but this feature must NOT claim "isolation for free."
+> **Hard prerequisite before a 2nd tenant uses the tool:** drop those 5 blanket policies in
+> command-suite-db (per `CLAUDE_RLS.md`, 6-gate deploy). Does NOT block the one-time HDSP load.
+> (`call_log` / `customers` — the right pane — are correctly scoped.)
 
 **Core principles of the reusable tool:**
 - **CSV in, never a live connection.** The customer hands us a CSV export; we never reach into their
   old system. Their old structure is left entirely alone.
+- **Validate the upload (R3-4).** On import, check CSV headers == the expected set, reject/report
+  malformed or oversized rows before anything reaches the matcher. (Injection risk is low — inserts
+  are parameterized — but a permanent feature needs real input validation.)
 - **Additive only.** The tool imports; it never deletes or wipes anything. (Chris's one-time
   test-data wipe, §6, is a *separate*, guarded, one-off operation — NOT part of this feature.)
 - **Mix-and-match, import-what-you-need.** User selects which rows/columns come across.
@@ -225,8 +239,10 @@ Honors "rehearse before push to shared DB." Ordered:
 **Remaining (build-start):**
 - **O2 — Rehearse mechanism:** branch DB vs local Postgres restore vs scratch schema on the shared
   project. Confirm what's realistic.
-- **O4 — Draft storage shape:** confirm `migration_match_draft` (or a per-tenant `import_session`)
-  table so drafts persist per onboarding run.
+- **O4 — Draft storage shape (R3-2):** `migration_match_draft` (or per-tenant `import_session`) —
+  must be created with `tenant_id uuid NOT NULL DEFAULT get_user_tenant_id()` + the 4 standard
+  tenant policies, and **must NOT get a blanket catch-all policy** (the R3-1 anti-pattern). It holds
+  cross-customer match mappings, so it needs real isolation. Confirm exact columns at build.
 
 ---
 
@@ -234,11 +250,13 @@ Honors "rehearse before push to shared DB." Ordered:
 
 1. Fresh export → commit CSVs (replace stale) + re-run counts.
 2. Read models: left (old jobs) + right (`call_log` + customer) into the tool.
-3. Matching UI: panes, drag-to-match, internal/unmatched states, **hard-block duplicate targets**, draft.
+3. CSV upload + **header/shape validation (R3-4)**; matching UI: panes, drag-to-match,
+   internal/unmatched states, **hard-block duplicate targets**, draft.
 4. Smart assist: candidate ranking + confidence coloring.
 5. Apply engine as **dry-run first**: transform + remap + tenant stamp + load into a copy; reconcile.
 6. Backup **all 9 children + audit log** → single-transaction wipe (rows only) → **empty-gate** →
-   guard index **before** inserts.
+   guard index **before** inserts. **(R3-3) The wipe is a standalone one-off script/migration OUTSIDE
+   the onboarding feature's code path — the shipped feature contains NO `DELETE FROM jobs` path.**
 7. Rehearse on copy → fix → **Apply to prod** (one transaction, migration-id).
 8. Verify (§7) → hand off "retire old app."
 
@@ -301,3 +319,23 @@ not structure** — the SOW/material-flow feature we built is preserved.
 **Adjacent / backlog (not this import):**
 - `/materials` view (532 lines) reads a `materials` table whose live existence is disputed —
   pre-existing app concern, filed for separate follow-up.
+
+## 13. Audit round 3 — disposition (CONVERGED)
+
+Round 2: **6/6 CLOSED, 0 regressions**; all live counts reproduce. Trend R1→R2→R3: **4C/6H → 1C/2H
+→ 0C/0H.** N1–N5 + B3 all verified closed in the body. **Build-ready for the one-time HDSP import.**
+The 5 new findings are productization-hardening from the onboarding reframe — all gated *before
+customer #2*, none block this load. (742 vs 840 confirmed a non-contradiction: 742 = orphan-carried
+subset, 840 = table total; wipe clears the whole table.)
+
+| # | Finding | Disposition |
+|---|---|---|
+| R3-1 | Tenant isolation NOT RLS-enforced (blanket `authenticated` policy overrides tenant policy on 5 tables) | **Accept (doc'd now, fix gated pre-tenant-2)** — §4 warning callout; command-suite-db RLS cleanup is a hard prereq before a 2nd tenant. No victim today (1 tenant). |
+| R3-2 | Draft table has no RLS spec | **Accept** — §8 O4: tenant_id + 4 standard policies, no catch-all |
+| R3-3 | Wipe/feature separation prose-only | **Accept** — §9.6: wipe is a standalone one-off outside feature code; feature has no DELETE-jobs path |
+| R3-4 | No CSV input validation for permanent feature | **Accept** — §4 + §9.3 header/shape validation |
+| R3-5 | Stale header status line | **Accept** — header updated |
+
+**Filed to command-suite-db backlog (multi-tenant prerequisite, NOT this import):** drop the 5
+blanket `"Authenticated users can do everything"` policies on jobs/assignments/billing_log/crew/
+crew_status and enforce tenant-only isolation, per `CLAUDE_RLS.md` 6-gate deploy.
