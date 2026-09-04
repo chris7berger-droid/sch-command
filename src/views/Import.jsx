@@ -382,11 +382,24 @@ export default function Import() {
             {applying ? 'Applying…' : `Apply ${stats.matched + stats.internal} jobs`}
           </button>
           {applyResult && (
-            <div className={applyResult.ok ? 'imp-ok' : 'imp-bad'} style={{ marginTop: 12 }}>
-              {applyResult.ok
-                ? `✓ Loaded — jobs ${applyResult.counts.jobs}, assignments ${applyResult.counts.assignments}, billing ${applyResult.counts.billing_log}, crew ${applyResult.counts.crew}, crew status ${applyResult.counts.crew_status}`
-                : `✗ Stopped: ${applyResult.error} (partial: jobs ${applyResult.counts.jobs}, assignments ${applyResult.counts.assignments})`}
-            </div>
+            <>
+              <div className={applyResult.ok ? 'imp-ok' : 'imp-bad'} style={{ marginTop: 12 }}>
+                {applyResult.ok
+                  ? `✓ Loaded — jobs ${applyResult.counts.jobs}, assignments ${applyResult.counts.assignments}, billing ${applyResult.counts.billing_log}, crew ${applyResult.counts.crew}, crew status ${applyResult.counts.crew_status} · ${applyResult.counts.backlinked} linked to a Sales proposal`
+                  : `✗ Stopped: ${applyResult.error} (partial: jobs ${applyResult.counts.jobs}, assignments ${applyResult.counts.assignments})`}
+              </div>
+              {applyResult.ok && applyResult.review?.length > 0 && (
+                <div className="imp-note" style={{ marginTop: 8 }}>
+                  <b>{applyResult.review.length} matched job{applyResult.review.length > 1 ? 's' : ''} need a Sales-proposal review</b> (no single sold proposal — left unlinked, not guessed):
+                  <ul style={{ margin: '4px 0 0 18px' }}>
+                    {applyResult.review.slice(0, 12).map(r => (
+                      <li key={r.oldJobId}>{r.jobNum || r.oldJobId} — {r.reason}</li>
+                    ))}
+                    {applyResult.review.length > 12 && <li>…and {applyResult.review.length - 12} more</li>}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}

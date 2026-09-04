@@ -184,7 +184,7 @@ p(`DO $$`)
 p(`DECLARE r record; nid int;`)
 p(`BEGIN`)
 p(`  FOR r IN SELECT * FROM _stage_jobs ORDER BY old_job_id LOOP`)
-p(`    INSERT INTO public.jobs (${JOB_COLS.join(', ')}, tenant_id) VALUES (`)
+p(`    INSERT INTO public.jobs (${JOB_COLS.join(', ')}, source_call_log_id, source_proposal_id, tenant_id) VALUES (`)
 p(`      ${JOB_COLS.map(c => {
        // cast staged text back to the real column types
        if (c === 'call_log_id') return 'r.call_log_id'
@@ -192,7 +192,18 @@ p(`      ${JOB_COLS.map(c => {
        if (c === 'crew_needed') return 'r.crew_needed::int'
        if (['start_date', 'end_date', 'partial_bill_date'].includes(c)) return `r.${c}::date`
        return `r.${c}`
-     }).join(', ')}, ${T})`)
+     }).join(', ')},`)
+// Sales backlinks (A-14.1). source_call_log_id = the matched call_log; matches
+// Sales' "Send to Schedule" (ProposalDetail.jsx:741). source_proposal_id gets the
+// call_log's LIVE 'Sold' proposal ONLY when exactly one exists — HAVING count(*)=1
+// returns the id for exactly-one and NO row (→ NULL) for zero or multiple, so we
+// never guess. Internal rows (call_log_id NULL) get NULL on both, naturally.
+p(`      r.call_log_id,`)
+p(`      (SELECT max(p.id) FROM public.proposals p`)
+p(`         WHERE p.call_log_id = r.call_log_id AND p.status = 'Sold'`)
+p(`           AND coalesce(p.is_archive_proposal, false) = false`)
+p(`         HAVING count(*) = 1),`)
+p(`      ${T})`)
 p(`    RETURNING job_id INTO nid;`)
 p(`    INSERT INTO _idmap (old_job_id, new_job_id) VALUES (r.old_job_id, nid);`)
 p(`  END LOOP;`)
@@ -224,7 +235,9 @@ p(`SELECT 'jobs' AS t, count(*) FROM public.jobs`)
 p(`UNION ALL SELECT 'assignments', count(*) FROM public.assignments`)
 p(`UNION ALL SELECT 'billing_log', count(*) FROM public.billing_log`)
 p(`UNION ALL SELECT 'crew', count(*) FROM public.crew`)
-p(`UNION ALL SELECT 'crew_status', count(*) FROM public.crew_status;`)
+p(`UNION ALL SELECT 'crew_status', count(*) FROM public.crew_status`)
+p(`UNION ALL SELECT 'backlinked_to_proposal', count(*) FROM public.jobs WHERE source_proposal_id IS NOT NULL`)
+p(`UNION ALL SELECT 'matched_needs_proposal_review', count(*) FROM public.jobs WHERE call_log_id IS NOT NULL AND source_proposal_id IS NULL;`)
 p()
 p(`COMMIT;`)
 p()

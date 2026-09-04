@@ -405,3 +405,33 @@ these beyond `call_log_id`.
 **Open question for A-14.1:** confirm how many matched call_logs map to exactly one vs multiple
 proposals (drives how often the "flag for review" branch fires). Resolve with a read-only count
 before build picks this up.
+
+### A-14.1 — BUILT (2026-09-04)
+
+Additive only — nothing already built was changed (matcher, transforms, wipe/load §6 untouched).
+
+**Qualifying-proposal rule (read from code, not assumed):** Sales stamps `source_proposal_id = p.id`
+for the proposal it sends, and its "already sent?" guard keys on `status === 'Sold'`
+(`ProposalDetail.jsx:141,741`). So the qualifying proposal = **status `Sold`, non-archive**
+(`is_archive_proposal = false` — archive rows are historical snapshots, never the sent one). Matches
+Sales' guard, so imported jobs read as already-sent and can't be duplicated on a later send.
+
+**Pre-check (read-only, all 379 call_logs — proxy before the real draft exists):** qualifying =
+Sold+non-archive → **130 have exactly one** (backlinked), **11 multiple**, **238 zero**. (Sold incl.
+archive would be 173/15/191.) "Zero" is expected for dead history with no sold proposal — left null
+(no regression), flagged for review. The matched subset (~120) skews toward the one-proposal case.
+
+**Built:**
+- Feature path — `src/lib/importData.js`: `loadQualifyingProposals()` batches the Sold+non-archive
+  proposals for the matched call_logs; Apply sets `source_call_log_id = call_log_id` and
+  `source_proposal_id` only when exactly one qualifies (else null + a `review` entry). `Import.jsx`
+  shows the backlinked count + the review list in the Apply result.
+- One-time path — `scripts/generate_hdsp_migration_sql.mjs`: emitted `jobs` INSERT sets
+  `source_call_log_id = r.call_log_id` and `source_proposal_id` via a scalar subselect using
+  `HAVING count(*) = 1` (returns the id for exactly-one, NULL for zero/multiple — no guess). Trailing
+  sanity report adds `backlinked_to_proposal` + `matched_needs_proposal_review` counts.
+- Column assembly stayed out of the pure engine (`yesv2Import.js`) — the match-derived columns are
+  set where the match is known (Apply / emitted INSERT), keeping the transform match-agnostic.
+
+Verified: engine checks pass, lint clean, `npm run build` green, generator emits well-formed SQL.
+**A-14.2 (per-job "Pull scope from Sales") deliberately NOT built.**
