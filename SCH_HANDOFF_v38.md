@@ -64,20 +64,18 @@ tool**, not an auto-match script. Built as a **permanent Customer Onboarding / I
 
 - Both feature branches **merged to main and pushed.** sch-command main deploys to
   schedulecommand.com (Vercel) — the `/import` screen is live.
-- The draft table migration is on command-suite-db main but **NOT applied to prod.** Consequence:
-  `/import` works end-to-end in one sitting, but **match progress won't survive a page refresh**
-  until the migration is db:pushed (degrades quietly — no crash; save → console.warn, load → null).
+- The draft table migration is **applied to prod (2026-09-04)** and on command-suite-db main.
+  Match progress now persists across refresh. (Earlier blocker — DMS-8 baseline drift — resolved
+  as part of this; see step 1 below.)
 
 ## Remaining steps (the one-time move — all downstream, deliberate)
 
-1. **Deploy the draft table** — from `~/command-suite-db` on main: `npm run db:push`. **BLOCKED
-   2026-09-04 on DMS-8 (pre-existing baseline drift), deferred by Chris (option A).** The push's
-   rehearsal gate refuses because the committed baseline is stale vs live prod (expected 9,172
-   column-grants, prod has 9,220 — +48). The migration itself is fine (additive CREATE TABLE);
-   the gate won't rehearse against an out-of-date baseline. **Do NOT blind-bump the constant** —
-   understand the 48-grant drift + refresh the baseline first (that's DMS-8). Then rehearse
-   (`./scripts/rehearse.sh supabase/migrations/20260904120000_migration_match_draft.sql`) → db:push.
-   Until done, `/import` works but match progress won't survive a page refresh (quiet degrade).
+1. **Deploy the draft table — DONE 2026-09-04.** Resolved the DMS-8 baseline drift first (the +48
+   column-grants were the 4 additive `tenant_config` columns from 20260902120000 — verified benign,
+   no anon exposure; refreshed the baseline snapshot + bumped `EXPECT_COLUMN_GRANTS` 9172→9220 with
+   changelog). Rehearsal then green on all fingerprints; `npm run db:push` passed every gate and
+   applied `migration_match_draft` to prod (verified live: table exists, RLS on, 4 policies).
+   **Match-progress persistence is now ON.**
 2. **Run the one-time move** (per `scripts/HDSP_MIGRATION_RUNBOOK.md`):
    fresh export of the live sheet → match in `/import` (as an HDSP user) → export the confirmed
    draft → `node scripts/generate_hdsp_migration_sql.mjs …` → **REHEARSE on a prod-shaped copy
