@@ -62,9 +62,13 @@ Shared Supabase project: `pbgvgjjuhnpsumnowuym`.
 7. **Internal bucket** — non-customer rows (shop work, orientations, punch lists) park unlinked.
 8. **Draft, then apply once** — matches accrue as a draft; rehearse on a copy before prod.
 9. **Crew needs no matcher** — schedule stores crew as text; assignments copy as-is.
-10. **Clean-slate reload** *(resolved after audit — the orphan reframe)* — because all current
-    schedule data is test, we **back up, then wipe all schedule test data and reload from the fresh
-    sheet export.** We do NOT relink the existing 62 rows. The sheet is the sole source of truth.
+10. **Clean-slate reload** *(resolved after audit rounds 1–2)* — all current schedule data is test
+    (Chris-confirmed 2026-09-03: the React app has only had jobs run through it to check flow; he
+    makes no real decisions from it and starts real use *after* this load). So we **back up, then
+    wipe all schedule test data — rows only, never structure — and reload from the fresh sheet
+    export.** Scope of the wipe is all 9 `jobs` children + the audit log, not just 3 (see §6). We do
+    NOT relink the existing 62 rows. The sheet is the sole source of truth. The SOW / material-flow
+    feature structure we built is preserved (DELETE, not DROP).
 
 ---
 
@@ -78,7 +82,8 @@ HDSP-tenant user — see §5 tenant note), removed after cutover.
 - **Left — old jobs** (fresh sheet export): old JobID, job number, job name, dates, amount, status.
 - **Right — master records** (`call_log`, 378): `display_job_number`, `job_name`, `customer_name`.
 - **Match:** drag left onto right → one link `old_row → call_log.id`. A given `call_log.id` may be
-  targeted only once (tool warns on a duplicate target, so two old rows can't collide onto one CO).
+  targeted only once — the tool **hard-blocks** a duplicate target (Apply disabled while any
+  duplicate exists, N4), so two old rows can't collide onto one CO.
 
 **Smart assist (suggestions only, never auto-applied):** rank right-side candidates by base-number
 prefix, then customer-name similarity, then job-name tokens; color-code by confidence. Human
@@ -114,9 +119,9 @@ Old sheet tabs → live schedule tables. Everything. **Correct live column names
 
 - **A2 — old-JobID → new job_id remap.** `jobs.job_id` is serial (max 106) and old sheet JobIDs
   (1,2,3…) overlap real rows. Insert `jobs` first, capture each generated `job_id`, build an
-  `oldJobID → newJobId` map, and **repoint every child row** (assignments, billing_log, materials
-  crew_status is keyed by name not id) through the map. Never copy old JobID verbatim into children
-  (that was `migrate.mjs`'s bug).
+  `oldJobID → newJobId` map, and **repoint every child row keyed by `job_id`** — assignments and
+  billing_log — through the map. (crew_status is keyed by `crew_name`, not `job_id`, so it needs no
+  remap.) Never copy old JobID verbatim into children (that was `migrate.mjs`'s bug).
 - **A3 — tenant stamp.** Every target table is `tenant_id uuid NOT NULL DEFAULT
   get_user_tenant_id()`; that function returns NULL in a script/anon context → insert fails on row
   one. **Loader runs as an authenticated HDSP-tenant user, or sets `tenant_id` explicitly.**
@@ -133,28 +138,47 @@ Honors "rehearse before push to shared DB." Ordered:
    branch (replacing the stale April CSVs). Re-verify headers and re-run §2 counts against the
    fresh files (**B6** — tool + counts were built on stale data).
 2. **Match** everything to Matched / Internal in the tool. Apply disabled until zero Unmatched.
-3. **Baseline snapshot + counts (B2, B3).** Take a timestamped dump of prod `jobs`, `assignments`,
-   `billing_log`, `crew_status`, `crew` **with a written restore command**. Record before-counts
-   per table.
-4. **Wipe schedule test data.** Inside **one transaction**, delete children → parents
-   (assignments, billing_log, crew_status, then jobs). FKs are NO ACTION, so order
-   matters. This is safe *because* all current schedule data is test (§3.10) — the backup in step 3
-   is the guard.
-5. **Rehearse on a prod-shaped copy.** Run the full Apply against a throwaway copy; assert:
-   crew loaded before its FKs (**B1**); every child `job_id` exists in the remap (**A2**);
-   `tenant_id` correct (**A3**); status values valid (**A5**); counts reconcile.
-6. **Apply once** to live, in **one transaction** tagged with a migration-id for idempotent re-run
-   (**B4** — no partial-load-then-stuck).
-7. **Add forward guard (A6):** partial unique index on `jobs (call_log_id) WHERE call_log_id IS NOT
-   NULL AND deleted <> 'Yes'`. (Clean slate means no existing dups to trip it.)
+3. **Baseline snapshot + counts (B2, B3, N1, N2).** Timestamped dump of **every table the wipe
+   touches**, with a written restore command. That is `jobs`, `crew`, `crew_status`, and **all 9
+   `jobs` children + the audit log** (verified live 2026-09-03):
+   - NO-ACTION children (must be deleted before `jobs`): `assignments`, `billing_log`.
+   - CASCADE children (auto-clear with `jobs`, but dump them anyway for restore parity):
+     `billing_worklist`, `job_assets`, `job_material_lines`, `job_material_signoff`,
+     `job_mobilizations`, `job_wtcs`, `pull_tickets`.
+   - No-FK, keyed-by-value: `job_changes` (137 rows) — does NOT auto-clear; handled in step 4.
+   Record before-counts per table (currently: jobs 86, assignments 840, billing_log 26,
+   job_material_lines 20, job_wtcs 5, job_mobilizations 5, billing_worklist 3, job_changes 137;
+   job_assets / job_material_signoff / pull_tickets empty).
+4. **Wipe schedule test data — rows only, never structure (N1).** This is `DELETE FROM`, **never
+   `DROP TABLE`**. The SOW / material-flow feature we built (tables, FKs, wiring) stays fully
+   intact; only test rows are cleared. Order inside the load transaction (step 5):
+   delete `assignments`, `billing_log` (NO-ACTION → before `jobs`) and the 7 CASCADE children
+   explicitly, then `job_changes` (no FK — must be deleted by hand or it survives and mis-attaches
+   to reloaded jobs, **N2**), then `jobs`. Then `crew_status` → `crew`.
+   Safe *because* all current schedule data is test (§3.10, Chris-confirmed) and step 3 backs up
+   every touched table.
+5. **Wipe + load in ONE transaction, with a hard empty-gate (N3).** Do not split wipe and load.
+   After the deletes, **assert `count(*) = 0` on `jobs` and all children before inserting**; abort
+   (rollback) otherwise — so a partial/failed wipe can never leave the load stacked on top of the
+   86 test jobs. Tag inserted rows with a migration-id for idempotent re-run (**B4**).
+6. **Guard index before load, not after (N4, A6).** Create the partial unique index
+   `jobs (call_log_id) WHERE call_log_id IS NOT NULL AND deleted <> 'Yes'` **inside the transaction,
+   before the job inserts**, so a duplicate `call_log_id` fails *inside* the load (clean rollback)
+   rather than after it (stuck half-migrated). Belt-and-suspenders with the tool's hard block on
+   duplicate match-targets (§4).
+7. **Rehearse the whole thing on a prod-shaped copy first.** Run steps 4–6 against a throwaway
+   copy; assert: crew loaded before its FKs (**B1**); every child `job_id` exists in the remap
+   (**A2**); `tenant_id` non-null + correct (**A3**); status values valid (**A5**); empty-gate
+   fires correctly; counts reconcile. Only then run against prod.
 8. **Verify** (§7). Then **retire the old app** — only after verification passes.
 
 ---
 
 ## 7. Verification
 
-- **Counts:** after-load == fresh-export counts (clean slate, so no before/after subtraction needed,
-  but confirm the wipe emptied the tables first). Internal count == tool's internal bucket.
+- **Counts:** after-load == fresh-export counts. Clean slate, so this is a straight equality (the
+  §6.5 empty-gate already proved the tables were 0 before load — B3 is a wipe-verification here, not
+  a live-data safeguard). Internal count == tool's internal bucket.
 - **No unintended orphans:** every non-internal migrated job has a `call_log_id`.
 - **Spot-check ~10 jobs** across customers incl. a multi-CO (6507) and a name-variant (Kalb):
   correct master record + customer.
@@ -186,11 +210,12 @@ Honors "rehearse before push to shared DB." Ordered:
 
 1. Fresh export → commit CSVs (replace stale) + re-run counts.
 2. Read models: left (old jobs) + right (`call_log` + customer) into the tool.
-3. Matching UI: panes, drag-to-match, internal/unmatched states, duplicate-target warning, draft.
+3. Matching UI: panes, drag-to-match, internal/unmatched states, **hard-block duplicate targets**, draft.
 4. Smart assist: candidate ranking + confidence coloring.
 5. Apply engine as **dry-run first**: transform + remap + tenant stamp + load into a copy; reconcile.
-6. Backup + wipe (transaction) + forward-guard index.
-7. Rehearse on copy → fix → **Apply to prod** (transaction, migration-id).
+6. Backup **all 9 children + audit log** → single-transaction wipe (rows only) → **empty-gate** →
+   guard index **before** inserts.
+7. Rehearse on copy → fix → **Apply to prod** (one transaction, migration-id).
 8. Verify (§7) → hand off "retire old app."
 
 ---
@@ -199,8 +224,12 @@ Honors "rehearse before push to shared DB." Ordered:
 
 - Repo: **sch-command**. Shared DB `pbgvgjjuhnpsumnowuym`.
 - Schema reference: `command-suite-db/supabase/baseline/prod_public_schema.sql` (`jobs` ~910,
-  `call_log` ~2529, `customers` ~2718). **Re-verify against live DB before executing** —
-  CLAUDE.md's `materials` mention is stale (table doesn't exist).
+  `call_log` ~2529, `customers` ~2718). **Re-verify against live DB before executing** — schema docs
+  drift (round 1 flagged a `materials` mismatch; moot now that materials is out of scope).
+- **`jobs` has 9 FK children (live-verified 2026-09-03)** — 2 NO-ACTION (`assignments`,
+  `billing_log`), 7 CASCADE (`billing_worklist`, `job_assets`, `job_material_lines`,
+  `job_material_signoff`, `job_mobilizations`, `job_wtcs`, `pull_tickets`) — plus `job_changes`
+  (no FK, keyed by value). Any wipe must account for all of them (§6).
 - Prior importer `sch-command/migrate.mjs`: **do not reuse.** Stale Desktop path, destructive
   blind clears, copies old JobID into children (the A2 bug), loads `call_log_id = NULL`. Column-map
   reference only.
@@ -217,7 +246,7 @@ Honors "rehearse before push to shared DB." Ordered:
 | A3 | tenant_id insert fails under script context | **Accept** — §5 tenant note |
 | A4 | `materials` table doesn't exist | **Resolved** — materials dropped from scope (Chris); existence dispute moot. §5 |
 | A5 | status "Active" invalid, loads silently | **Accept** — §5 (Active→Ongoing) |
-| A6 | dedupe not deferrable; dups already exist | **Accept (reframed)** — clean slate wipes dups; add guard index §6.7 |
+| A6 | dedupe not deferrable; dups already exist | **Accept (reframed)** — clean slate wipes dups; guard index §6.6 |
 | B1 | crew load-order FK dependency | **Accept** — §5, §6.5 |
 | B2 | no prod snapshot/rollback | **Accept** — §6.3 |
 | B3 | no pre-load baseline count | **Accept** — §6.3 / §7 |
@@ -227,3 +256,24 @@ Honors "rehearse before push to shared DB." Ordered:
 | C1 | column names job_number/display_job_number/co_number | **Accept** — §5 |
 | C2 | deleted/prevailing_wage/partial_billing are text | **Accept** — §5, §7 |
 | C3 | "6507 = ~15" is actually 12 | **Accept** — §2 |
+
+## 12. Audit round 2 — disposition
+
+Round 1: 13/15 closed, 0 regressions. Round 2 found the clean-slate reframe's blind spot — the
+wipe assumed "all test" but only listed 3 of the tables that hang off `jobs`. All new findings
+verified live 2026-09-03 and accepted; the "test vs real" design call was resolved by Chris (all
+React-app data is test; real use begins *after* this load). Key boundary Chris drew: wipe **rows,
+not structure** — the SOW/material-flow feature we built is preserved.
+
+| # | Finding | Disposition |
+|---|---|---|
+| N1 | Wipe destroys 7 CASCADE children (33 rows: material_lines/wtcs/mobilizations/worklist) not on backup/wipe list | **Accept** — §6.3 backs up all 9 children; §6.4 wipes all; rows-only (DELETE not DROP), §3.10 |
+| N2 | `job_changes` (137 rows, no FK) survives wipe → mis-attaches to reloaded ids | **Accept** — §6.3 backup + §6.4 explicit delete |
+| N3 | No hard "empty after wipe" gate between wipe and load | **Accept** — §6.5 single transaction + count=0 gate, else rollback |
+| N4 | Guard index created after load; dup-target only warned | **Accept** — §6.6 index before inserts; §4 tool hard-blocks dup targets |
+| N5 | Corrupted A2 child-list sentence + stale materials ref | **Accept** — §5 rewritten |
+| B3 (weak) | §11 over-claimed baseline count as safeguard | **Accept** — §7 reworded (wipe-verification, not live safeguard) |
+
+**Adjacent / backlog (not this import):**
+- `/materials` view (532 lines) reads a `materials` table whose live existence is disputed —
+  pre-existing app concern, filed for separate follow-up.
